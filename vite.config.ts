@@ -9,13 +9,11 @@ export default defineConfig({
     tsconfigPaths(),
     tailwindcss(),
     tanstackStart({
-      server: {
-        entry: "server",
-      },
+      server: { entry: "server" },
     }),
     react(),
   ],
   server: {
-    port: 3000,            
+    port: 3000,
   },
 });
