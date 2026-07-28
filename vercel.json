@@ -1,8 +1,8 @@
 {
   "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "outputDirectory": "dist/client",
   "framework": null,
   "rewrites": [
-    { "source": "/(.*)", "destination": "/dist/server/index.mjs" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
