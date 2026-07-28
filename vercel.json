@@ -3,11 +3,6 @@
   "outputDirectory": ".output/public",
   "framework": null,
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/server" }
-  ],
-  "functions": {
-    "api/server.ts": {
-      "includeFiles": ".output/**"
-    }
-  }
+    { "source": "/(.*)", "destination": "/.output/server/index.mjs" }
+  ]
 }
