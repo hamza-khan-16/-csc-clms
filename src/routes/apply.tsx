@@ -27,6 +27,8 @@ import {
   fmtDate,
   todayISO,
   isAlwaysUnpaid,
+  isHodFinalLeave,
+  docLabel,
   type LeaveType,
 } from "@/lib/leave";
 
@@ -50,7 +52,7 @@ export const Route = createFileRoute("/apply")({
 });
 
 const schema = z.object({
-  leaveType: z.enum(["casual", "maternity", "bereavement", "other", "emergency"]),
+  leaveType: z.enum(["casual", "maternity", "bereavement", "other", "emergency", "medical", "duty"]),
   fromDate: z.string().min(1, "Select a from date"),
   toDate: z.string().min(1, "Select a to date"),
   session: z.enum(["full_day", "forenoon", "afternoon"]),
@@ -71,6 +73,8 @@ function ApplyPage() {
   const [busy, setBusy] = useState(false);
 
   const isEmergency = leaveType === "emergency";
+  const isHodFinal = isHodFinalLeave(leaveType);
+  const requiredDoc = docLabel(leaveType);
 
   const { data: holidays = [] } = useQuery({
     queryKey: ["holidays-all"],
@@ -96,8 +100,12 @@ function ApplyPage() {
       return { total: days, skipped: dates.length - working.length, paid: 0, unpaid: days, hodDecides: false, alwaysUnpaid: true };
     }
 
+    if (isHodFinal) {
+      return { total: days, skipped: dates.length - working.length, paid: 0, unpaid: 0, hodDecides: true, alwaysUnpaid: false, hodFinal: true };
+    }
+
     if (leaveType !== "casual") {
-      return { total: days, skipped: dates.length - working.length, paid: 0, unpaid: 0, hodDecides: true, alwaysUnpaid: false };
+      return { total: days, skipped: dates.length - working.length, paid: 0, unpaid: 0, hodDecides: true, alwaysUnpaid: false, hodFinal: false };
     }
 
     const bal = balances.find((b) => b.type === leaveType);
@@ -134,7 +142,6 @@ function ApplyPage() {
       to_date: toDate,
       session: session as "full_day" | "forenoon" | "afternoon",
       reason: reason.trim(),
-      // Emergency leaves: mark all days as unpaid immediately
       ...(isEmergency && preview
         ? { paid_days: 0, unpaid_days: preview.total, total_days: preview.total }
         : {}),
@@ -144,6 +151,8 @@ function ApplyPage() {
     qc.invalidateQueries();
     if (isEmergency) {
       toast.success("Emergency leave submitted — auto-approves in 5 hours with pay cut");
+    } else if (isHodFinal) {
+      toast.success(`${leaveType === "medical" ? "Medical" : "Duty"} leave sent to HOD — you'll need to upload a ${requiredDoc} after approval`);
     } else {
       toast.success("Leave request sent to your HOD");
     }
@@ -167,6 +176,20 @@ function ApplyPage() {
               </div>
             )}
 
+            {/* Medical / Duty leave banner */}
+            {isHodFinal && (
+              <div className="rounded-lg border border-info/40 bg-info/8 p-3 text-sm">
+                <p className="font-semibold text-info">
+                  {leaveType === "medical" ? "🏥 Medical Leave" : "🗂 Duty Leave"}
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  HOD approves this leave directly — <strong>your leave will be approved immediately</strong> once the HOD acts on it.
+                  Afterwards, you must upload a <strong>{requiredDoc}</strong> for records.
+                  The principal will verify the document separately.
+                </p>
+              </div>
+            )}
+
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Leave Type</Label>
@@ -179,6 +202,7 @@ function ApplyPage() {
                       <SelectItem key={t.value} value={t.value}>
                         {t.label}
                         {t.value === "emergency" && " (auto-approved, unpaid)"}
+                        {t.hodFinal && " (HOD approved, doc required)"}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -287,7 +311,9 @@ function ApplyPage() {
                   <li className="flex justify-between">
                     <span className="text-muted-foreground">Salary impact</span>
                     <span className="font-semibold text-warning-foreground">
-                      HOD marks paid / unpaid
+                      {(preview as any).hodFinal
+                        ? "Principal decides after document"
+                        : "HOD marks paid / unpaid"}
                     </span>
                   </li>
                 ) : (

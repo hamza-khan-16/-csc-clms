@@ -27,10 +27,13 @@ import {
   fmtTime,
   leaveTypeLabel,
   needsPaymentDecision,
+  isHodFinalLeave,
+  docLabel,
   SESSION_LABEL,
   type LeaveSession,
   type LeaveStatus,
   type LeaveType,
+  type DocStatus,
 } from "@/lib/leave";
 
 export const Route = createFileRoute("/requests")({
@@ -66,11 +69,16 @@ function RequestsPage() {
     queryFn: async () => {
       let q = supabase.from("leave_requests").select("*").order("created_at", { ascending: false });
       if (isHod) {
-        // HOD sees requests from their department that are pending_hod OR emergency
         q = q.eq("department_id", profile!.department_id ?? "");
       } else {
-        // Principal sees: hod_recommended, pending_principal, approved, rejected
-        q = q.in("status", ["hod_recommended", "pending_principal", "approved", "rejected"]);
+        // Principal sees normal flow + hod_approved (documents section)
+        q = q.in("status", [
+          "hod_recommended",
+          "pending_principal",
+          "hod_approved",
+          "approved",
+          "rejected",
+        ]);
       }
       const { data, error } = await q;
       if (error) throw error;
@@ -79,13 +87,18 @@ function RequestsPage() {
     },
   });
 
-  // HOD: pending_hod requests + emergency leaves they haven't acted on
-  // Principal: hod_recommended + pending_principal (emergency) requests
+  // HOD actionable: pending_hod (all types) + emergency pending_principal
+  // Principal actionable: hod_recommended + pending_principal (normal flow)
+  // Principal docs section: hod_approved with doc uploaded (doc_status = 'uploaded')
   const actionable = requests.filter((r) => {
     if (isHod) return r.status === "pending_hod" || (r.leave_type === "emergency" && r.status === "pending_principal");
     return r.status === "hod_recommended" || r.status === "pending_principal";
   });
-  const rest = requests.filter((r) => !actionable.includes(r));
+  // Principal: medical/duty leaves that are hod_approved but document not yet verified
+  const docPending = isHod ? [] : requests.filter(
+    (r) => r.status === "hod_approved" && r.doc_status !== "verified"
+  );
+  const rest = requests.filter((r) => !actionable.includes(r) && !docPending.includes(r));
 
   return (
     <AppShell
@@ -110,6 +123,20 @@ function RequestsPage() {
             </div>
           )}
         </SectionCard>
+
+        {/* Principal: documents remaining section */}
+        {!isHod && docPending.length > 0 && (
+          <SectionCard
+            title="Documents Remaining"
+            subtitle={`${docPending.length} leave(s) awaiting document upload or verification`}
+          >
+            <div className="space-y-4">
+              {docPending.map((r) => (
+                <DocCard key={r.id} request={r} />
+              ))}
+            </div>
+          </SectionCard>
+        )}
 
         <SectionCard title="All requests">
           {rest.length === 0 ? (
@@ -167,6 +194,9 @@ interface RequestRow {
   status: string;
   hod_note: string | null;
   payment_decision: string | null;
+  doc_status: DocStatus | null;
+  doc_url: string | null;
+  doc_note: string | null;
   created_at: string;
   teacher?: { full_name: string; department_name: string | null };
 }
@@ -177,7 +207,9 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   const [busy, setBusy] = useState(false);
   const [choices, setChoices] = useState<Record<string, string>>({});
   const isEmergency = request.leave_type === "emergency";
-  const needsDecision = needsPaymentDecision(request.leave_type as LeaveType);
+  const isHodFinal = isHodFinalLeave(request.leave_type as LeaveType);
+  const requiredDoc = docLabel(request.leave_type as LeaveType);
+  const needsDecision = needsPaymentDecision(request.leave_type as LeaveType) && !isHodFinal;
   const [payment, setPayment] = useState<"paid" | "unpaid">(
     (request.payment_decision as "paid" | "unpaid" | null) ?? "paid",
   );
@@ -337,7 +369,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     return true;
   }
 
-  // HOD recommends → moves to pending_principal
+  // HOD recommends normal leaves → moves to pending_principal
   async function hodRecommend() {
     setBusy(true);
     const ok = await saveProxies();
@@ -353,6 +385,26 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Recommended to the principal");
+    qc.invalidateQueries();
+  }
+
+  // HOD directly approves medical/duty leave → status = hod_approved, doc_status = required
+  async function hodDirectApprove() {
+    setBusy(true);
+    const ok = await saveProxies();
+    if (!ok) { setBusy(false); return; }
+    const { error } = await supabase
+      .from("leave_requests")
+      .update({
+        status: "hod_approved",
+        doc_status: "required",
+        hod_note: note.trim() || null,
+        hod_acted_at: new Date().toISOString(),
+      })
+      .eq("id", request.id);
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success(`Leave approved — teacher must upload ${requiredDoc}`);
     qc.invalidateQueries();
   }
 
@@ -602,9 +654,16 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       )}
 
       {/* HOD sees a note that principal will decide pay */}
-      {isHod && needsDecision && !isEmergency && (
+      {isHod && needsDecision && !isEmergency && !isHodFinal && (
         <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-muted p-2">
           💡 The principal will decide whether this leave is paid or unpaid upon final approval.
+        </p>
+      )}
+
+      {/* HOD: medical/duty doc notice */}
+      {isHod && isHodFinal && (
+        <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-info/8 border border-info/30 p-2">
+          📄 Approving this leave will require the teacher to upload a <strong>{requiredDoc}</strong>. The principal will verify the document and finalise salary.
         </p>
       )}
 
@@ -625,7 +684,12 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       />
 
       <div className="mt-3 flex flex-wrap gap-2">
-        {isHod && !isEmergency && (
+        {isHod && !isEmergency && isHodFinal && (
+          <Button onClick={hodDirectApprove} disabled={busy}>
+            Approve Leave
+          </Button>
+        )}
+        {isHod && !isEmergency && !isHodFinal && (
           <Button onClick={hodRecommend} disabled={busy}>
             Approve &amp; send to principal
           </Button>
@@ -641,7 +705,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       </div>
 
       {/* Approval flow indicator */}
-      <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {isEmergency ? (
           <>
             <span className="rounded bg-muted px-2 py-0.5">Submitted</span>
@@ -649,6 +713,18 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
             <span className="rounded bg-muted px-2 py-0.5">HOD &amp; Principal notified</span>
             <span>→</span>
             <span className="rounded bg-muted px-2 py-0.5">Auto-approves in 5h (unpaid)</span>
+          </>
+        ) : isHodFinal ? (
+          <>
+            <span className="rounded bg-muted px-2 py-0.5">Submitted</span>
+            <span>→</span>
+            <span className={`rounded px-2 py-0.5 ${request.status === "pending_hod" ? "bg-warning/20 font-semibold text-warning-foreground" : "bg-success/15 text-success"}`}>
+              HOD Approval
+            </span>
+            <span>→</span>
+            <span className="rounded bg-muted px-2 py-0.5">✅ Leave Approved</span>
+            <span>+</span>
+            <span className="rounded bg-muted px-2 py-0.5">Teacher uploads {requiredDoc} (for records)</span>
           </>
         ) : (
           <>
@@ -665,5 +741,193 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         )}
       </div>
     </div>
+  );
+}
+
+// ─── DocCard ──────────────────────────────────────────────────────────────────
+// Shown to the principal for hod_approved leaves pending document verification.
+
+function DocCard({ request }: { request: RequestRow }) {
+  const qc = useQueryClient();
+  const [note, setNote] = useState("");
+  const [payment, setPayment] = useState<"paid" | "unpaid">("paid");
+  const [busy, setBusy] = useState(false);
+  const requiredDoc = docLabel(request.leave_type as LeaveType) ?? "Document";
+
+  const docUploaded = request.doc_status === "uploaded";
+
+  async function verifyAndApprove() {
+    setBusy(true);
+    const total = Number(request.total_days);
+    const paidDays = payment === "paid" ? total : 0;
+    const unpaidDays = payment === "unpaid" ? total : 0;
+    const { error } = await supabase
+      .from("leave_requests")
+      .update({
+        // Leave status stays hod_approved — the leave itself is already approved
+        doc_status: "verified",
+        doc_note: note.trim() || null,
+        doc_acted_at: new Date().toISOString(),
+        payment_decision: payment,
+        paid_days: paidDays,
+        unpaid_days: unpaidDays,
+        principal_note: note.trim() || null,
+        principal_acted_at: new Date().toISOString(),
+      })
+      .eq("id", request.id);
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Document verified — salary decision saved");
+    qc.invalidateQueries();
+  }
+
+  async function rejectDoc() {
+    setBusy(true);
+    const { error } = await supabase
+      .from("leave_requests")
+      .update({
+        // Leave stays hod_approved — we only flag the document as needing re-upload
+        doc_status: "required",
+        doc_note: note.trim() || null,
+        doc_url: null,
+        doc_acted_at: new Date().toISOString(),
+        principal_note: note.trim() || null,
+        principal_acted_at: new Date().toISOString(),
+      })
+      .eq("id", request.id);
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Document rejected — teacher will need to re-upload");
+    qc.invalidateQueries();
+  }
+
+  return (
+    <div className="rounded-xl border border-border p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-bold">{request.teacher?.full_name}</p>
+          <p className="text-sm text-muted-foreground">
+            {leaveTypeLabel(request.leave_type as LeaveType)} ·{" "}
+            {SESSION_LABEL[request.session as LeaveSession]}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {fmtDate(request.from_date)} – {fmtDate(request.to_date)} ·{" "}
+            {Number(request.total_days)} day(s)
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <Badge
+            variant={docUploaded ? "default" : "secondary"}
+            className={docUploaded ? "bg-info text-info-foreground" : ""}
+          >
+            {docUploaded ? "Document Uploaded" : "Awaiting Document Upload"}
+          </Badge>
+          <span className="text-xs text-muted-foreground">Leave already approved by HOD</span>
+        </div>
+      </div>
+
+      <p className="mt-3 rounded-lg bg-muted p-3 text-sm">{request.reason}</p>
+      {request.hod_note && (
+        <p className="mt-2 text-xs text-muted-foreground">HOD note: {request.hod_note}</p>
+      )}
+
+      {/* Document status */}
+      <div className={`mt-3 rounded-lg border p-3 text-sm ${docUploaded ? "border-info/30 bg-info/8" : "border-warning/30 bg-warning/10"}`}>
+        <p className="font-semibold">
+          {docUploaded ? `✅ ${requiredDoc} uploaded` : `⏳ Waiting for teacher to upload ${requiredDoc}`}
+        </p>
+        {docUploaded && request.doc_url && (
+          <ViewDocButton path={request.doc_url} />
+        )}
+        {!docUploaded && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            The leave is already approved. This section is for document verification only. Once the teacher uploads the document, you can verify it and set the salary decision.
+          </p>
+        )}
+      </div>
+
+      {/* Salary decision — only when document is uploaded */}
+      {docUploaded && (
+        <div className="mt-4 rounded-lg border border-border p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Salary decision
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={payment === "paid" ? "default" : "outline"}
+              onClick={() => setPayment("paid")}
+            >
+              Paid — no deduction
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={payment === "unpaid" ? "destructive" : "outline"}
+              onClick={() => setPayment("unpaid")}
+            >
+              Unpaid — deduct salary
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <Textarea
+        className="mt-4"
+        rows={2}
+        maxLength={300}
+        placeholder="Add a note (optional)"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+      />
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {docUploaded && (
+          <Button onClick={verifyAndApprove} disabled={busy}>
+            Verify Document
+          </Button>
+        )}
+        <Button variant="outline" onClick={rejectDoc} disabled={busy || !docUploaded}>
+          Reject Document
+        </Button>
+      </div>
+      {docUploaded && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Rejecting sends it back to the teacher to re-upload. The leave itself remains approved.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ViewDocButton({ path }: { path: string }) {
+  const [loading, setLoading] = useState(false);
+
+  async function open() {
+    // doc_url may be a full Supabase public URL from an old upload — extract just the storage path
+    const storagePath = path.includes("/object/public/leave-docs/")
+      ? path.split("/object/public/leave-docs/")[1]
+      : path.includes("/object/sign/leave-docs/")
+      ? path.split("/object/sign/leave-docs/")[1]
+      : path;
+
+    setLoading(true);
+    const { data, error } = await supabase.storage
+      .from("leave-docs")
+      .createSignedUrl(decodeURIComponent(storagePath), 60);
+    setLoading(false);
+    if (error || !data?.signedUrl) return toast.error("Could not open document");
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
+
+  return (
+    <button
+      onClick={open}
+      disabled={loading}
+      className="mt-1 inline-block text-xs underline text-info disabled:opacity-50"
+    >
+      {loading ? "Opening…" : "View document ↗"}
+    </button>
   );
 }

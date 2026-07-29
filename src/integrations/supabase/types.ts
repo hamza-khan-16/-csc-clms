@@ -95,6 +95,10 @@ export type Database = {
           to_date: string
           total_days: number
           unpaid_days: number
+          doc_status: "required" | "uploaded" | "verified" | null
+          doc_url: string | null
+          doc_note: string | null
+          doc_acted_at: string | null
         }
         Insert: {
           applied_by?: string | null
@@ -393,8 +397,8 @@ export type Database = {
     Enums: {
       app_role: "teacher" | "hod" | "principal" | "admin"
       leave_session: "full_day" | "forenoon" | "afternoon"
-      leave_status: "pending_hod" | "hod_recommended" | "pending_principal" | "approved" | "rejected"
-      leave_type: "casual" | "maternity" | "bereavement" | "other" | "emergency"
+      leave_status: "pending_hod" | "hod_recommended" | "pending_principal" | "hod_approved" | "approved" | "rejected"
+      leave_type: "casual" | "maternity" | "bereavement" | "other" | "emergency" | "medical" | "duty"
       proxy_status: "pending" | "accepted" | "rejected"
     }
     CompositeTypes: {
@@ -525,8 +529,8 @@ export const Constants = {
     Enums: {
       app_role: ["teacher", "hod", "principal", "admin"],
       leave_session: ["full_day", "forenoon", "afternoon"],
-      leave_status: ["pending_hod", "hod_recommended", "pending_principal", "approved", "rejected"],
-      leave_type: ["casual", "maternity", "bereavement", "other", "emergency"],
+      leave_status: ["pending_hod", "hod_recommended", "pending_principal", "hod_approved", "approved", "rejected"],
+      leave_type: ["casual", "maternity", "bereavement", "other", "emergency", "medical", "duty"],
       proxy_status: ["pending", "accepted", "rejected"],
     },
   },

@@ -1,19 +1,46 @@
-export type LeaveType = "casual" | "maternity" | "bereavement" | "other" | "emergency";
+export type LeaveType = "casual" | "maternity" | "bereavement" | "other" | "emergency" | "medical" | "duty";
 export type LeaveSession = "full_day" | "forenoon" | "afternoon";
 export type LeaveStatus =
   | "pending_hod"
   | "hod_recommended"
   | "pending_principal"
+  | "hod_approved"
   | "approved"
   | "rejected";
 
-export const LEAVE_TYPES: { value: LeaveType; label: string; yearly: number; monthly?: number }[] = [
+export type DocStatus = "required" | "uploaded" | "verified";
+
+export const LEAVE_TYPES: { value: LeaveType; label: string; yearly: number; monthly?: number; hodFinal?: boolean; docRequired?: boolean; docLabel?: string }[] = [
   { value: "casual", label: "Casual Leave", yearly: 12, monthly: 2 },
   { value: "maternity", label: "Maternity Leave", yearly: 90 },
   { value: "bereavement", label: "Bereavement Leave", yearly: 5 },
   { value: "other", label: "Other Leave", yearly: 7 },
   { value: "emergency", label: "Emergency Leave", yearly: 6 },
+  {
+    value: "medical",
+    label: "Medical Leave",
+    yearly: 15,
+    hodFinal: true,
+    docRequired: true,
+    docLabel: "Medical Certificate",
+  },
+  {
+    value: "duty",
+    label: "Duty Leave",
+    yearly: 30,
+    hodFinal: true,
+    docRequired: true,
+    docLabel: "Proof of Duty",
+  },
 ];
+
+/** Returns true if this leave type is approved by HOD alone (no principal sign-off on the leave itself) */
+export const isHodFinalLeave = (t: LeaveType) =>
+  LEAVE_TYPES.find((x) => x.value === t)?.hodFinal ?? false;
+
+/** Returns the document label required for this leave type, or null */
+export const docLabel = (t: LeaveType) =>
+  LEAVE_TYPES.find((x) => x.value === t)?.docLabel ?? null;
 
 export const leaveTypeLabel = (t: LeaveType) =>
   LEAVE_TYPES.find((x) => x.value === t)?.label ?? t;
@@ -26,8 +53,9 @@ export const SESSION_LABEL: Record<LeaveSession, string> = {
 
 export const STATUS_LABEL: Record<LeaveStatus, string> = {
   pending_hod: "Pending with HOD",
-  hod_recommended: "HOD Approved",
+  hod_recommended: "HOD Recommended",
   pending_principal: "Pending with Principal",
+  hod_approved: "Approved",
   approved: "Approved",
   rejected: "Rejected",
 };
@@ -35,6 +63,7 @@ export const STATUS_LABEL: Record<LeaveStatus, string> = {
 export function statusClasses(status: LeaveStatus) {
   switch (status) {
     case "approved":
+    case "hod_approved":
       return "bg-success/12 text-success border-success/25";
     case "hod_recommended":
     case "pending_principal":
