@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Trash2, LayoutGrid, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
@@ -63,10 +63,160 @@ function todayDow() {
   return d === 0 ? 1 : d; // default to Monday if today is Sunday
 }
 
+// Subject → colour mapping (cycles through a palette)
+const SUBJECT_COLORS = [
+  { bg: "bg-blue-600", text: "text-white" },
+  { bg: "bg-teal-600", text: "text-white" },
+  { bg: "bg-orange-500", text: "text-white" },
+  { bg: "bg-purple-600", text: "text-white" },
+  { bg: "bg-amber-700", text: "text-white" },
+  { bg: "bg-green-600", text: "text-white" },
+  { bg: "bg-rose-600", text: "text-white" },
+  { bg: "bg-cyan-600", text: "text-white" },
+];
+
+function TimetableModal({
+  lectures,
+  teacherName,
+  onClose,
+}: {
+  lectures: Lecture[];
+  teacherName: string;
+  onClose: () => void;
+}) {
+  const fixed = lectures.filter((l) => !l.lecture_date);
+
+  // Collect unique time slots
+  const timeSlots = Array.from(
+    new Set(fixed.map((l) => `${l.start_time}|${l.end_time}`)),
+  )
+    .sort()
+    .map((s) => {
+      const [start, end] = s.split("|");
+      return { start, end };
+    });
+
+  // Map subject → colour
+  const subjects = Array.from(new Set(fixed.map((l) => l.subject)));
+  const subjectColor: Record<string, (typeof SUBJECT_COLORS)[number]> = {};
+  subjects.forEach((s, i) => {
+    subjectColor[s] = SUBJECT_COLORS[i % SUBJECT_COLORS.length];
+  });
+
+  function fmt(t: string) {
+    const [h, m] = t.split(":").map(Number);
+    const ampm = h >= 12 ? "PM" : "AM";
+    const hh = h % 12 || 12;
+    return `${hh}:${String(m).padStart(2, "0")} ${ampm}`;
+  }
+
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const WEEKDAYS = [1, 2, 3, 4, 5, 6];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-5xl rounded-2xl bg-[#111] text-white shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between bg-[#0a0a0a] px-6 py-4 border-b border-white/10">
+          <div>
+            <h2 className="text-lg font-bold">Weekly Timetable</h2>
+            <p className="text-sm text-white/50">{teacherName} · IT dept.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-2 hover:bg-white/10 transition-colors"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        {/* Grid */}
+        <div className="overflow-x-auto p-4">
+          <table className="w-full border-separate border-spacing-1 text-sm">
+            <thead>
+              <tr>
+                <th className="w-28 pb-2 text-left text-xs text-white/40 font-normal" />
+                {dayNames.map((d) => (
+                  <th key={d} className="pb-2 text-center text-xs font-semibold text-white/70">
+                    {d}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {timeSlots.map((slot) => (
+                <tr key={`${slot.start}-${slot.end}`}>
+                  <td className="pr-3 text-right text-xs text-white/40 font-mono whitespace-nowrap align-middle">
+                    {fmt(slot.start)}–{fmt(slot.end)}
+                  </td>
+                  {WEEKDAYS.map((dow) => {
+                    const cell = fixed.find(
+                      (l) =>
+                        l.day_of_week === dow &&
+                        l.start_time === slot.start &&
+                        l.end_time === slot.end,
+                    );
+                    if (!cell) {
+                      return <td key={dow} className="rounded-md bg-white/5 min-w-[90px] h-14" />;
+                    }
+                    const col = subjectColor[cell.subject];
+                    return (
+                      <td
+                        key={dow}
+                        className={cn(
+                          "rounded-md px-2 py-1.5 min-w-[90px] h-14 align-top",
+                          col.bg,
+                        )}
+                      >
+                        <p className={cn("font-bold text-xs leading-tight", col.text)}>
+                          {cell.subject}
+                        </p>
+                        <p className={cn("text-[10px] opacity-80 mt-0.5", col.text)}>
+                          {cell.class_name}
+                          {cell.room ? ` · ${cell.room}` : ""}
+                        </p>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+              {timeSlots.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-white/40 text-sm">
+                    No fixed lectures in your timetable yet. Add lectures using the form on the
+                    right.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Legend */}
+        {subjects.length > 0 && (
+          <div className="flex flex-wrap gap-3 px-6 pb-5">
+            {subjects.map((s) => {
+              const col = subjectColor[s];
+              return (
+                <span key={s} className="flex items-center gap-1.5 text-xs text-white/60">
+                  <span className={cn("inline-block size-3 rounded-sm", col.bg)} />
+                  {s}
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SchedulePage() {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const today = todayISO();
+  const [showTimetable, setShowTimetable] = useState(false);
 
   // Selected weekday tab (1=Mon … 6=Sat)
   const [selectedDay, setSelectedDay] = useState<number>(todayDow());
@@ -243,10 +393,18 @@ function SchedulePage() {
 
   return (
     <AppShell title="My Schedule" subtitle="Fixed timetable, added lectures and accepted proxy duties">
+      {showTimetable && (
+        <TimetableModal
+          lectures={lectures}
+          teacherName={profile?.full_name ?? ""}
+          onClose={() => setShowTimetable(false)}
+        />
+      )}
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4">
           {/* Day-of-week tab strip */}
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 items-center justify-between">
+            <div className="flex flex-wrap gap-2">
             {WEEKDAYS.map((dow) => {
               const isToday = dow === todayDowValue;
               const isSelected = dow === selectedDay;
@@ -269,6 +427,17 @@ function SchedulePage() {
                 </button>
               );
             })}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2 shrink-0"
+            onClick={() => setShowTimetable(true)}
+          >
+            <LayoutGrid className="size-4" />
+            View Timetable
+          </Button>
           </div>
 
           {/* Day schedule card */}

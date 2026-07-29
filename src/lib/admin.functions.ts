@@ -90,3 +90,126 @@ export const adminDeleteStaff = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+/**
+ * applyPasswordChange
+ *
+ * Routing rules:
+ *  - Teacher requests  → only HOD can approve
+ *  - HOD / Principal requests → only admin can approve
+ *  - Admin has no password change request flow
+ */
+export const applyPasswordChange = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { requestId: string }) => input)
+  .handler(async ({ data, context }) => {
+    const [{ data: isHod }, { data: isAdmin }] = await Promise.all([
+      context.supabase.rpc("has_role", { _user_id: context.userId, _role: "hod" }),
+      context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" }),
+    ]);
+    if (!isHod && !isAdmin) throw new Error("Forbidden");
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Fetch the request (old schema column names)
+    const { data: req, error: fetchErr } = await supabaseAdmin
+      .from("password_change_requests")
+      .select("id, teacher_id, new_password_temp, status")
+      .eq("id", data.requestId)
+      .single();
+    if (fetchErr || !req) throw new Error("Request not found");
+    if (req.status !== "pending") throw new Error("Request already resolved");
+    if (!req.new_password_temp) throw new Error("No password stored for this request");
+
+    // Look up the requester's role to enforce routing
+    const { data: requesterRoleRow } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", req.teacher_id)
+      .maybeSingle();
+    const requesterRole = requesterRoleRow?.role ?? "teacher";
+
+    // HOD can only approve teacher requests; admin can only approve hod/principal requests
+    if (isHod && requesterRole !== "teacher") {
+      throw new Error("HOD can only approve teacher password change requests");
+    }
+    if (isAdmin && requesterRole === "teacher") {
+      throw new Error("Admin cannot approve teacher password change requests — only HOD can");
+    }
+
+    // Update the auth password via admin API
+    const { error: authErr } = await supabaseAdmin.auth.admin.updateUserById(req.teacher_id, {
+      password: req.new_password_temp,
+    });
+    if (authErr) throw new Error(authErr.message);
+
+    // Mark approved and clear the temp password
+    const { error: updateErr } = await supabaseAdmin
+      .from("password_change_requests")
+      .update({
+        status: "approved",
+        hod_id: context.userId,
+        acted_at: new Date().toISOString(),
+        new_password_temp: null,
+      })
+      .eq("id", data.requestId);
+    if (updateErr) throw new Error(updateErr.message);
+
+    return { ok: true };
+  });
+
+/**
+ * rejectPasswordChange
+ *
+ * Same routing rules as applyPasswordChange.
+ */
+export const rejectPasswordChange = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { requestId: string; note?: string }) => input)
+  .handler(async ({ data, context }) => {
+    const [{ data: isHod }, { data: isAdmin }] = await Promise.all([
+      context.supabase.rpc("has_role", { _user_id: context.userId, _role: "hod" }),
+      context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" }),
+    ]);
+    if (!isHod && !isAdmin) throw new Error("Forbidden");
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Fetch request (old schema)
+    const { data: req, error: fetchErr } = await supabaseAdmin
+      .from("password_change_requests")
+      .select("id, teacher_id, status")
+      .eq("id", data.requestId)
+      .single();
+    if (fetchErr || !req) throw new Error("Request not found");
+    if (req.status !== "pending") throw new Error("Request already resolved");
+
+    // Look up requester's role to enforce routing
+    const { data: requesterRoleRow } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", req.teacher_id)
+      .maybeSingle();
+    const requesterRole = requesterRoleRow?.role ?? "teacher";
+
+    if (isHod && requesterRole !== "teacher") {
+      throw new Error("HOD can only reject teacher password change requests");
+    }
+    if (isAdmin && requesterRole === "teacher") {
+      throw new Error("Admin cannot reject teacher password change requests — only HOD can");
+    }
+
+    const { error } = await supabaseAdmin
+      .from("password_change_requests")
+      .update({
+        status: "rejected",
+        hod_id: context.userId,
+        hod_note: data.note ?? null,
+        acted_at: new Date().toISOString(),
+        new_password_temp: null,
+      })
+      .eq("id", data.requestId)
+      .eq("status", "pending");
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });

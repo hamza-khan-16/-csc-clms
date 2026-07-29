@@ -155,6 +155,21 @@ function AdminPage() {
   const changeRole = useMutation({
     mutationFn: async ({ id, role, departmentId }: { id: string; role: StaffRow["role"]; departmentId: string | null }) => {
       if (!role) return;
+      // Enforce single-admin and single-principal constraints
+      if (role === "admin" || role === "principal") {
+        const { data: existing } = await supabase
+          .from("user_roles")
+          .select("user_id")
+          .eq("role", role)
+          .neq("user_id", id);
+        if (existing && existing.length > 0) {
+          throw new Error(
+            role === "admin"
+              ? "There is already an administrator. Only one admin is allowed."
+              : "There is already a principal. Only one principal is allowed.",
+          );
+        }
+      }
       const { error: delError } = await supabase.from("user_roles").delete().eq("user_id", id);
       if (delError) throw delError;
       const { error } = await supabase

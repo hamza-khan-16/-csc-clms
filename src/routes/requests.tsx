@@ -346,7 +346,6 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       .from("leave_requests")
       .update({
         status: "pending_principal",
-        payment_decision: needsDecision ? payment : null,
         hod_note: note.trim() || null,
         hod_acted_at: new Date().toISOString(),
       })
@@ -378,13 +377,20 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     qc.invalidateQueries();
   }
 
-  // Principal gives final approval
+  // Principal gives final approval (also decides paid/unpaid here)
   async function principalApprove() {
     setBusy(true);
+    // Compute paid/unpaid days based on principal's decision
+    const total = Number(request.total_days);
+    const paidDays = needsDecision && !isEmergency ? (payment === "paid" ? total : 0) : Number(request.paid_days);
+    const unpaidDays = needsDecision && !isEmergency ? (payment === "unpaid" ? total : 0) : Number(request.unpaid_days);
     const { error } = await supabase
       .from("leave_requests")
       .update({
         status: "approved",
+        payment_decision: needsDecision && !isEmergency ? payment : null,
+        paid_days: paidDays,
+        unpaid_days: unpaidDays,
         principal_note: note.trim() || null,
         principal_acted_at: new Date().toISOString(),
       })
@@ -568,8 +574,8 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         </div>
       )}
 
-      {/* Payment decision — HOD only, non-emergency */}
-      {isHod && needsDecision && !isEmergency && (
+      {/* Payment decision — Principal only, non-emergency */}
+      {!isHod && needsDecision && !isEmergency && (
         <div className="mt-4 rounded-lg border border-border p-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Salary decision for this {leaveTypeLabel(request.leave_type as LeaveType).toLowerCase()}
@@ -595,11 +601,10 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         </div>
       )}
 
-      {/* Principal sees HOD payment decision */}
-      {!isHod && needsDecision && !isEmergency && (
-        <p className="mt-3 text-xs text-muted-foreground">
-          HOD marked this leave as{" "}
-          <span className="font-semibold">{request.payment_decision ?? "not decided"}</span>.
+      {/* HOD sees a note that principal will decide pay */}
+      {isHod && needsDecision && !isEmergency && (
+        <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-muted p-2">
+          💡 The principal will decide whether this leave is paid or unpaid upon final approval.
         </p>
       )}
 

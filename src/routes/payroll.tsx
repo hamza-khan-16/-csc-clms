@@ -43,11 +43,13 @@ function PayrollPage() {
     queryKey: ["payroll-leaves", profile?.id, fromISO],
     enabled: !!profile,
     queryFn: async () => {
+      // Only count deductions for leaves that are FULLY approved (both HOD + principal acted)
+      // i.e. status = 'approved' AND principal_acted_at is not null (or auto_approved_at for emergency)
       const { data, error } = await supabase
         .from("leave_requests")
-        .select("id, leave_type, from_date, to_date, status, total_days, paid_days, unpaid_days, payment_decision")
+        .select("id, leave_type, from_date, to_date, status, total_days, paid_days, unpaid_days, payment_decision, principal_acted_at, auto_approved_at, hod_acted_at")
         .eq("teacher_id", profile!.id)
-        .neq("status", "rejected")
+        .eq("status", "approved")
         .gte("from_date", fromISO)
         .lte("from_date", toISO)
         .order("from_date");
@@ -60,10 +62,17 @@ function PayrollPage() {
   const dayRate = perDaySalary(salary);
 
   const totals = useMemo(() => {
-    const unpaid = leaves.reduce((s, l) => s + Number(l.unpaid_days), 0);
-    const paid = leaves.reduce((s, l) => s + Number(l.paid_days), 0);
+    // Only deduct for leaves that have BOTH HOD and Principal approval
+    // (emergency leaves auto-approve and bypass HOD, so auto_approved_at counts)
+    const fullyApproved = leaves.filter((l) => {
+      const isEmergency = l.leave_type === "emergency";
+      if (isEmergency) return !!(l as any).auto_approved_at || !!(l as any).principal_acted_at;
+      return !!(l as any).hod_acted_at && !!(l as any).principal_acted_at;
+    });
+    const unpaid = fullyApproved.reduce((s, l) => s + Number(l.unpaid_days), 0);
+    const paid = fullyApproved.reduce((s, l) => s + Number(l.paid_days), 0);
     const deduction = Math.round(unpaid * dayRate);
-    return { unpaid, paid, deduction, net: Math.max(salary - deduction, 0) };
+    return { unpaid, paid, deduction, net: Math.max(salary - deduction, 0), fullyApproved };
   }, [leaves, dayRate, salary]);
 
   return (
@@ -123,7 +132,7 @@ function PayrollPage() {
           </ul>
         </SectionCard>
 
-        <SectionCard title="Leaves counted this month">
+        <SectionCard title="Leaves this month" subtitle="Deductions apply only after both HOD and Principal approval">
           {leaves.length === 0 ? (
             <Empty>No leaves this month — full salary payable.</Empty>
           ) : (
