@@ -305,31 +305,60 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   );
 
   const { data: dept } = useQuery({
-    queryKey: ["dept-availability", request.department_id],
+    queryKey: ["dept-availability", request.department_id, request.from_date, request.to_date],
     enabled: isHod,
     queryFn: async () => {
-      let pq = supabase.from("profiles").select("id, full_name, designation");
+      // Get all teachers in dept (excluding the absent teacher)
+      let pq = supabase.from("profiles").select("id, full_name, designation").eq("approved", true);
       if (request.department_id) pq = pq.eq("department_id", request.department_id);
       const { data: people, error } = await pq.neq("id", request.teacher_id).order("full_name");
       if (error) throw error;
-      const { data: lectures } = await supabase
-        .from("lectures")
-        .select("teacher_id, day_of_week, start_time, end_time");
-      return { people: people ?? [], lectures: lectures ?? [] };
+
+      // Fixed lectures for conflict checking
+      const teacherIds = (people ?? []).map((p) => p.id);
+      const { data: lectures } = teacherIds.length
+        ? await supabase
+            .from("lectures")
+            .select("teacher_id, day_of_week, start_time, end_time")
+            .in("teacher_id", teacherIds)
+            .is("lecture_date", null)
+        : { data: [] };
+
+      // Also fetch accepted proxy assignments during leave period (so we know who's already busy)
+      const { data: existingProxies } = teacherIds.length
+        ? await supabase
+            .from("proxy_assignments")
+            .select("proxy_teacher_id, proxy_date, start_time, end_time")
+            .in("proxy_teacher_id", teacherIds)
+            .in("status", ["pending", "accepted"])
+            .gte("proxy_date", request.from_date)
+            .lte("proxy_date", request.to_date)
+        : { data: [] };
+
+      return { people: people ?? [], lectures: lectures ?? [], existingProxies: existingProxies ?? [] };
     },
   });
 
   function candidates(date: string, start: string, end: string) {
     const dow = new Date(date + "T00:00:00").getDay();
     return (dept?.people ?? []).map((p) => {
-      const busySlot = (dept?.lectures ?? []).some(
+      // Busy if they have a fixed lecture at this time
+      const busyFixed = (dept?.lectures ?? []).some(
         (l) =>
           l.teacher_id === p.id &&
           l.day_of_week === dow &&
           l.start_time < end &&
           l.end_time > start,
       );
-      return { ...p, free: !busySlot };
+      // Busy if they already have a proxy assignment at this time on this date
+      const busyProxy = (dept?.existingProxies ?? []).some(
+        (p2) =>
+          p2.proxy_teacher_id === p.id &&
+          p2.proxy_date === date &&
+          p2.start_time < end &&
+          p2.end_time > start,
+      );
+      return { ...p, free: !busyFixed && !busyProxy };
     });
   }
 
@@ -358,6 +387,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         leave_request_id: request.id,
         lecture_id: s.lecture_id,
         proxy_teacher_id: choices[s.key],
+        absentee_teacher_id: request.teacher_id,   // store directly — avoids RLS join issues
         proxy_date: s.date,
         start_time: s.start_time,
         end_time: s.end_time,

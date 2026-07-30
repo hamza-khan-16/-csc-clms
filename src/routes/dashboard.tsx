@@ -122,8 +122,9 @@ function TeacherDashboard() {
         .select("paid_days, unpaid_days")
         .eq("teacher_id", profile!.id)
         .neq("status", "rejected")
-        .gte("from_date", first)
-        .lte("from_date", lastISO);
+        // Overlap: leave intersects the month if it starts before month end AND ends after month start
+        .lte("from_date", lastISO)
+        .gte("to_date", first);
       if (error) throw error;
       const salary = Number(profile!.monthly_salary ?? 0);
       const paidDays = (data ?? []).reduce((s, r) => s + Number(r.paid_days), 0);
@@ -140,7 +141,8 @@ function TeacherDashboard() {
       const { count } = await supabase
         .from("leave_requests")
         .select("id", { count: "exact", head: true })
-        .eq("status", "pending_hod");
+        .eq("status", "pending_hod")
+        .eq("department_id", profile!.department_id ?? "");
       return count ?? 0;
     },
   });

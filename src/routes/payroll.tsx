@@ -43,15 +43,19 @@ function PayrollPage() {
     queryKey: ["payroll-leaves", profile?.id, fromISO],
     enabled: !!profile,
     queryFn: async () => {
-      // Only count deductions for leaves that are FULLY approved (both HOD + principal acted)
-      // i.e. status = 'approved' AND principal_acted_at is not null (or auto_approved_at for emergency)
+      // Include both fully-approved leaves (status='approved') and
+      // HOD-approved medical/duty leaves (status='hod_approved') — these are
+      // approved by HOD only; the principal later verifies the document and
+      // sets paid/unpaid. We show them in payroll immediately so the teacher
+      // can see the salary impact once the principal decides.
       const { data, error } = await supabase
         .from("leave_requests")
-        .select("id, leave_type, from_date, to_date, status, total_days, paid_days, unpaid_days, payment_decision, principal_acted_at, auto_approved_at, hod_acted_at")
+        .select("id, leave_type, from_date, to_date, status, total_days, paid_days, unpaid_days, payment_decision, principal_acted_at, auto_approved_at, hod_acted_at, doc_status")
         .eq("teacher_id", profile!.id)
-        .eq("status", "approved")
-        .gte("from_date", fromISO)
+        .in("status", ["approved", "hod_approved"])
+        // Use overlap: leave intersects the month if it starts before month end AND ends after month start
         .lte("from_date", toISO)
+        .gte("to_date", fromISO)
         .order("from_date");
       if (error) throw error;
       return data ?? [];
@@ -66,7 +70,10 @@ function PayrollPage() {
     // (emergency leaves auto-approve and bypass HOD, so auto_approved_at counts)
     const fullyApproved = leaves.filter((l) => {
       const isEmergency = l.leave_type === "emergency";
+      const isHodFinal = l.leave_type === "medical" || l.leave_type === "duty";
       if (isEmergency) return !!(l as any).auto_approved_at || !!(l as any).principal_acted_at;
+      // Medical/duty: deduction applies once principal has verified the document and set payment_decision
+      if (isHodFinal) return !!(l as any).payment_decision;
       return !!(l as any).hod_acted_at && !!(l as any).principal_acted_at;
     });
     const unpaid = fullyApproved.reduce((s, l) => s + Number(l.unpaid_days), 0);
@@ -158,7 +165,11 @@ function PayrollPage() {
                       <td className="py-3">{Number(l.total_days)}</td>
                       <td className="py-3">
                         {l.payment_decision === null && l.leave_type !== "casual" ? (
-                          <span className="text-muted-foreground">Awaiting HOD decision</span>
+                          <span className="text-muted-foreground">
+                            {l.leave_type === "medical" || l.leave_type === "duty"
+                              ? "Awaiting principal document verification"
+                              : "Awaiting principal approval"}
+                          </span>
                         ) : (
                           <>
                             <span className="text-success">{Number(l.paid_days)} paid</span> ·{" "}

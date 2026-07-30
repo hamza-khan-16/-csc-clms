@@ -142,6 +142,8 @@ function ApplyPage() {
       to_date: toDate,
       session: session as "full_day" | "forenoon" | "afternoon",
       reason: reason.trim(),
+      // Emergency bypasses HOD — goes straight to principal queue for the 5-hour countdown
+      status: isEmergency ? "pending_principal" : "pending_hod",
       ...(isEmergency && preview
         ? { paid_days: 0, unpaid_days: preview.total, total_days: preview.total }
         : {}),

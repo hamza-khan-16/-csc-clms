@@ -63,29 +63,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+    let initialised = false;
+
+    // onAuthStateChange fires INITIAL_SESSION synchronously with the stored
+    // session, so we don't need a separate getSession() call — that would
+    // trigger a second token refresh and hit the 429 rate limit.
+    //
+    // TOKEN_REFRESHED fires every ~55 minutes when the access token auto-renews.
+    // We deliberately skip reloading the profile on that event — the user/role
+    // data hasn't changed, and re-fetching would hammer the DB and auth endpoints.
+    const profileLoadEvents = new Set([
+      'INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED', 'PASSWORD_RECOVERY',
+    ]);
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
       setSession(next);
-      if (!next) {
+      if (!next || event === 'SIGNED_OUT') {
         setProfile(null);
         setRole(null);
         setLoading(false);
-      } else {
+        initialised = true;
+      } else if (profileLoadEvents.has(event)) {
+        // Keep loading=true until profile is fully fetched so Guard never
+        // flashes the "no profile" message between session arriving and profile loading.
+        setLoading(true);
+        // Use setTimeout(0) so Supabase internal state settles before we
+        // make additional DB queries with the new token.
         setTimeout(() => {
-          loadProfile(next.user.id).finally(() => setLoading(false));
+          loadProfile(next.user.id).finally(() => {
+            setLoading(false);
+            initialised = true;
+          });
         }, 0);
-      }
-    });
-
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      if (data.session) {
-        loadProfile(data.session.user.id).finally(() => setLoading(false));
       } else {
-        setLoading(false);
+        // TOKEN_REFRESHED or other events — just update loading state
+        if (!initialised) {
+          setLoading(false);
+          initialised = true;
+        }
       }
     });
 
-    return () => sub.subscription.unsubscribe();
+    // Safety fallback: if onAuthStateChange never fires (e.g. no session),
+    // stop the loading spinner after a short delay.
+    const fallback = setTimeout(() => {
+      if (!initialised) setLoading(false);
+    }, 2000);
+
+    return () => {
+      sub.subscription.unsubscribe();
+      clearTimeout(fallback);
+    };
   }, []);
 
   const value: AuthState = {

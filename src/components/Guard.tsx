@@ -11,7 +11,11 @@ export function Guarded({ roles, children }: { roles?: AppRole[]; children: Reac
     if (!loading && !session) navigate({ to: "/", replace: true });
   }, [loading, session, navigate]);
 
-  if (loading || !session) {
+  // Keep showing spinner until BOTH session AND profile are ready.
+  // auth.tsx loads the profile asynchronously after the session is set,
+  // so there's a brief window where session is set but profile is null —
+  // without this check, Guard would flash "no profile" on every sign-in.
+  if (loading || !session || (session && !profile && !loading)) {
     return (
       <div className="grid min-h-screen place-items-center">
         <Loader2 className="size-6 animate-spin text-primary" />

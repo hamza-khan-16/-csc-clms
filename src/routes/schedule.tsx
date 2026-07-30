@@ -52,6 +52,7 @@ type Lecture = {
   room: string | null;
   lecture_date: string | null;
   is_proxy?: boolean;
+  proxy_status?: string;
   covering_for?: string | null;
 };
 
@@ -255,9 +256,9 @@ function SchedulePage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("proxy_assignments")
-        .select("id, proxy_date, start_time, end_time, subject, class_name, leave_request_id")
+        .select("id, proxy_date, start_time, end_time, subject, class_name, leave_request_id, status")
         .eq("proxy_teacher_id", profile!.id)
-        .eq("status", "accepted")
+        .in("status", ["pending", "accepted"])
         .gte("proxy_date", today)
         .order("proxy_date")
         .order("start_time");
@@ -294,8 +295,41 @@ function SchedulePage() {
         room: null as string | null,
         lecture_date: p.proxy_date,
         is_proxy: true,
+        proxy_status: p.status as string,
         covering_for: nameMap[p.leave_request_id] ?? null,
       })) as Lecture[];
+    },
+  });
+
+  // ── Fetch pending compensation offers (so absent teacher sees notification) ──
+  const { data: pendingCompOffers = [] } = useQuery({
+    queryKey: ["pending-comp-offers", profile?.id],
+    enabled: !!profile,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("compensation_assignments")
+        .select("id, from_teacher_id, compensation_date, lecture_id, note, status")
+        .eq("to_teacher_id", profile!.id)
+        .eq("status", "pending")
+        .order("compensation_date");
+      if (error) throw error;
+      const rows = data ?? [];
+      const fromIds = [...new Set(rows.map((r) => r.from_teacher_id))];
+      const { data: people } = fromIds.length
+        ? await supabase.from("profiles").select("id, full_name").in("id", fromIds)
+        : { data: [] };
+      const personMap = Object.fromEntries((people ?? []).map((p) => [p.id, p.full_name]));
+      // Fetch lecture details for each offer
+      const lecIds = [...new Set(rows.map((r) => r.lecture_id))];
+      const { data: lectures } = lecIds.length
+        ? await supabase.from("lectures").select("id, subject, class_name, start_time, end_time").in("id", lecIds)
+        : { data: [] };
+      const lecMap = Object.fromEntries((lectures ?? []).map((l) => [l.id, l]));
+      return rows.map((r) => ({
+        ...r,
+        from_name: personMap[r.from_teacher_id] ?? "A colleague",
+        lecture: lecMap[r.lecture_id] ?? null,
+      }));
     },
   });
 
@@ -402,6 +436,22 @@ function SchedulePage() {
       )}
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4">
+          {/* Pending compensation offers banner */}
+          {pendingCompOffers.length > 0 && (
+            <div className="rounded-lg border border-success/40 bg-success/8 p-4 space-y-2">
+              <p className="text-sm font-semibold text-success-foreground">🎁 Compensation lecture offers pending your response</p>
+              <p className="text-xs text-muted-foreground">Go to <strong>Proxy Duties</strong> to accept or decline. Accepted lectures will appear in your schedule automatically.</p>
+              <ul className="mt-2 space-y-1">
+                {pendingCompOffers.map((o) => (
+                  <li key={o.id} className="text-xs text-muted-foreground">
+                    · {o.from_name} is offering you a {o.lecture?.subject ?? "lecture"} ({o.lecture?.class_name}) on {fmtDate(o.compensation_date)}
+                    {o.note ? ` — "${o.note}"` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Day-of-week tab strip */}
           <div className="flex flex-wrap gap-2 items-center justify-between">
             <div className="flex flex-wrap gap-2">
@@ -612,8 +662,15 @@ function LectureRow({
       {l.room && <span className="text-muted-foreground">{l.room}</span>}
 
       {l.is_proxy ? (
-        <Badge variant="secondary" className="border border-warning/30 bg-warning/12 text-warning-foreground">
-          Proxy · covering {l.covering_for ?? "colleague"}
+        <Badge
+          variant="secondary"
+          className={
+            l.proxy_status === "accepted"
+              ? "border border-warning/30 bg-warning/12 text-warning-foreground"
+              : "border border-muted-foreground/30 bg-muted text-muted-foreground"
+          }
+        >
+          {l.proxy_status === "accepted" ? "Proxy" : "Proxy (pending your response)"} · covering {l.covering_for ?? "colleague"}
           {showDate && l.lecture_date ? ` · ${fmtDate(l.lecture_date)}` : ""}
         </Badge>
       ) : l.lecture_date ? (

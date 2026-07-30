@@ -81,7 +81,7 @@ function MyLeavesPage() {
   });
 
   const { data: proxies = [] } = useQuery({
-    queryKey: ["my-leave-proxies", profile?.id],
+    queryKey: ["my-leave-proxies", profile?.id, leaves.map((l) => l.id).join(",")],
     enabled: leaves.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase

@@ -45,7 +45,7 @@ function TeachersPage() {
       const { data: leaves } = await supabase
         .from("leave_requests")
         .select("teacher_id, total_days, unpaid_days, status, from_date")
-        .eq("status", "approved")
+        .in("status", ["approved", "hod_approved"])
         .gte("from_date", `${year}-01-01`);
 
       return (data ?? []).map((p) => {
