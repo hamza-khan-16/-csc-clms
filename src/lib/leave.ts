@@ -1,4 +1,4 @@
-export type LeaveType = "casual" | "maternity" | "bereavement" | "other" | "emergency" | "medical" | "duty";
+export type LeaveType = "casual" | "maternity" | "bereavement" | "emergency" | "medical" | "duty";
 export type LeaveSession = "full_day" | "forenoon" | "afternoon";
 export type LeaveStatus =
   | "pending_hod"
@@ -10,19 +10,19 @@ export type LeaveStatus =
 
 export type DocStatus = "required" | "uploaded" | "verified";
 
-export const LEAVE_TYPES: { value: LeaveType; label: string; yearly: number; monthly?: number; hodFinal?: boolean; docRequired?: boolean; docLabel?: string }[] = [
-  { value: "casual", label: "Casual Leave", yearly: 12, monthly: 2 },
-  { value: "maternity", label: "Maternity Leave", yearly: 90 },
-  { value: "bereavement", label: "Bereavement Leave", yearly: 5 },
-  { value: "other", label: "Other Leave", yearly: 7 },
-  { value: "emergency", label: "Emergency Leave", yearly: 6 },
+export const LEAVE_TYPES: { value: LeaveType; label: string; yearly: number; monthly?: number; hodFinal?: boolean; docRequired?: boolean; docLabel?: string; info?: string }[] = [
+  { value: "casual",      label: "Casual Leave",      yearly: 12, monthly: 2, info: "2/month · 12/year · paid" },
+  { value: "maternity",   label: "Maternity Leave",   yearly: 90,             info: "Up to 90 days" },
+  { value: "bereavement", label: "Bereavement Leave", yearly: 5,              info: "Up to 5 days" },
+  { value: "emergency",   label: "Emergency Leave",   yearly: 6,              info: "Auto-approved · unpaid" },
   {
     value: "medical",
     label: "Medical Leave",
     yearly: 15,
-    hodFinal: true,
+    // NOT hodFinal — approval flow depends on number of days (see isMedicalHodFinal helper)
     docRequired: true,
     docLabel: "Medical Certificate",
+    info: "≤3 days: HOD+Principal · >3 days: HOD approves, doc needed",
   },
   {
     value: "duty",
@@ -31,8 +31,34 @@ export const LEAVE_TYPES: { value: LeaveType; label: string; yearly: number; mon
     hodFinal: true,
     docRequired: true,
     docLabel: "Proof of Duty",
+    info: "HOD approved · doc required",
   },
 ];
+
+/**
+ * For medical leave:
+ * - ≤ 3 days → no doc required, needs both HOD recommendation AND principal approval
+ * - > 3 days → doc required, HOD can directly approve (hod_approved), but doc must
+ *   be uploaded for principal to verify
+ */
+export function getMedicalFlow(days: number): {
+  docRequired: boolean;
+  hodFinal: boolean;
+  description: string;
+} {
+  if (days <= 3) {
+    return {
+      docRequired: false,
+      hodFinal: false,
+      description: "No document required · HOD recommends → Principal gives final approval",
+    };
+  }
+  return {
+    docRequired: true,
+    hodFinal: true,
+    description: "Medical certificate required · HOD approves directly · upload doc for principal verification",
+  };
+}
 
 /** Returns true if this leave type is approved by HOD alone (no principal sign-off on the leave itself) */
 export const isHodFinalLeave = (t: LeaveType) =>
@@ -129,6 +155,40 @@ export const needsPaymentDecision = (t: LeaveType) => t !== "casual" && t !== "e
 
 /** Emergency leave is always unpaid — no quota consumed, salary always cut. */
 export const isAlwaysUnpaid = (t: LeaveType) => t === "emergency";
+
+/**
+ * Number of medical leave days a teacher gets fully paid per year without
+ * any principal decision required. Days beyond this quota require the
+ * principal to decide paid or unpaid on each leave request.
+ */
+export const MEDICAL_PAID_QUOTA = 10;
+
+/**
+ * Given how many medical leave days a teacher has already taken this year
+ * (approved/hod_approved, not rejected), and the number of days in the
+ * current request, return how many of those days are within the paid quota
+ * (auto-paid) vs how many are over-quota (principal decides).
+ */
+export function medicalPaidSplit(
+  alreadyTakenThisYear: number,
+  requestDays: number,
+): { withinQuota: number; overQuota: number } {
+  const remaining = Math.max(0, MEDICAL_PAID_QUOTA - alreadyTakenThisYear);
+  const withinQuota = Math.min(requestDays, remaining);
+  const overQuota = requestDays - withinQuota;
+  return { withinQuota, overQuota };
+}
+
+/**
+ * Returns true when the principal needs to make a paid/unpaid decision for
+ * a medical leave (i.e. it has days beyond the 10-day paid quota).
+ */
+export function medicalNeedsDecision(
+  alreadyTakenThisYear: number,
+  requestDays: number,
+): boolean {
+  return alreadyTakenThisYear + requestDays > MEDICAL_PAID_QUOTA;
+}
 
 /** Salary is prorated over a standard 30-day month. */
 export const perDaySalary = (monthlySalary: number) => monthlySalary / 30;

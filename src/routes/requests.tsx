@@ -29,6 +29,9 @@ import {
   needsPaymentDecision,
   isHodFinalLeave,
   docLabel,
+  medicalPaidSplit,
+  medicalNeedsDecision,
+  MEDICAL_PAID_QUOTA,
   SESSION_LABEL,
   type LeaveSession,
   type LeaveStatus,
@@ -67,6 +70,13 @@ function RequestsPage() {
     queryKey: ["review-requests", role, profile?.id],
     enabled: !!profile,
     queryFn: async () => {
+      // Fetch admin IDs to exclude from results
+      const { data: adminRoles } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "admin");
+      const adminIds = new Set((adminRoles ?? []).map((r) => r.user_id));
+
       let q = supabase.from("leave_requests").select("*").order("created_at", { ascending: false });
       if (isHod) {
         q = q.eq("department_id", profile!.department_id ?? "");
@@ -82,8 +92,9 @@ function RequestsPage() {
       }
       const { data, error } = await q;
       if (error) throw error;
-      const people = await fetchPeople((data ?? []).map((r) => r.teacher_id));
-      return (data ?? []).map((r) => ({ ...r, teacher: people[r.teacher_id] }));
+      const filtered = (data ?? []).filter((r) => !adminIds.has(r.teacher_id));
+      const people = await fetchPeople(filtered.map((r) => r.teacher_id));
+      return filtered.map((r) => ({ ...r, teacher: people[r.teacher_id] }));
     },
   });
 
@@ -208,11 +219,36 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   const [choices, setChoices] = useState<Record<string, string>>({});
   const isEmergency = request.leave_type === "emergency";
   const isHodFinal = isHodFinalLeave(request.leave_type as LeaveType);
+  const isMedical = request.leave_type === "medical";
   const requiredDoc = docLabel(request.leave_type as LeaveType);
   const needsDecision = needsPaymentDecision(request.leave_type as LeaveType) && !isHodFinal;
   const [payment, setPayment] = useState<"paid" | "unpaid">(
     (request.payment_decision as "paid" | "unpaid" | null) ?? "paid",
   );
+
+  // Fetch how many medical days this teacher has already taken this year
+  // to determine whether they're still within the 10-day paid quota
+  const { data: medicalDaysTaken = 0 } = useQuery({
+    queryKey: ["medical-days-taken", request.teacher_id, new Date().getFullYear()],
+    enabled: !isHod && isMedical,
+    queryFn: async () => {
+      const year = new Date().getFullYear();
+      const { data } = await supabase
+        .from("leave_requests")
+        .select("total_days")
+        .eq("teacher_id", request.teacher_id)
+        .eq("leave_type", "medical")
+        .in("status", ["hod_approved", "approved"])
+        .neq("id", request.id) // exclude current request
+        .gte("from_date", `${year}-01-01`);
+      return (data ?? []).reduce((s, r) => s + Number(r.total_days), 0);
+    },
+  });
+
+  const requestDays = Number(request.total_days);
+  const medicalSplit = isMedical ? medicalPaidSplit(medicalDaysTaken, requestDays) : null;
+  // Principal needs to decide only if there are over-quota days
+  const medicalRequiresDecision = isMedical && medicalNeedsDecision(medicalDaysTaken, requestDays);
 
   // Live countdown timer for emergency leaves
   const [msLeft, setMsLeft] = useState(() =>
@@ -462,10 +498,24 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   // Principal gives final approval (also decides paid/unpaid here)
   async function principalApprove() {
     setBusy(true);
-    // Compute paid/unpaid days based on principal's decision
+    // Compute paid/unpaid days:
+    // - Medical: first 10 days/yr are auto-paid; over-quota days per principal's decision
+    // - Emergency: always unpaid
+    // - Others: per principal's decision
     const total = Number(request.total_days);
-    const paidDays = needsDecision && !isEmergency ? (payment === "paid" ? total : 0) : Number(request.paid_days);
-    const unpaidDays = needsDecision && !isEmergency ? (payment === "unpaid" ? total : 0) : Number(request.unpaid_days);
+    let paidDays: number;
+    let unpaidDays: number;
+    if (isMedical && medicalSplit) {
+      const overQuotaPaid = medicalRequiresDecision ? (payment === "paid" ? medicalSplit.overQuota : 0) : 0;
+      paidDays = medicalSplit.withinQuota + overQuotaPaid;
+      unpaidDays = total - paidDays;
+    } else if (needsDecision && !isEmergency) {
+      paidDays = payment === "paid" ? total : 0;
+      unpaidDays = payment === "unpaid" ? total : 0;
+    } else {
+      paidDays = Number(request.paid_days);
+      unpaidDays = Number(request.unpaid_days);
+    }
     const { error } = await supabase
       .from("leave_requests")
       .update({
@@ -658,28 +708,62 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
 
       {/* Payment decision — Principal only, non-emergency */}
       {!isHod && needsDecision && !isEmergency && (
-        <div className="mt-4 rounded-lg border border-border p-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="mt-4 rounded-lg border border-border p-3 space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Salary decision for this {leaveTypeLabel(request.leave_type as LeaveType).toLowerCase()}
           </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant={payment === "paid" ? "default" : "outline"}
-              onClick={() => setPayment("paid")}
-            >
-              Paid — no deduction
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={payment === "unpaid" ? "destructive" : "outline"}
-              onClick={() => setPayment("unpaid")}
-            >
-              Unpaid — deduct salary
-            </Button>
-          </div>
+
+          {/* Medical quota info banner */}
+          {isMedical && medicalSplit && (
+            <div className="rounded-lg bg-muted p-3 text-xs space-y-1">
+              <p className="font-semibold text-foreground">
+                Medical Leave Quota — {MEDICAL_PAID_QUOTA} paid days/year
+              </p>
+              <p className="text-muted-foreground">
+                Days already taken this year: <strong>{medicalDaysTaken}</strong>
+              </p>
+              <p className="text-muted-foreground">
+                This request: <strong>{requestDays}</strong> day(s) —{" "}
+                <span className="text-success font-medium">{medicalSplit.withinQuota} within paid quota</span>
+                {medicalSplit.overQuota > 0 && (
+                  <span className="text-destructive font-medium">
+                    {" "}· {medicalSplit.overQuota} over quota (your decision below)
+                  </span>
+                )}
+              </p>
+              {!medicalRequiresDecision && (
+                <p className="text-success font-medium">
+                  ✓ All days are within the paid quota — no deduction needed.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Only show paid/unpaid toggle if over-quota days exist */}
+          {(!isMedical || medicalRequiresDecision) && (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={payment === "paid" ? "default" : "outline"}
+                onClick={() => setPayment("paid")}
+              >
+                {isMedical && medicalSplit?.overQuota
+                  ? `Paid — no deduction for ${medicalSplit.overQuota} over-quota day(s)`
+                  : "Paid — no deduction"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={payment === "unpaid" ? "destructive" : "outline"}
+                onClick={() => setPayment("unpaid")}
+              >
+                {isMedical && medicalSplit?.overQuota
+                  ? `Unpaid — deduct ${medicalSplit.overQuota} over-quota day(s)`
+                  : "Unpaid — deduct salary"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

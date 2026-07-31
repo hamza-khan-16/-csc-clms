@@ -59,17 +59,25 @@ function MarkLeavePage() {
     queryKey: ["markable-teachers", profile?.id, role],
     enabled: !!profile,
     queryFn: async () => {
+      // Fetch admin IDs to exclude from the dropdown
+      const { data: adminRoles } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .eq("role", "admin");
+      const adminIds = new Set((adminRoles ?? []).map((r) => r.user_id));
+
       let q = supabase.from("profiles").select("id, full_name, designation, department_id");
       if (!isPrincipal) q = q.eq("department_id", profile!.department_id ?? "");
       const { data, error } = await q.neq("id", profile!.id).order("full_name");
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []).filter((t) => !adminIds.has(t.id));
     },
   });
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!teacherId) return toast.error("Select a teacher");
+    if (fromDate < todayISO()) return toast.error("Leave cannot be marked for a past date");
     if (toDate < fromDate) return toast.error("To date must be after the from date");
     if (session !== "full_day" && fromDate !== toDate)
       return toast.error("Half day leave must be for a single date");
@@ -146,6 +154,7 @@ function MarkLeavePage() {
                   id="mfrom"
                   type="date"
                   value={fromDate}
+                  min={todayISO()}
                   onChange={(e) => {
                     setFromDate(e.target.value);
                     if (toDate < e.target.value) setToDate(e.target.value);

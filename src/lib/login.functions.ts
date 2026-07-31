@@ -66,6 +66,10 @@ export const registerStaff = createServerFn({ method: "POST" })
       const fullName = String(data?.fullName ?? "").trim();
       if (!email || !password || !fullName) throw new Error("All fields are required");
       if (password.length < 8) throw new Error("Password must be at least 8 characters");
+      if (!/[A-Z]/.test(password)) throw new Error("Password must contain at least 1 uppercase letter");
+      if (!/[a-z]/.test(password)) throw new Error("Password must contain at least 1 lowercase letter");
+      if (!/[0-9]/.test(password)) throw new Error("Password must contain at least 1 number");
+      if (!/[^A-Za-z0-9]/.test(password)) throw new Error("Password must contain at least 1 special character");
       return { ...data, email };
     },
   )
@@ -90,16 +94,18 @@ export const registerStaff = createServerFn({ method: "POST" })
       email_confirm: true,
     });
     if (createError || !created.user)
-      return { error: (createError?.message ?? "Could not create account") as const };
+      return { error: (createError?.message ?? "Could not create account") };
 
     const uid = created.user.id;
     const dept = data.role === "admin" ? null : data.departmentId;
     const approved = data.role === "admin";
 
-    // 3. Insert profile
+    // 3. Insert profile — user_id stored as Firstname.CSC.COM for sign-in lookup
+    const firstWord = data.fullName.replace(/^(Dr\.|Prof\.|Mr\.|Mrs\.|Ms\.|Shri|Smt\.|Er\.|Adv\.)\s*/i, "").split(" ")[0] ?? "";
+    const collegeUserId = firstWord.toLowerCase() + ".CSC.COM";
     const { error: profileError } = await supabaseAdmin.from("profiles").insert({
       id: uid,
-      user_id: data.email,           // will be replaced by trigger on approval
+      user_id: collegeUserId,
       full_name: data.fullName,
       designation: data.designation,
       department_id: dept,
@@ -107,7 +113,7 @@ export const registerStaff = createServerFn({ method: "POST" })
     });
     if (profileError) {
       await supabaseAdmin.auth.admin.deleteUser(uid);
-      return { error: profileError.message as const };
+      return { error: profileError.message };
     }
 
     // 4. Insert role
@@ -116,7 +122,7 @@ export const registerStaff = createServerFn({ method: "POST" })
       .insert({ user_id: uid, role: data.role, department_id: dept });
     if (roleError) {
       await supabaseAdmin.auth.admin.deleteUser(uid);
-      return { error: roleError.message as const };
+      return { error: roleError.message };
     }
 
     // 5. For admin: sign them in immediately and return session tokens
@@ -132,7 +138,7 @@ export const registerStaff = createServerFn({ method: "POST" })
         password: data.password,
       });
       if (signInError || !signIn.session)
-        return { error: "Account created but could not sign in automatically. Please sign in manually." as const };
+        return { error: "Account created but could not sign in automatically. Please sign in manually." };
       return {
         role: "admin" as const,
         access_token: signIn.session.access_token,

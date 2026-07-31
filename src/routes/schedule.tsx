@@ -87,22 +87,15 @@ function TimetableModal({
 }) {
   const fixed = lectures.filter((l) => !l.lecture_date);
 
-  // Collect unique time slots
-  const timeSlots = Array.from(
-    new Set(fixed.map((l) => `${l.start_time}|${l.end_time}`)),
-  )
+  // Collect unique time slots sorted chronologically
+  const timeSlots = Array.from(new Set(fixed.map((l) => `${l.start_time}|${l.end_time}`)))
     .sort()
-    .map((s) => {
-      const [start, end] = s.split("|");
-      return { start, end };
-    });
+    .map((s) => { const [start, end] = s.split("|"); return { start, end }; });
 
   // Map subject → colour
   const subjects = Array.from(new Set(fixed.map((l) => l.subject)));
   const subjectColor: Record<string, (typeof SUBJECT_COLORS)[number]> = {};
-  subjects.forEach((s, i) => {
-    subjectColor[s] = SUBJECT_COLORS[i % SUBJECT_COLORS.length];
-  });
+  subjects.forEach((s, i) => { subjectColor[s] = SUBJECT_COLORS[i % SUBJECT_COLORS.length]; });
 
   function fmt(t: string) {
     const [h, m] = t.split(":").map(Number);
@@ -111,84 +104,118 @@ function TimetableModal({
     return `${hh}:${String(m).padStart(2, "0")} ${ampm}`;
   }
 
-  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const WEEKDAYS = [1, 2, 3, 4, 5, 6];
+  // On mobile we show a day-per-tab view; on md+ we show the full grid
+  const DAY_NAMES_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const DAY_NAMES_FULL  = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const WEEKDAYS_LIST = [1, 2, 3, 4, 5, 6];
+  const [mobileDay, setMobileDay] = useState(1);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-5xl rounded-2xl bg-[#111] text-white shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4">
+      <div className="w-full sm:max-w-5xl rounded-t-2xl sm:rounded-2xl bg-[#111] text-white shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
+
         {/* Header */}
-        <div className="flex items-center justify-between bg-[#0a0a0a] px-6 py-4 border-b border-white/10">
+        <div className="flex items-center justify-between bg-[#0a0a0a] px-4 sm:px-6 py-3 sm:py-4 border-b border-white/10 shrink-0">
           <div>
-            <h2 className="text-lg font-bold">Weekly Timetable</h2>
-            <p className="text-sm text-white/50">{teacherName} · IT dept.</p>
+            <h2 className="text-base sm:text-lg font-bold">Weekly Timetable</h2>
+            <p className="text-xs sm:text-sm text-white/50">{teacherName}</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 hover:bg-white/10 transition-colors"
-          >
+          <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-white/10 transition-colors">
             <X className="size-5" />
           </button>
         </div>
 
-        {/* Grid */}
-        <div className="overflow-x-auto p-4">
+        {/* Mobile: day tab strip */}
+        <div className="flex gap-1 px-3 pt-3 pb-1 overflow-x-auto md:hidden shrink-0">
+          {WEEKDAYS_LIST.map((dow, i) => (
+            <button
+              key={dow}
+              type="button"
+              onClick={() => setMobileDay(dow)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors",
+                mobileDay === dow
+                  ? "bg-white text-black"
+                  : "text-white/50 hover:text-white hover:bg-white/10",
+              )}
+            >
+              {DAY_NAMES_SHORT[i]}
+            </button>
+          ))}
+        </div>
+
+        {/* Mobile: stacked card view */}
+        <div className="md:hidden overflow-y-auto p-3 space-y-2 flex-1">
+          {timeSlots.length === 0 ? (
+            <p className="py-8 text-center text-white/40 text-sm">No fixed lectures yet.</p>
+          ) : (
+            timeSlots.map((slot) => {
+              const cell = fixed.find(
+                (l) => l.day_of_week === mobileDay && l.start_time === slot.start && l.end_time === slot.end,
+              );
+              if (!cell) return null;
+              const col = subjectColor[cell.subject];
+              return (
+                <div key={`${slot.start}-${slot.end}`} className={cn("rounded-xl p-3", col.bg)}>
+                  <p className={cn("font-bold text-sm", col.text)}>{cell.subject}</p>
+                  <p className={cn("text-xs mt-0.5 opacity-80", col.text)}>
+                    {cell.class_name}{cell.room ? ` · ${cell.room}` : ""} · {fmt(slot.start)}–{fmt(slot.end)}
+                  </p>
+                </div>
+              );
+            }).filter(Boolean)
+          )}
+          {timeSlots.length > 0 &&
+            !timeSlots.some((slot) =>
+              fixed.find((l) => l.day_of_week === mobileDay && l.start_time === slot.start),
+            ) && (
+              <p className="py-6 text-center text-white/40 text-sm">
+                No lectures on {DAY_NAMES_FULL[mobileDay - 1]}.
+              </p>
+            )}
+        </div>
+
+        {/* Desktop: full grid */}
+        <div className="hidden md:block overflow-auto flex-1 p-4">
           <table className="w-full border-separate border-spacing-1 text-sm">
             <thead>
               <tr>
                 <th className="w-28 pb-2 text-left text-xs text-white/40 font-normal" />
-                {dayNames.map((d) => (
-                  <th key={d} className="pb-2 text-center text-xs font-semibold text-white/70">
-                    {d}
-                  </th>
+                {DAY_NAMES_SHORT.map((d) => (
+                  <th key={d} className="pb-2 text-center text-xs font-semibold text-white/70 min-w-[90px]">{d}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {timeSlots.map((slot) => (
-                <tr key={`${slot.start}-${slot.end}`}>
-                  <td className="pr-3 text-right text-xs text-white/40 font-mono whitespace-nowrap align-middle">
-                    {fmt(slot.start)}–{fmt(slot.end)}
-                  </td>
-                  {WEEKDAYS.map((dow) => {
-                    const cell = fixed.find(
-                      (l) =>
-                        l.day_of_week === dow &&
-                        l.start_time === slot.start &&
-                        l.end_time === slot.end,
-                    );
-                    if (!cell) {
-                      return <td key={dow} className="rounded-md bg-white/5 min-w-[90px] h-14" />;
-                    }
-                    const col = subjectColor[cell.subject];
-                    return (
-                      <td
-                        key={dow}
-                        className={cn(
-                          "rounded-md px-2 py-1.5 min-w-[90px] h-14 align-top",
-                          col.bg,
-                        )}
-                      >
-                        <p className={cn("font-bold text-xs leading-tight", col.text)}>
-                          {cell.subject}
-                        </p>
-                        <p className={cn("text-[10px] opacity-80 mt-0.5", col.text)}>
-                          {cell.class_name}
-                          {cell.room ? ` · ${cell.room}` : ""}
-                        </p>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-              {timeSlots.length === 0 && (
+              {timeSlots.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-white/40 text-sm">
-                    No fixed lectures in your timetable yet. Add lectures using the form on the
-                    right.
+                    No fixed lectures in your timetable yet.
                   </td>
                 </tr>
+              ) : (
+                timeSlots.map((slot) => (
+                  <tr key={`${slot.start}-${slot.end}`}>
+                    <td className="pr-3 text-right text-xs text-white/40 font-mono whitespace-nowrap align-middle">
+                      {fmt(slot.start)}–{fmt(slot.end)}
+                    </td>
+                    {WEEKDAYS_LIST.map((dow) => {
+                      const cell = fixed.find(
+                        (l) => l.day_of_week === dow && l.start_time === slot.start && l.end_time === slot.end,
+                      );
+                      if (!cell) return <td key={dow} className="rounded-md bg-white/5 min-w-[90px] h-14" />;
+                      const col = subjectColor[cell.subject];
+                      return (
+                        <td key={dow} className={cn("rounded-md px-2 py-1.5 min-w-[90px] h-14 align-top", col.bg)}>
+                          <p className={cn("font-bold text-xs leading-tight", col.text)}>{cell.subject}</p>
+                          <p className={cn("text-[10px] opacity-80 mt-0.5", col.text)}>
+                            {cell.class_name}{cell.room ? ` · ${cell.room}` : ""}
+                          </p>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -196,7 +223,7 @@ function TimetableModal({
 
         {/* Legend */}
         {subjects.length > 0 && (
-          <div className="flex flex-wrap gap-3 px-6 pb-5">
+          <div className="flex flex-wrap gap-3 px-4 sm:px-6 py-3 border-t border-white/10 shrink-0">
             {subjects.map((s) => {
               const col = subjectColor[s];
               return (
@@ -265,7 +292,7 @@ function SchedulePage() {
       if (error) throw error;
 
       // Fetch absentee names
-      const reqIds = (data ?? []).map((p) => p.leave_request_id);
+      const reqIds = (data ?? []).map((p) => p.leave_request_id).filter((id): id is string => id !== null);
       let nameMap: Record<string, string> = {};
       if (reqIds.length) {
         const { data: reqs } = await supabase
@@ -296,7 +323,7 @@ function SchedulePage() {
         lecture_date: p.proxy_date,
         is_proxy: true,
         proxy_status: p.status as string,
-        covering_for: nameMap[p.leave_request_id] ?? null,
+        covering_for: p.leave_request_id ? (nameMap[p.leave_request_id] ?? null) : null,
       })) as Lecture[];
     },
   });
@@ -653,41 +680,47 @@ function LectureRow({
   showDate?: boolean;
 }) {
   return (
-    <li className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3 text-sm">
-      <span className="w-40 shrink-0 text-muted-foreground">
-        {fmtTime(l.start_time)} – {fmtTime(l.end_time)}
-      </span>
-      <span className="flex-1 font-semibold">{l.subject}</span>
-      <span className="text-muted-foreground">{l.class_name}</span>
-      {l.room && <span className="text-muted-foreground">{l.room}</span>}
-
-      {l.is_proxy ? (
-        <Badge
-          variant="secondary"
-          className={
-            l.proxy_status === "accepted"
-              ? "border border-warning/30 bg-warning/12 text-warning-foreground"
-              : "border border-muted-foreground/30 bg-muted text-muted-foreground"
-          }
-        >
-          {l.proxy_status === "accepted" ? "Proxy" : "Proxy (pending your response)"} · covering {l.covering_for ?? "colleague"}
-          {showDate && l.lecture_date ? ` · ${fmtDate(l.lecture_date)}` : ""}
-        </Badge>
-      ) : l.lecture_date ? (
-        <Badge variant="outline" className="border-info/30 bg-info/12 text-info">
-          Added{showDate ? ` · ${fmtDate(l.lecture_date)}` : ""}
-        </Badge>
-      ) : (
-        <Badge variant="outline" className="text-muted-foreground">
-          Every week
-        </Badge>
-      )}
-
-      {onRemove && (
-        <Button variant="ghost" size="icon" onClick={() => onRemove(l.id)}>
-          <Trash2 className="size-4" />
-        </Button>
-      )}
+    <li className="rounded-lg border border-border p-3 text-sm">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span className="font-semibold truncate">{l.subject}</span>
+            <span className="text-muted-foreground text-xs">{l.class_name}</span>
+            {l.room && <span className="text-muted-foreground text-xs">· {l.room}</span>}
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {fmtTime(l.start_time)} – {fmtTime(l.end_time)}
+            {showDate && l.lecture_date ? ` · ${fmtDate(l.lecture_date)}` : ""}
+          </p>
+          <div className="mt-1.5">
+            {l.is_proxy ? (
+              <Badge
+                variant="secondary"
+                className={
+                  l.proxy_status === "accepted"
+                    ? "border border-warning/30 bg-warning/12 text-warning-foreground text-[10px]"
+                    : "border border-muted-foreground/30 bg-muted text-muted-foreground text-[10px]"
+                }
+              >
+                {l.proxy_status === "accepted" ? "Proxy" : "Proxy (pending)"} · covering {l.covering_for ?? "colleague"}
+              </Badge>
+            ) : l.lecture_date ? (
+              <Badge variant="outline" className="border-info/30 bg-info/12 text-info text-[10px]">
+                Added lecture
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-muted-foreground text-[10px]">
+                Every week
+              </Badge>
+            )}
+          </div>
+        </div>
+        {onRemove && (
+          <Button variant="ghost" size="icon" className="shrink-0 -mt-1" onClick={() => onRemove(l.id)}>
+            <Trash2 className="size-4" />
+          </Button>
+        )}
+      </div>
     </li>
   );
 }

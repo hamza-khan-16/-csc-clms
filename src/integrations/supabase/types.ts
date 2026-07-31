@@ -102,8 +102,13 @@ export type Database = {
         }
         Insert: {
           applied_by?: string | null
+          auto_approved_at?: string | null
           created_at?: string
           department_id?: string | null
+          doc_acted_at?: string | null
+          doc_note?: string | null
+          doc_status?: "required" | "uploaded" | "verified" | null
+          doc_url?: string | null
           from_date: string
           hod_acted_at?: string | null
           hod_note?: string | null
@@ -123,8 +128,13 @@ export type Database = {
         }
         Update: {
           applied_by?: string | null
+          auto_approved_at?: string | null
           created_at?: string
           department_id?: string | null
+          doc_acted_at?: string | null
+          doc_note?: string | null
+          doc_status?: "required" | "uploaded" | "verified" | null
+          doc_url?: string | null
           from_date?: string
           hod_acted_at?: string | null
           hod_note?: string | null
@@ -280,11 +290,12 @@ export type Database = {
       }
       proxy_assignments: {
         Row: {
+          absentee_teacher_id: string | null
           class_name: string
           created_at: string
           end_time: string
           id: string
-          leave_request_id: string
+          leave_request_id: string | null
           lecture_id: string | null
           proxy_date: string
           proxy_teacher_id: string | null
@@ -293,11 +304,12 @@ export type Database = {
           subject: string
         }
         Insert: {
+          absentee_teacher_id?: string | null
           class_name: string
           created_at?: string
           end_time: string
           id?: string
-          leave_request_id: string
+          leave_request_id?: string | null
           lecture_id?: string | null
           proxy_date: string
           proxy_teacher_id?: string | null
@@ -306,11 +318,12 @@ export type Database = {
           subject: string
         }
         Update: {
+          absentee_teacher_id?: string | null
           class_name?: string
           created_at?: string
           end_time?: string
           id?: string
-          leave_request_id?: string
+          leave_request_id?: string | null
           lecture_id?: string | null
           proxy_date?: string
           proxy_teacher_id?: string | null
@@ -334,6 +347,75 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      compensation_assignments: {
+        Row: {
+          compensation_date: string
+          created_at: string
+          from_teacher_id: string
+          id: string
+          lecture_id: string
+          note: string | null
+          proxy_assignment_id: string
+          status: string
+          to_teacher_id: string
+        }
+        Insert: {
+          compensation_date: string
+          created_at?: string
+          from_teacher_id: string
+          id?: string
+          lecture_id: string
+          note?: string | null
+          proxy_assignment_id: string
+          status?: string
+          to_teacher_id: string
+        }
+        Update: {
+          compensation_date?: string
+          created_at?: string
+          from_teacher_id?: string
+          id?: string
+          lecture_id?: string
+          note?: string | null
+          proxy_assignment_id?: string
+          status?: string
+          to_teacher_id?: string
+        }
+        Relationships: []
+      }
+      password_change_requests: {
+        Row: {
+          acted_at: string | null
+          created_at: string
+          hod_id: string | null
+          hod_note: string | null
+          id: string
+          new_password_temp: string | null
+          status: string
+          teacher_id: string
+        }
+        Insert: {
+          acted_at?: string | null
+          created_at?: string
+          hod_id?: string | null
+          hod_note?: string | null
+          id?: string
+          new_password_temp?: string | null
+          status?: string
+          teacher_id: string
+        }
+        Update: {
+          acted_at?: string | null
+          created_at?: string
+          hod_id?: string | null
+          hod_note?: string | null
+          id?: string
+          new_password_temp?: string | null
+          status?: string
+          teacher_id?: string
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {
@@ -398,7 +480,7 @@ export type Database = {
       app_role: "teacher" | "hod" | "principal" | "admin"
       leave_session: "full_day" | "forenoon" | "afternoon"
       leave_status: "pending_hod" | "hod_recommended" | "pending_principal" | "hod_approved" | "approved" | "rejected"
-      leave_type: "casual" | "maternity" | "bereavement" | "other" | "emergency" | "medical" | "duty"
+      leave_type: "casual" | "maternity" | "bereavement" | "emergency" | "medical" | "duty"
       proxy_status: "pending" | "accepted" | "rejected"
     }
     CompositeTypes: {
@@ -530,7 +612,7 @@ export const Constants = {
       app_role: ["teacher", "hod", "principal", "admin"],
       leave_session: ["full_day", "forenoon", "afternoon"],
       leave_status: ["pending_hod", "hod_recommended", "pending_principal", "hod_approved", "approved", "rejected"],
-      leave_type: ["casual", "maternity", "bereavement", "other", "emergency", "medical", "duty"],
+      leave_type: ["casual", "maternity", "bereavement", "emergency", "medical", "duty"],
       proxy_status: ["pending", "accepted", "rejected"],
     },
   },

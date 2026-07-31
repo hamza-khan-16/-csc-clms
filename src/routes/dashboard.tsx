@@ -8,11 +8,10 @@ import { useBalances } from "@/hooks/useBalances";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, StatusBadge, Empty } from "@/components/ui-bits";
-import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL } from "@/lib/leave";
+import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL, MEDICAL_PAID_QUOTA } from "@/lib/leave";
 import type { LeaveStatus, LeaveType, LeaveSession } from "@/lib/leave";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
-import { money, perDaySalary } from "@/lib/leave";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -126,13 +125,30 @@ function TeacherDashboard() {
         .lte("from_date", lastISO)
         .gte("to_date", first);
       if (error) throw error;
-      const salary = Number(profile!.monthly_salary ?? 0);
       const paidDays = (data ?? []).reduce((s, r) => s + Number(r.paid_days), 0);
       const unpaidDays = (data ?? []).reduce((s, r) => s + Number(r.unpaid_days), 0);
-      const deduction = Math.round(unpaidDays * perDaySalary(salary));
-      return { paidDays, unpaidDays, deduction, net: Math.max(salary - deduction, 0) };
+      return { paidDays, unpaidDays, deduction: 0, net: 0 };
     },
   });
+
+  // Medical leave: how many paid days used this year vs the 10-day quota
+  const { data: medicalUsed = 0 } = useQuery({
+    queryKey: ["medical-days-used", profile?.id],
+    enabled: !!profile,
+    queryFn: async () => {
+      const year = new Date().getFullYear();
+      const { data } = await supabase
+        .from("leave_requests")
+        .select("total_days")
+        .eq("teacher_id", profile!.id)
+        .eq("leave_type", "medical")
+        .in("status", ["hod_approved", "approved"])
+        .gte("from_date", `${year}-01-01`);
+      return (data ?? []).reduce((s, r) => s + Number(r.total_days), 0);
+    },
+  });
+  const medicalPaidRemaining = Math.max(0, MEDICAL_PAID_QUOTA - medicalUsed);
+  const medicalPaidExhausted = medicalUsed >= MEDICAL_PAID_QUOTA;
 
   const { data: pendingForHod = 0 } = useQuery({
     queryKey: ["hod-pending-count", profile?.department_id],
@@ -163,7 +179,7 @@ function TeacherDashboard() {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {balances
           .filter((b) => b.type === "casual")
           .map((b) => {
@@ -190,22 +206,30 @@ function TeacherDashboard() {
             />
           );
           })}
+
+        {/* Medical leave paid quota card */}
         <StatCard
-          label="Monthly Salary"
-          value={money(Number(profile?.monthly_salary ?? 0))}
-          hint={`${money(perDaySalary(Number(profile?.monthly_salary ?? 0)))} per working day`}
+          label="Medical Leave (Paid)"
+          value={`${medicalPaidRemaining} / ${MEDICAL_PAID_QUOTA}`}
+          hint={
+            medicalPaidExhausted
+              ? `${medicalUsed} days used — quota exhausted, further leave needs principal approval`
+              : `paid days remaining this year · ${medicalUsed} used`
+          }
+          tone={
+            medicalPaidExhausted
+              ? "destructive"
+              : medicalPaidRemaining <= 3
+              ? "warning"
+              : "default"
+          }
         />
+
         <StatCard
           label="Unpaid Leave (This Month)"
           value={payroll.unpaidDays}
           tone={payroll.unpaidDays > 0 ? "destructive" : "success"}
-          hint={payroll.unpaidDays > 0 ? `− ${money(payroll.deduction)} from salary` : "no deduction"}
-        />
-        <StatCard
-          label="Net Pay (This Month)"
-          value={money(payroll.net)}
-          tone={payroll.deduction > 0 ? "warning" : "success"}
-          hint="after unpaid leave deductions"
+          hint={payroll.unpaidDays > 0 ? "salary deduction will apply" : "no deduction this month"}
         />
       </div>
 
@@ -213,12 +237,8 @@ function TeacherDashboard() {
         <div className="lg:col-span-2">
           <MonthCalendar teacherId={profile?.id} />
         </div>
-        <SectionCard title="Payroll snapshot" subtitle="Current month">
+        <SectionCard title="Leave summary" subtitle="Current month">
           <ul className="space-y-2 text-sm">
-            <li className="flex justify-between">
-              <span className="text-muted-foreground">Gross salary</span>
-              <span className="font-semibold">{money(Number(profile?.monthly_salary ?? 0))}</span>
-            </li>
             <li className="flex justify-between">
               <span className="text-muted-foreground">Paid leave days</span>
               <span className="font-semibold text-success">{payroll.paidDays}</span>
@@ -228,16 +248,12 @@ function TeacherDashboard() {
               <span className="font-semibold text-destructive">{payroll.unpaidDays}</span>
             </li>
             <li className="flex justify-between">
-              <span className="text-muted-foreground">Deduction</span>
-              <span className="font-semibold text-destructive">− {money(payroll.deduction)}</span>
-            </li>
-            <li className="flex justify-between border-t border-border pt-2">
-              <span className="font-bold">Net payable</span>
-              <span className="font-extrabold">{money(payroll.net)}</span>
+              <span className="text-muted-foreground">Medical paid remaining</span>
+              <span className={medicalPaidExhausted ? "font-semibold text-destructive" : "font-semibold"}>{medicalPaidRemaining} / {MEDICAL_PAID_QUOTA}</span>
             </li>
           </ul>
           <Button asChild variant="secondary" className="mt-4 w-full">
-            <Link to="/payroll">Open payroll</Link>
+            <Link to="/payroll">View leave history</Link>
           </Button>
         </SectionCard>
       </div>
