@@ -6,7 +6,7 @@
 
 INSERT INTO public.holidays (holiday_date, occasion, kind) VALUES
 -- ── 2025 ──────────────────────────────────────────────────────
-
+('2025-01-01', 'New Year''s Day',                    'National'),
 ('2025-01-14', 'Makar Sankranti / Pongal',           'National'),
 ('2025-01-26', 'Republic Day',                       'National'),
 ('2025-02-26', 'Maha Shivaratri',                    'Gazetted'),

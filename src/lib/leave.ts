@@ -1,4 +1,4 @@
-export type LeaveType = "casual" | "maternity" | "bereavement" | "emergency" | "medical" | "duty";
+export type LeaveType = "casual" | "maternity" | "bereavement" | "medical" | "duty";
 export type LeaveSession = "full_day" | "forenoon" | "afternoon";
 export type LeaveStatus =
   | "pending_hod"
@@ -14,7 +14,6 @@ export const LEAVE_TYPES: { value: LeaveType; label: string; yearly: number; mon
   { value: "casual",      label: "Casual Leave",      yearly: 12, monthly: 2, info: "2/month · 12/year · paid" },
   { value: "maternity",   label: "Maternity Leave",   yearly: 90,             info: "Up to 90 days" },
   { value: "bereavement", label: "Bereavement Leave", yearly: 5,              info: "Up to 5 days" },
-  { value: "emergency",   label: "Emergency Leave",   yearly: 6,              info: "Auto-approved · unpaid" },
   {
     value: "medical",
     label: "Medical Leave",
@@ -101,26 +100,6 @@ export function statusClasses(status: LeaveStatus) {
   }
 }
 
-/** Emergency leave auto-approves 5 hours after submission; always unpaid. */
-export const EMERGENCY_AUTO_APPROVE_MS = 5 * 60 * 60 * 1000;
-
-/** Returns ms remaining until auto-approval, or 0 if already past. */
-export function emergencyMsRemaining(createdAt: string): number {
-  const elapsed = Date.now() - new Date(createdAt).getTime();
-  return Math.max(0, EMERGENCY_AUTO_APPROVE_MS - elapsed);
-}
-
-/** Format ms as "Xh Ym" */
-export function fmtMs(ms: number): string {
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
 export const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export function fmtDate(d: string | Date) {
@@ -135,26 +114,43 @@ export function fmtTime(t: string) {
   return `${hour}:${String(m).padStart(2, "0")} ${suffix}`;
 }
 
-export function eachDate(from: string, to: string) {
+/**
+ * Returns all dates from `from` to `to` inclusive (YYYY-MM-DD strings).
+ * Uses integer arithmetic to avoid timezone drift so 12/08 → 17/08 gives
+ * exactly 6 dates: 12, 13, 14, 15, 16, 17.
+ */
+export function eachDate(from: string, to: string): string[] {
   const out: string[] = [];
-  const start = new Date(from + "T00:00:00");
-  const end = new Date(to + "T00:00:00");
-  for (let d = start; d <= end; d.setDate(d.getDate() + 1)) {
-    out.push(d.toISOString().slice(0, 10));
+  // Parse as local-midnight to avoid UTC-offset shifts
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  const start = new Date(fy, fm - 1, fd);
+  const end   = new Date(ty, tm - 1, td);
+  // Clone start so we don't mutate it
+  const cur = new Date(start);
+  while (cur <= end) {
+    const y = cur.getFullYear();
+    const mo = String(cur.getMonth() + 1).padStart(2, "0");
+    const dy = String(cur.getDate()).padStart(2, "0");
+    out.push(`${y}-${mo}-${dy}`);
+    cur.setDate(cur.getDate() + 1);
   }
   return out;
 }
 
-export const todayISO = () => new Date().toISOString().slice(0, 10);
+export const todayISO = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
 
 /** Leave types a teacher tracks a monthly quota for (shown on the dashboard). */
 export const QUOTA_LEAVE_TYPES: LeaveType[] = ["casual"];
 
 /** Types where the HOD must choose paid or unpaid before any salary effect. */
-export const needsPaymentDecision = (t: LeaveType) => t !== "casual" && t !== "emergency";
-
-/** Emergency leave is always unpaid — no quota consumed, salary always cut. */
-export const isAlwaysUnpaid = (t: LeaveType) => t === "emergency";
+export const needsPaymentDecision = (t: LeaveType) => t !== "casual";
 
 /**
  * Number of medical leave days a teacher gets fully paid per year without
@@ -199,4 +195,27 @@ export function money(amount: number) {
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(Math.round(amount));
+}
+
+/**
+ * Compute working days for a leave request, correctly handling:
+ * - Inclusive date range (both from and to are counted)
+ * - Sundays excluded
+ * - Holidays excluded
+ * - Half-day sessions counted as 0.5
+ */
+export function countWorkingDays(
+  from: string,
+  to: string,
+  session: LeaveSession,
+  holidaySet: Set<string>,
+): { total: number; skipped: number; workingDates: string[] } {
+  const allDates = eachDate(from, to);
+  const workingDates = allDates.filter(
+    (d) => new Date(d + "T00:00:00").getDay() !== 0 && !holidaySet.has(d),
+  );
+  const skipped = allDates.length - workingDates.length;
+  let total = workingDates.length;
+  if (session !== "full_day") total = Math.min(total, 1) * 0.5;
+  return { total, skipped, workingDates };
 }

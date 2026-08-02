@@ -31,42 +31,7 @@ export const Route = createFileRoute("/")({
   component: SignInPage,
 });
 
-const SALUTATIONS = [
-  "Mr.",
-  "Mrs.",
-  "Ms.",
-  "Miss",
-  "Shri",
-  "Smt.",
-  "Kumari",
-  "Sushri",
-  "M/S",
-  "Dr.",
-  "Prof.",
-  "Er.",
-  "Adv.",
-  "CA",
-  "Ar.",
-  "CS",
-  "Hon'ble",
-  "Justice",
-  "Gen.",
-  "Lt. Gen.",
-  "Maj. Gen.",
-  "Brig.",
-  "Col.",
-  "Lt. Col.",
-  "Maj.",
-  "Capt.",
-  "Lt.",
-  "Adm.",
-  "Cdr.",
-  "ACM",
-  "Air Mshl",
-  "Wg. Cdr.",
-  "Sqn. Ldr.",
-]
-
+const SALUTATIONS = ["Dr.", "Prof.", "Mr.", "Mrs.", "Ms.", "Shri", "Smt.", "Er.", "Adv."];
 
 const PW_RULES = [
   { re: /.{8,}/, label: "At least 8 characters" },

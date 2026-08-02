@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { fetchPeople } from "@/lib/people";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
-import { SectionCard, Empty } from "@/components/ui-bits";
+import { Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -20,15 +20,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fmtDate, fmtTime, todayISO } from "@/lib/leave";
+import { CalendarClock, UserCheck, BookOpen, CheckCircle2, XCircle, Clock3, Gift } from "lucide-react";
 
 export const Route = createFileRoute("/proxies")({
   head: () => ({
     meta: [
       { title: "Proxy Duties — CSC Leave Management" },
-      {
-        name: "description",
-        content: "Accept or decline proxy lectures assigned to you by your head of department.",
-      },
+      { name: "description", content: "Accept or decline proxy lectures assigned to you by your head of department." },
       { property: "og:title", content: "Proxy Duties — CSC Leave Management" },
       { property: "og:description", content: "Your assigned proxy lectures and their status." },
     ],
@@ -41,7 +39,6 @@ export const Route = createFileRoute("/proxies")({
 });
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function ProxiesPage() {
   const { profile } = useAuth();
@@ -60,14 +57,10 @@ function ProxiesPage() {
       if (error) throw error;
       const raw = data ?? [];
 
-      // Resolve absentee_id: prefer the new direct column, fall back to join, then direct query
       const rowsWithIds = await Promise.all(
         raw.map(async (r) => {
-          // 1. Direct column (new — set on all rows going forward)
           let absenteeId: string | null = (r as any).absentee_teacher_id ?? null;
-          // 2. Join result (works once the RLS policy from migration is applied)
           if (!absenteeId) absenteeId = (r.leave_requests as any)?.teacher_id ?? null;
-          // 3. Direct query fallback
           if (!absenteeId && r.leave_request_id) {
             const { data: lr } = await supabase
               .from("leave_requests")
@@ -90,7 +83,6 @@ function ProxiesPage() {
     },
   });
 
-  // My own lectures (for compensation offer)
   const { data: myLectures = [] } = useQuery({
     queryKey: ["my-lectures-for-comp", profile?.id],
     enabled: !!profile,
@@ -106,7 +98,6 @@ function ProxiesPage() {
     },
   });
 
-  // My outgoing compensation offers
   const { data: myCompOffers = [] } = useQuery({
     queryKey: ["my-comp-offers", profile?.id],
     enabled: !!profile,
@@ -117,14 +108,13 @@ function ProxiesPage() {
         .eq("from_teacher_id", profile!.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      const rows = data ?? [];
-      const toIds = [...new Set(rows.map((r) => r.to_teacher_id))];
+      const offers = data ?? [];
+      const toIds = [...new Set(offers.map((r) => r.to_teacher_id))];
       const people = toIds.length ? await fetchPeople(toIds) : {};
-      return rows.map((r) => ({ ...r, to_teacher: people[r.to_teacher_id] }));
+      return offers.map((r) => ({ ...r, to_teacher: people[r.to_teacher_id] }));
     },
   });
 
-  // Incoming compensation offers
   const { data: incomingOffers = [] } = useQuery({
     queryKey: ["incoming-comp-offers", profile?.id],
     enabled: !!profile,
@@ -135,10 +125,10 @@ function ProxiesPage() {
         .eq("to_teacher_id", profile!.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      const rows = data ?? [];
-      const fromIds = [...new Set(rows.map((r) => r.from_teacher_id))];
+      const offers = data ?? [];
+      const fromIds = [...new Set(offers.map((r) => r.from_teacher_id))];
       const people = fromIds.length ? await fetchPeople(fromIds) : {};
-      return rows.map((r) => ({ ...r, from_teacher: people[r.from_teacher_id] }));
+      return offers.map((r) => ({ ...r, from_teacher: people[r.from_teacher_id] }));
     },
   });
 
@@ -157,32 +147,60 @@ function ProxiesPage() {
     if (error) return toast.error(error.message);
 
     if (status === "accepted" && offer) {
+      // Fetch the source lecture the proxy teacher is gifting
       const { data: srcLecture } = await supabase
         .from("lectures")
-        .select("subject, class_name, start_time, end_time, room, department_id")
+        .select("id, subject, class_name, start_time, end_time, room, department_id, lecture_date, day_of_week")
         .eq("id", offer.lecture_id)
         .maybeSingle();
 
       if (srcLecture) {
         const compDate = offer.compensation_date;
         const dow = new Date(compDate + "T00:00:00").getDay();
-        await supabase.from("lectures").insert({
-          teacher_id: profile!.id,
-          department_id: srcLecture.department_id ?? profile!.department_id,
-          day_of_week: dow,
-          lecture_date: compDate,
-          start_time: srcLecture.start_time,
-          end_time: srcLecture.end_time,
-          subject: srcLecture.subject,
-          class_name: srcLecture.class_name,
-          room: srcLecture.room,
-        });
+        const dept = srcLecture.department_id ?? profile!.department_id;
+
+        if (srcLecture.lecture_date) {
+          // One-off dated lecture — reassign it directly to the leave-taker
+          await supabase
+            .from("lectures")
+            .update({ teacher_id: offer.to_teacher_id })
+            .eq("id", srcLecture.id);
+        } else {
+          // Recurring fixed lecture:
+          // 1. Give the leave-taker a dated copy of this lecture on compDate
+          await supabase.from("lectures").insert({
+            teacher_id: offer.to_teacher_id,
+            department_id: dept,
+            day_of_week: dow,
+            lecture_date: compDate,
+            start_time: srcLecture.start_time,
+            end_time: srcLecture.end_time,
+            subject: srcLecture.subject,
+            class_name: srcLecture.class_name,
+            room: srcLecture.room,
+          });
+
+          // 2. Insert a dated tombstone for the proxy teacher on compDate so their
+          //    fixed lecture is suppressed in schedule/reports on that specific day.
+          //    The subject prefix __COMP_GIVEN__ is filtered out in computeTeacherRow.
+          await supabase.from("lectures").insert({
+            teacher_id: offer.from_teacher_id,
+            department_id: dept,
+            day_of_week: dow,
+            lecture_date: compDate,
+            start_time: srcLecture.start_time,
+            end_time: srcLecture.end_time,
+            subject: `__COMP_GIVEN__${srcLecture.subject}`,
+            class_name: srcLecture.class_name,
+            room: srcLecture.room,
+          });
+        }
       }
     }
 
     toast.success(
       status === "accepted"
-        ? "Compensation accepted — lecture added to your schedule"
+        ? "Compensation accepted — lecture moved to your schedule"
         : "Compensation declined",
     );
     qc.invalidateQueries();
@@ -191,99 +209,129 @@ function ProxiesPage() {
   const pending = rows.filter((r) => r.status === "pending");
   const accepted = rows.filter((r) => r.status === "accepted");
   const handled = rows.filter((r) => r.status !== "pending");
+  const pendingIncoming = incomingOffers.filter((o) => o.status === "pending");
+
+  // Stats
+  const totalAccepted = rows.filter((r) => r.status === "accepted").length;
+  const totalDeclined = rows.filter((r) => r.status === "rejected").length;
+  const totalPending = pending.length;
 
   return (
-    <AppShell title="Proxy Duties" subtitle="Lectures your HOD has asked you to cover">
+    <AppShell title="Proxy Duties" subtitle="Lectures your HOD has assigned you to cover">
       <div className="space-y-6">
+
+        {/* Summary stats strip */}
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: "Awaiting response", value: totalPending, icon: Clock3, color: "text-warning-foreground", bg: "bg-warning/10 border-warning/25" },
+            { label: "Accepted this year", value: totalAccepted, icon: CheckCircle2, color: "text-success", bg: "bg-success/8 border-success/20" },
+            { label: "Declined", value: totalDeclined, icon: XCircle, color: "text-muted-foreground", bg: "bg-muted/60 border-border" },
+          ].map(({ label, value, icon: Icon, color, bg }) => (
+            <div key={label} className={`rounded-xl border p-4 flex items-center gap-3 ${bg}`}>
+              <Icon className={`size-5 shrink-0 ${color}`} />
+              <div>
+                <p className={`text-2xl font-bold ${color}`}>{value}</p>
+                <p className="text-xs text-muted-foreground leading-tight">{label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
         {/* Pending proxy requests */}
-        <SectionCard title="Awaiting your response">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 mb-3">
+            <CalendarClock className="size-4 text-warning-foreground" />
+            <h2 className="font-semibold text-sm">Awaiting your response</h2>
+            {totalPending > 0 && (
+              <span className="ml-1 rounded-full bg-warning/20 text-warning-foreground text-xs font-bold px-2 py-0.5">{totalPending}</span>
+            )}
+          </div>
           {pending.length === 0 ? (
-            <Empty>No proxy requests waiting on you.</Empty>
+            <div className="rounded-xl border border-dashed border-border bg-muted/30 py-10 text-center">
+              <CalendarClock className="mx-auto size-8 text-muted-foreground/40 mb-2" />
+              <p className="text-sm text-muted-foreground">No proxy requests waiting on you.</p>
+            </div>
           ) : (
             <ul className="space-y-3">
               {pending.map((r) => (
-                <li
-                  key={r.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4"
-                >
-                  <div>
-                    <p className="font-semibold">
-                      {r.subject} · {r.class_name}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {fmtDate(r.proxy_date)} · {fmtTime(r.start_time)} – {fmtTime(r.end_time)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Covering for {r.absentee?.full_name ?? "a colleague"}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => respond(r.id, "accepted")}>
-                      Accept
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => respond(r.id, "rejected")}
-                    >
-                      Decline
-                    </Button>
+                <li key={r.id} className="group rounded-xl border border-warning/30 bg-warning/5 overflow-hidden transition-all hover:border-warning/50 hover:bg-warning/8">
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-warning/15">
+                        <BookOpen className="size-4 text-warning-foreground" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm">{r.subject} <span className="text-muted-foreground font-normal">· {r.class_name}</span></p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {fmtDate(r.proxy_date)} · {fmtTime(r.start_time)} – {fmtTime(r.end_time)}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Covering for <span className="font-medium text-foreground">{r.absentee?.full_name ?? "a colleague"}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" className="gap-1.5" onClick={() => respond(r.id, "accepted")}>
+                        <CheckCircle2 className="size-3.5" /> Accept
+                      </Button>
+                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => respond(r.id, "rejected")}>
+                        <XCircle className="size-3.5" /> Decline
+                      </Button>
+                    </div>
                   </div>
                 </li>
               ))}
             </ul>
           )}
-        </SectionCard>
+        </div>
 
         {/* Incoming compensation offers */}
-        {incomingOffers.filter((o) => o.status === "pending").length > 0 && (
-          <SectionCard
-            title="Compensation offers for you"
-            subtitle="A colleague who covered your leave is offering you one of their lectures"
-          >
+        {pendingIncoming.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 mb-3">
+              <Gift className="size-4 text-success" />
+              <h2 className="font-semibold text-sm">Compensation offers for you</h2>
+              <span className="ml-1 rounded-full bg-success/15 text-success text-xs font-bold px-2 py-0.5">{pendingIncoming.length}</span>
+            </div>
             <ul className="space-y-3">
-              {incomingOffers
-                .filter((o) => o.status === "pending")
-                .map((o) => (
-                  <li
-                    key={o.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-success/30 bg-success/8 p-4"
-                  >
-                    <div>
-                      <p className="font-semibold text-success-foreground">
-                        🎁 Compensation from {o.from_teacher?.full_name ?? "a colleague"}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        On {fmtDate(o.compensation_date)}
-                      </p>
-                      {o.note && (
-                        <p className="text-xs text-muted-foreground mt-1">Note: {o.note}</p>
-                      )}
+              {pendingIncoming.map((o) => (
+                <li key={o.id} className="rounded-xl border border-success/25 bg-success/6 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-success/15">
+                        <Gift className="size-4 text-success" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm text-success-foreground">
+                          From {o.from_teacher?.full_name ?? "a colleague"}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Compensation on {fmtDate(o.compensation_date)}</p>
+                        {o.note && <p className="text-xs text-muted-foreground mt-0.5 italic">"{o.note}"</p>}
+                      </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={() => respondToComp(o.id, "accepted", o)}>
-                        Accept
+                      <Button size="sm" className="gap-1.5 bg-success hover:bg-success/90 text-success-foreground" onClick={() => respondToComp(o.id, "accepted", o)}>
+                        <CheckCircle2 className="size-3.5" /> Accept
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => respondToComp(o.id, "rejected", o)}
-                      >
-                        Decline
+                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => respondToComp(o.id, "rejected", o)}>
+                        <XCircle className="size-3.5" /> Decline
                       </Button>
                     </div>
-                  </li>
-                ))}
+                  </div>
+                </li>
+              ))}
             </ul>
-          </SectionCard>
+          </div>
         )}
 
         {/* Compensation offer form for accepted proxies */}
         {accepted.length > 0 && (
-          <SectionCard
-            title="Offer compensation"
-            subtitle="You've covered someone's leave — offer one of your lectures as compensation"
-          >
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 mb-3">
+              <UserCheck className="size-4 text-info" />
+              <h2 className="font-semibold text-sm">Offer compensation</h2>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-1 mb-3">You've covered someone's leave — offer one of your lectures as compensation.</p>
             <ul className="space-y-4">
               {accepted.map((r) => (
                 <CompensationForm
@@ -295,61 +343,91 @@ function ProxiesPage() {
                 />
               ))}
             </ul>
-          </SectionCard>
+          </div>
         )}
 
         {/* History */}
-        <SectionCard title="Proxy History">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 mb-3">
+            <BookOpen className="size-4 text-muted-foreground" />
+            <h2 className="font-semibold text-sm">Proxy history</h2>
+          </div>
           {handled.length === 0 ? (
-            <Empty>Nothing here yet.</Empty>
+            <div className="rounded-xl border border-dashed border-border bg-muted/30 py-8 text-center">
+              <p className="text-sm text-muted-foreground">Nothing here yet.</p>
+            </div>
           ) : (
-            <ul className="space-y-2">
-              {handled.map((r) => (
-                <li
-                  key={r.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm"
-                >
-                  <span>
-                    {fmtDate(r.proxy_date)} · {fmtTime(r.start_time)} · {r.subject} ({r.class_name})
-                    {r.absentee?.full_name ? ` · for ${r.absentee.full_name}` : ""}
-                  </span>
-                  <Badge variant={r.status === "accepted" ? "default" : "secondary"}>
-                    {r.status}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
+            <div className="rounded-xl border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-4 py-2.5 text-left font-semibold">Date</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Subject · Class</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Time</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Covering</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {handled.map((r, i) => (
+                    <tr key={r.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                      <td className="px-4 py-3 font-medium">{fmtDate(r.proxy_date)}</td>
+                      <td className="px-4 py-3">{r.subject} <span className="text-muted-foreground">· {r.class_name}</span></td>
+                      <td className="px-4 py-3 text-muted-foreground">{fmtTime(r.start_time)} – {fmtTime(r.end_time)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{r.absentee?.full_name ?? "—"}</td>
+                      <td className="px-4 py-3 text-right">
+                        <Badge
+                          variant={r.status === "accepted" ? "default" : "secondary"}
+                          className={r.status === "accepted" ? "bg-success/15 text-success border-success/25" : ""}
+                        >
+                          {r.status === "accepted" ? "Accepted" : "Declined"}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
-        </SectionCard>
+        </div>
 
         {/* My outgoing compensation offers */}
         {myCompOffers.length > 0 && (
-          <SectionCard title="My Compensation Offers">
-            <ul className="space-y-2">
-              {myCompOffers.map((o) => (
-                <li
-                  key={o.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm"
-                >
-                  <span>
-                    To {o.to_teacher?.full_name ?? "colleague"} · {fmtDate(o.compensation_date)}
-                    {o.note ? ` · "${o.note}"` : ""}
-                  </span>
-                  <Badge
-                    variant={
-                      o.status === "accepted"
-                        ? "default"
-                        : o.status === "rejected"
-                        ? "destructive"
-                        : "secondary"
-                    }
-                  >
-                    {o.status}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          </SectionCard>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 mb-3">
+              <Gift className="size-4 text-muted-foreground" />
+              <h2 className="font-semibold text-sm">My compensation offers</h2>
+            </div>
+            <div className="rounded-xl border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-4 py-2.5 text-left font-semibold">To</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Date</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Note</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {myCompOffers.map((o, i) => (
+                    <tr key={o.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                      <td className="px-4 py-3 font-medium">{o.to_teacher?.full_name ?? "colleague"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{fmtDate(o.compensation_date)}</td>
+                      <td className="px-4 py-3 text-muted-foreground italic">{o.note ? `"${o.note}"` : "—"}</td>
+                      <td className="px-4 py-3 text-right">
+                        <Badge
+                          variant={o.status === "accepted" ? "default" : o.status === "rejected" ? "destructive" : "secondary"}
+                          className={o.status === "accepted" ? "bg-success/15 text-success border-success/25" : ""}
+                        >
+                          {o.status === "accepted" ? "Accepted" : o.status === "rejected" ? "Declined" : "Pending"}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </div>
     </AppShell>
@@ -357,9 +435,6 @@ function ProxiesPage() {
 }
 
 // ── Compensation Form ─────────────────────────────────────────────────────────
-// Flow: Step 1 — confirm absentee teacher (auto-filled)
-//       Step 2 — pick compensation date
-//       Step 3 — pick a lecture from YOUR schedule on that day's day-of-week
 function CompensationForm({
   proxyRow,
   myLectures,
@@ -377,7 +452,6 @@ function CompensationForm({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Check for existing offer
   const { data: existingOffer } = useQuery({
     queryKey: ["comp-offer-check", proxyRow.id],
     queryFn: async () => {
@@ -391,54 +465,37 @@ function CompensationForm({
     },
   });
 
-  // When date changes, reset lecture selection and filter lectures for that day-of-week
   const selectedDow = useMemo(() => {
     if (!compDate) return null;
     return new Date(compDate + "T00:00:00").getDay();
   }, [compDate]);
 
-  // Filter my lectures to only those on the selected day-of-week
-  // fixed lectures match by day_of_week; dated lectures match by lecture_date == compDate
   const lecturesOnDay = useMemo(() => {
     if (selectedDow === null) return [];
     return myLectures.filter((l) => {
-      if (l.lecture_date) {
-        // dated one-off lecture — must match the exact date
-        return l.lecture_date === compDate;
-      }
-      // regular recurring lecture — match by day of week
+      if (l.lecture_date) return l.lecture_date === compDate;
       return l.day_of_week === selectedDow;
     });
   }, [myLectures, selectedDow, compDate]);
 
-  // Reset lecture selection when date changes
   function handleDateChange(val: string) {
     setCompDate(val);
     setLectureId("");
   }
 
-  // Already sent and not rejected — show status only
   if (existingOffer && existingOffer.status !== "rejected") {
     return (
-      <li className="rounded-lg border border-border p-3 text-sm">
-        <p className="font-medium">
-          {proxyRow.subject} · {fmtDate(proxyRow.proxy_date)} — covering{" "}
-          {proxyRow.absentee?.full_name ?? "colleague"}
-        </p>
+      <li className="rounded-xl border border-border bg-muted/30 p-4 text-sm list-none">
+        <p className="font-medium">{proxyRow.subject} · {fmtDate(proxyRow.proxy_date)} — covering {proxyRow.absentee?.full_name ?? "colleague"}</p>
         <p className="text-xs text-muted-foreground mt-1">
-          Compensation offer already sent · Status:{" "}
-          <span className="font-medium capitalize">{existingOffer.status}</span>
+          Compensation offer sent · Status: <span className="font-medium capitalize">{existingOffer.status}</span>
         </p>
       </li>
     );
   }
 
   async function submit() {
-    if (!proxyRow.absentee_id) {
-      return toast.error(
-        "Could not identify the absent teacher. Run the latest migration (20260730000000_proxy_absentee_fix.sql) and re-load.",
-      );
-    }
+    if (!proxyRow.absentee_id) return toast.error("Could not identify the absent teacher.");
     if (!compDate) return toast.error("Pick a compensation date");
     if (compDate < today) return toast.error("Date must be today or later");
     if (!lectureId) return toast.error("Select a lecture to offer");
@@ -461,89 +518,59 @@ function CompensationForm({
   const absenteeName = proxyRow.absentee?.full_name ?? "colleague";
 
   return (
-    <li className="rounded-lg border border-info/30 bg-info/8 p-4 space-y-4">
-      {/* Header */}
-      <div>
-        <p className="font-semibold text-sm">
-          {proxyRow.subject} · {fmtDate(proxyRow.proxy_date)}
+    <li className="rounded-xl border border-info/25 bg-info/5 p-4 list-none">
+      <div className="mb-4">
+        <p className="font-semibold text-sm">{proxyRow.subject} · {fmtDate(proxyRow.proxy_date)}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          You covered <span className="font-medium text-foreground">{absenteeName}</span>'s lecture
         </p>
-        <p className="text-xs text-muted-foreground">
-          You covered <span className="font-medium">{absenteeName}</span>'s lecture — offer them
-          one of yours as compensation
+        <p className="text-xs text-info mt-1">
+          ℹ️ The lecture you select below will be <strong>moved</strong> to {absenteeName}'s schedule on the chosen date — it will no longer appear in yours.
         </p>
       </div>
 
-      {/* Step 1 — Teacher (auto-filled, read-only) */}
-      <div className="space-y-1">
-        <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Step 1 · Teacher to compensate
-        </Label>
-        <div className="h-8 px-3 flex items-center rounded-md border border-border bg-muted text-sm text-foreground">
-          {absenteeName}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Compensate</Label>
+          <div className="h-9 px-3 flex items-center rounded-md border border-border bg-muted text-sm">{absenteeName}</div>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</Label>
+          <Input type="date" min={today} value={compDate} onChange={(e) => handleDateChange(e.target.value)} className="h-9 text-sm" />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Your lecture {compDate && selectedDow !== null ? `(${DAY_NAMES[selectedDow]}s)` : ""}
+          </Label>
+          {!compDate ? (
+            <div className="h-9 px-3 flex items-center rounded-md border border-dashed border-border text-xs text-muted-foreground">Pick a date first</div>
+          ) : lecturesOnDay.length === 0 ? (
+            <div className="h-9 px-3 flex items-center rounded-md border border-destructive/30 text-xs text-destructive">No lectures on this day</div>
+          ) : (
+            <Select value={lectureId} onValueChange={setLectureId}>
+              <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select lecture…" /></SelectTrigger>
+              <SelectContent>
+                {lecturesOnDay.map((l) => (
+                  <SelectItem key={l.id} value={l.id}>
+                    {fmtTime(l.start_time)} · {l.subject} ({l.class_name})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
       </div>
 
-      {/* Step 2 — Pick a date */}
-      <div className="space-y-1">
-        <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Step 2 · Compensation date
-        </Label>
-        <Input
-          type="date"
-          min={today}
-          value={compDate}
-          onChange={(e) => handleDateChange(e.target.value)}
-          className="h-8 text-xs"
-        />
-        {compDate && selectedDow !== null && (
-          <p className="text-xs text-muted-foreground">
-            Showing your <span className="font-medium">{DAY_NAMES[selectedDow]}</span> lectures
-            below
-          </p>
-        )}
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <div className="flex-1 min-w-48 space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Note (optional)</Label>
+          <Input placeholder="Add a message…" value={note} onChange={(e) => setNote(e.target.value)} className="h-9 text-sm" />
+        </div>
+        <Button size="sm" onClick={submit} disabled={busy || !compDate || !lectureId} className="gap-1.5">
+          <Gift className="size-3.5" />
+          {busy ? "Sending…" : "Send offer"}
+        </Button>
       </div>
-
-      {/* Step 3 — Pick lecture on that day */}
-      <div className="space-y-1">
-        <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Step 3 · Your lecture on that day
-        </Label>
-        {!compDate ? (
-          <p className="text-xs text-muted-foreground italic">Pick a date first to see available lectures</p>
-        ) : lecturesOnDay.length === 0 ? (
-          <p className="text-xs text-destructive">
-            You have no lectures on {DAY_NAMES[selectedDow!]}s. Pick a different date.
-          </p>
-        ) : (
-          <Select value={lectureId} onValueChange={setLectureId}>
-            <SelectTrigger className="text-xs h-8">
-              <SelectValue placeholder="Select a lecture…" />
-            </SelectTrigger>
-            <SelectContent>
-              {lecturesOnDay.map((l) => (
-                <SelectItem key={l.id} value={l.id}>
-                  {fmtTime(l.start_time)} – {fmtTime(l.end_time)} · {l.subject} ({l.class_name})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-
-      {/* Optional note */}
-      <div className="space-y-1">
-        <Label className="text-xs">Note (optional)</Label>
-        <Input
-          placeholder={`e.g. Taking your ${compDate ? DAY_NAMES[selectedDow!] : ""} lecture for you`}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          className="h-8 text-xs"
-        />
-      </div>
-
-      <Button size="sm" onClick={submit} disabled={busy || !compDate || !lectureId}>
-        {busy ? "Sending…" : "Send Compensation Offer"}
-      </Button>
     </li>
   );
 }

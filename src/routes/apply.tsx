@@ -23,13 +23,14 @@ import {
 } from "@/components/ui/select";
 import {
   LEAVE_TYPES,
-  eachDate,
+  countWorkingDays,
   fmtDate,
   todayISO,
   isHodFinalLeave,
   docLabel,
   getMedicalFlow,
   type LeaveType,
+  type LeaveSession,
   type LeaveStatus,
 } from "@/lib/leave";
 
@@ -46,7 +47,7 @@ export const Route = createFileRoute("/apply")({
   head: () => ({
     meta: [
       { title: "Apply for Leave — CSC Leave Management" },
-      { name: "description", content: "Apply for casual, maternity, bereavement, emergency or medical leave." },
+      { name: "description", content: "Apply for casual, maternity, bereavement or medical leave." },
       { property: "og:title", content: "Apply for Leave — CSC Leave Management" },
       { property: "og:description", content: "Submit a leave request to your HOD and principal." },
     ],
@@ -58,12 +59,13 @@ export const Route = createFileRoute("/apply")({
   ),
 });
 
+// Reason is now optional — min length removed
 const schema = z.object({
-  leaveType: z.enum(["casual", "maternity", "bereavement", "emergency", "medical", "duty"]),
+  leaveType: z.enum(["casual", "maternity", "bereavement", "medical", "duty"]),
   fromDate: z.string().min(1, "Select a from date"),
   toDate: z.string().min(1, "Select a to date"),
   session: z.enum(["full_day", "forenoon", "afternoon"]),
-  reason: z.string().trim().min(5, "Please give a reason").max(500, "Reason is too long"),
+  reason: z.string().trim().max(500, "Reason is too long"),
 });
 
 function ApplyPage() {
@@ -75,12 +77,11 @@ function ApplyPage() {
   const [leaveType, setLeaveType] = useState<LeaveType>("casual");
   const [fromDate, setFromDate] = useState(todayISO());
   const [toDate, setToDate] = useState(todayISO());
-  const [session, setSession] = useState("full_day");
+  const [session, setSession] = useState<LeaveSession>("full_day");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
 
   const isMedical  = leaveType === "medical";
-  const isEmergency = leaveType === "emergency";
   // Duty leave is always hodFinal; medical depends on days
   const isDutyHodFinal = isHodFinalLeave(leaveType) && !isMedical;
   const requiredDoc = docLabel(leaveType);
@@ -94,8 +95,6 @@ function ApplyPage() {
     },
   });
 
-  // Fetch teacher's own active (non-rejected) leaves for overlap check
-  // Medical leave is excluded from overlap blocking (can span past/future)
   const { data: activeLeaves = [] } = useQuery({
     queryKey: ["my-active-leaves", profile?.id],
     enabled: !!profile?.id,
@@ -117,28 +116,19 @@ function ApplyPage() {
     ) ?? null;
   }, [fromDate, toDate, activeLeaves]);
 
-  // Preview: count working days skipping Sundays and holidays
+  // Preview: count working days using the corrected helper
   const preview = useMemo(() => {
     if (!fromDate || !toDate || toDate < fromDate) return null;
     const holidaySet = new Set(holidays.map((h) => h.holiday_date));
-    const dates = eachDate(fromDate, toDate);
-    const working = dates.filter(
-      (d) => new Date(d + "T00:00:00").getDay() !== 0 && !holidaySet.has(d),
-    );
-    let days = working.length;
-    if (session !== "full_day") days = Math.min(days, 1) * 0.5;
-
-    if (isEmergency) {
-      return { total: days, skipped: dates.length - working.length, paid: 0, unpaid: days, alwaysUnpaid: true };
-    }
+    const { total, skipped } = countWorkingDays(fromDate, toDate, session, holidaySet);
 
     if (isMedical) {
-      const flow = getMedicalFlow(days);
-      return { total: days, skipped: dates.length - working.length, paid: 0, unpaid: 0, medicalFlow: flow };
+      const flow = getMedicalFlow(total);
+      return { total, skipped, paid: 0, unpaid: 0, medicalFlow: flow };
     }
 
     if (isDutyHodFinal || leaveType !== "casual") {
-      return { total: days, skipped: dates.length - working.length, paid: 0, unpaid: 0, hodDecides: true, hodFinal: isDutyHodFinal };
+      return { total, skipped, paid: 0, unpaid: 0, hodDecides: true, hodFinal: isDutyHodFinal };
     }
 
     const bal = balances.find((b) => b.type === leaveType);
@@ -146,22 +136,23 @@ function ApplyPage() {
     if (bal?.monthlyCap !== undefined) {
       remaining = Math.min(remaining, Math.max(bal.monthlyCap - bal.usedMonth, 0));
     }
-    const paid = Math.min(days, remaining);
-    return { total: days, skipped: dates.length - working.length, paid, unpaid: days - paid };
-  }, [fromDate, toDate, session, holidays, balances, leaveType, isEmergency, isMedical, isDutyHodFinal]);
+    const paid = Math.min(total, remaining);
+    return { total, skipped, paid, unpaid: total - paid };
+  }, [fromDate, toDate, session, holidays, balances, leaveType, isMedical, isDutyHodFinal]);
 
-  // Inline balance label shown next to leave type in the dropdown
-  function balanceHint(type: LeaveType): string {
+  /** Remaining balance label shown inline in the dropdown */
+  function balanceLabel(type: LeaveType): string {
+    const bal = balances.find((b) => b.type === type);
+    if (!bal) return "";
     if (type === "casual") {
-      const bal = balances.find((b) => b.type === "casual");
-      if (!bal) return "";
       const monthly = bal.monthlyCap !== undefined ? Math.max(bal.monthlyCap - bal.usedMonth, 0) : null;
       const yearly  = Math.max(bal.yearlyCap - bal.usedYear, 0);
       return monthly !== null
-        ? `${monthly}/${bal.monthlyCap} this month · ${yearly}/12 this year`
+        ? `${monthly} this month · ${yearly}/yr`
         : `${yearly} remaining`;
     }
-    return "";
+    const yearly = Math.max(bal.yearlyCap - bal.usedYear, 0);
+    return `${yearly} remaining`;
   }
 
   // Medical flow derived from preview
@@ -187,10 +178,7 @@ function ApplyPage() {
 
     setBusy(true);
 
-    // Determine status for medical:
-    //   ≤3 days → pending_hod (needs HOD recommend → principal approve)
-    //   >3 days → pending_hod (HOD can hod_approved directly; doc upload gates principal)
-    const initialStatus = isEmergency ? "pending_principal" : "pending_hod";
+    const initialStatus = "pending_hod";
 
     // For medical >3 days, mark doc_status as "required" upfront
     const docStatus = (isMedical && medFlow?.docRequired) ? "required" : undefined;
@@ -200,21 +188,16 @@ function ApplyPage() {
       leave_type: leaveType,
       from_date: fromDate,
       to_date: toDate,
-      session: session as "full_day" | "forenoon" | "afternoon",
-      reason: reason.trim(),
+      session: session,
+      reason: reason.trim() || null,
       status: initialStatus,
       ...(docStatus ? { doc_status: docStatus } : {}),
-      ...(isEmergency && preview
-        ? { paid_days: 0, unpaid_days: preview.total, total_days: preview.total }
-        : {}),
     });
     setBusy(false);
     if (error) return toast.error(error.message);
     qc.invalidateQueries();
 
-    if (isEmergency) {
-      toast.success("Emergency leave submitted — auto-approves in 5 hours with pay cut");
-    } else if (isMedical) {
+    if (isMedical) {
       if (medFlow?.hodFinal) {
         toast.success("Medical leave sent to HOD — upload your medical certificate after HOD approves for principal verification");
       } else {
@@ -234,17 +217,6 @@ function ApplyPage() {
     <AppShell title="Apply Leave" subtitle="Your request goes to the HOD first, then the principal">
       <SectionCard className="max-w-2xl">
         <form onSubmit={submit} className="space-y-5">
-
-          {/* Emergency banner */}
-          {isEmergency && (
-            <div className="rounded-lg border border-destructive/40 bg-destructive/8 p-3 text-sm">
-              <p className="font-semibold text-destructive">⚠ Emergency Leave</p>
-              <p className="mt-1 text-muted-foreground">
-                Auto-approved after <strong>5 hours</strong> without HOD or principal action.
-                All days are <strong>unpaid</strong>.
-              </p>
-            </div>
-          )}
 
           {/* Duty leave banner */}
           {isDutyHodFinal && (
@@ -287,7 +259,7 @@ function ApplyPage() {
             </div>
           )}
 
-          {/* Leave type — with inline balance hint below */}
+          {/* Leave type — with inline balance beside each option */}
           <div className="space-y-1.5">
             <Label>Leave Type</Label>
             <Select value={leaveType} onValueChange={(v) => setLeaveType(v as LeaveType)}>
@@ -295,19 +267,22 @@ function ApplyPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {LEAVE_TYPES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>
-                    <span className="flex items-center justify-between w-full gap-4">
-                      <span>{t.label}</span>
-                      {t.info && (
-                        <span className="text-xs text-muted-foreground">{t.info}</span>
-                      )}
-                    </span>
-                  </SelectItem>
-                ))}
+                {LEAVE_TYPES.map((t) => {
+                  const bal = balanceLabel(t.value);
+                  return (
+                    <SelectItem key={t.value} value={t.value}>
+                      <span className="flex items-center justify-between w-full gap-4">
+                        <span>{t.label}</span>
+                        {bal && (
+                          <span className="text-xs text-muted-foreground">{bal} remaining</span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
-            {/* Inline balance shown directly under the dropdown */}
+            {/* Detailed balance shown under the dropdown for casual leave */}
             {leaveType === "casual" && casualBal && (
               <p className="text-xs text-muted-foreground pl-0.5">
                 Balance: <span className="font-medium text-foreground">
@@ -325,7 +300,7 @@ function ApplyPage() {
             {/* Session */}
             <div className="space-y-2 sm:col-span-2">
               <Label>Session</Label>
-              <RadioGroup value={session} onValueChange={setSession} className="flex h-9 items-center gap-5">
+              <RadioGroup value={session} onValueChange={(v) => setSession(v as LeaveSession)} className="flex h-9 items-center gap-5">
                 {[["full_day","Full Day"],["forenoon","Forenoon"],["afternoon","Afternoon"]].map(([v,l]) => (
                   <div key={v} className="flex items-center gap-2">
                     <RadioGroupItem value={v} id={v} />
@@ -364,17 +339,14 @@ function ApplyPage() {
             </div>
           </div>
 
-          {/* Preview strip — inline below the dates */}
+          {/* Preview strip */}
           {preview && preview.total > 0 && (
             <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm flex flex-wrap gap-x-6 gap-y-1">
               <span><span className="text-muted-foreground">Working days: </span><strong>{preview.total}</strong></span>
               {preview.skipped > 0 && (
                 <span><span className="text-muted-foreground">Skipped (Sun/holiday): </span><strong>{preview.skipped}</strong></span>
               )}
-              {"alwaysUnpaid" in preview && preview.alwaysUnpaid && (
-                <span className="text-destructive font-semibold">All {preview.total} day(s) unpaid</span>
-              )}
-              {"paid" in preview && !("alwaysUnpaid" in preview) && !("medicalFlow" in preview) && !("hodDecides" in preview) && (
+              {"paid" in preview && !("medicalFlow" in preview) && !("hodDecides" in preview) && (
                 <>
                   {(preview.paid ?? 0) > 0 && <span className="text-success font-semibold">{preview.paid} paid</span>}
                   {(preview.unpaid ?? 0) > 0 && <span className="text-destructive font-semibold">{preview.unpaid} unpaid</span>}
@@ -383,21 +355,23 @@ function ApplyPage() {
             </div>
           )}
 
-          {/* Reason */}
+          {/* Reason — optional */}
           <div className="space-y-2">
-            <Label htmlFor="reason">Reason</Label>
+            <Label htmlFor="reason">
+              Reason <span className="text-xs text-muted-foreground">(optional)</span>
+            </Label>
             <Textarea
               id="reason"
               rows={4}
               maxLength={500}
-              placeholder={isEmergency ? "Describe the emergency situation..." : "Enter reason for leave..."}
+              placeholder="Enter reason for leave (optional)..."
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
           </div>
 
           <Button type="submit" className="w-full" disabled={busy || !!overlappingLeave}>
-            {isEmergency ? "Submit Emergency Leave" : "Submit Request"}
+            Submit Request
           </Button>
         </form>
       </SectionCard>

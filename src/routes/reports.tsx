@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
@@ -11,6 +11,7 @@ import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -19,7 +20,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fmtDate, leaveTypeLabel, LEAVE_TYPES, type LeaveType } from "@/lib/leave";
-import { FileSpreadsheet, FileText } from "lucide-react";
+import {
+  FileSpreadsheet,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  BookOpen,
+  UserCheck,
+  TrendingDown,
+  Clock,
+  ArrowLeftRight,
+  Gift,
+} from "lucide-react";
 
 export const Route = createFileRoute("/reports")({
   head: () => ({
@@ -36,11 +49,16 @@ export const Route = createFileRoute("/reports")({
   ),
 });
 
+// ── Constants ─────────────────────────────────────────────────────────────────
 const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-const WEEKDAYS = [1,2,3,4,5,6]; // Mon–Sat
+const DAY_NAMES   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const DAY_FULL    = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Date helpers ──────────────────────────────────────────────────────────────
+function dateISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
 function getWorkingDaysInMonth(year: number, month: number): Date[] {
   const days: Date[] = [];
   const d = new Date(year, month, 1);
@@ -51,342 +69,314 @@ function getWorkingDaysInMonth(year: number, month: number): Date[] {
   return days;
 }
 
-function getWeeksInMonth(workingDays: Date[]): Date[][] {
-  if (workingDays.length === 0) return [];
-  const weeks: Date[][] = [];
-  let week: Date[] = [];
-  let currentWeek = getISOWeek(workingDays[0]);
-  for (const d of workingDays) {
-    const w = getISOWeek(d);
-    if (w !== currentWeek && week.length > 0) {
-      weeks.push(week);
-      week = [];
-      currentWeek = w;
-    }
-    week.push(d);
+function getWorkingDaysInRange(from: string, to: string): Date[] {
+  const days: Date[] = [];
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  const cur = new Date(fy, fm - 1, fd);
+  const end = new Date(ty, tm - 1, td);
+  while (cur <= end) {
+    if (cur.getDay() !== 0) days.push(new Date(cur));
+    cur.setDate(cur.getDate() + 1);
   }
-  if (week.length > 0) weeks.push(week);
-  return weeks;
+  return days;
 }
 
 function getISOWeek(d: Date): number {
   const date = new Date(d);
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+  date.setHours(0,0,0,0);
+  date.setDate(date.getDate() + 3 - ((date.getDay()+6) % 7));
   const week1 = new Date(date.getFullYear(), 0, 4);
-  return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+  return 1 + Math.round(((date.getTime()-week1.getTime())/86400000 - 3 + ((week1.getDay()+6)%7))/7);
 }
 
-// ── Data fetcher ──────────────────────────────────────────────────────────────
+function getWeeksInMonth(workingDays: Date[]): Date[][] {
+  if (!workingDays.length) return [];
+  const weeks: Date[][] = [];
+  let week: Date[] = [];
+  let curWeek = getISOWeek(workingDays[0]);
+  for (const d of workingDays) {
+    const w = getISOWeek(d);
+    if (w !== curWeek && week.length) { weeks.push(week); week = []; curWeek = w; }
+    week.push(d);
+  }
+  if (week.length) weeks.push(week);
+  return weeks;
+}
+
+function fmtTime(t: string): string {
+  if (!t) return "";
+  const [h, m] = t.split(":").map(Number);
+  return `${h%12||12}:${String(m).padStart(2,"0")} ${h>=12?"PM":"AM"}`;
+}
+
+// ── Period filter ─────────────────────────────────────────────────────────────
+type PeriodFilter = "day" | "week" | "month";
+
+function getDateRangeForPeriod(period: PeriodFilter, month: number, year: number): { from: string; to: string; label: string } {
+  const pad = (n: number) => String(n).padStart(2,"0");
+  if (period === "month") {
+    const lastDay = new Date(year, month+1, 0).getDate();
+    return { from: `${year}-${pad(month+1)}-01`, to: `${year}-${pad(month+1)}-${pad(lastDay)}`, label: `${MONTH_NAMES[month]} ${year}` };
+  }
+  if (period === "week") {
+    const now = new Date();
+    const dow = now.getDay() === 0 ? 7 : now.getDay();
+    const mon = new Date(now); mon.setDate(now.getDate() - dow + 1);
+    const sat = new Date(mon); sat.setDate(mon.getDate() + 5);
+    return { from: dateISO(mon), to: dateISO(sat), label: `Week of ${mon.getDate()} ${MONTH_NAMES[mon.getMonth()]}` };
+  }
+  const now = new Date();
+  const today = dateISO(now);
+  return { from: today, to: today, label: `Today, ${now.getDate()} ${MONTH_NAMES[now.getMonth()]}` };
+}
+
+// ── Data fetch ────────────────────────────────────────────────────────────────
 async function fetchMonthlySchedule(deptId: string, year: number, month: number) {
-  const from = `${year}-${String(month + 1).padStart(2, "0")}-01`;
-  const lastDay = new Date(year, month + 1, 0).getDate();
-  const to = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  const from = `${year}-${String(month+1).padStart(2,"0")}-01`;
+  const lastDay = new Date(year, month+1, 0).getDate();
+  const to   = `${year}-${String(month+1).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
 
   const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, full_name")
-    .eq("department_id", deptId)
-    .eq("approved", true)
-    .order("full_name");
+    .from("profiles").select("id, full_name")
+    .eq("department_id", deptId).eq("approved", true).order("full_name");
 
   const teacherIds = (profiles ?? []).map((p) => p.id);
-  const fallback = ["00000000-0000-0000-0000-000000000000"];
-  const ids = teacherIds.length ? teacherIds : fallback;
+  const ids = teacherIds.length ? teacherIds : ["00000000-0000-0000-0000-000000000000"];
 
   const { data: userRoles } = await supabase.from("user_roles").select("user_id, role").in("user_id", ids);
   const roleMap: Record<string, string> = {};
   for (const r of userRoles ?? []) roleMap[r.user_id] = r.role;
-
   const teachers = (profiles ?? []).map((p) => ({ ...p, role: roleMap[p.id] ?? "teacher" }));
 
-  const { data: fixedLectures } = await supabase
-    .from("lectures")
-    .select("id, teacher_id, day_of_week, start_time, end_time, subject, class_name")
-    .in("teacher_id", ids)
-    .is("lecture_date", null);
-
-  const { data: datedLectures } = await supabase
-    .from("lectures")
-    .select("id, teacher_id, day_of_week, start_time, end_time, subject, class_name, lecture_date")
-    .in("teacher_id", ids)
-    .gte("lecture_date", from)
-    .lte("lecture_date", to);
-
-  const { data: leaves } = await supabase
-    .from("leave_requests")
-    .select("id, teacher_id, from_date, to_date, leave_type, total_days")
-    .in("teacher_id", ids)
-    .in("status", ["approved", "hod_approved"])
-    .lte("from_date", to)
-    .gte("to_date", from);
+  const [{ data: fixedLectures }, { data: datedLectures }, { data: leaves }] = await Promise.all([
+    supabase.from("lectures").select("id,teacher_id,day_of_week,start_time,end_time,subject,class_name").in("teacher_id", ids).is("lecture_date", null),
+    supabase.from("lectures").select("id,teacher_id,day_of_week,start_time,end_time,subject,class_name,lecture_date").in("teacher_id", ids).gte("lecture_date", from).lte("lecture_date", to),
+    supabase.from("leave_requests").select("id,teacher_id,from_date,to_date,leave_type,total_days,session").in("teacher_id", ids).in("status", ["approved","hod_approved"]).lte("from_date", to).gte("to_date", from),
+  ]);
 
   const leaveIds = (leaves ?? []).map((l) => l.id);
   const { data: proxies } = leaveIds.length
-    ? await supabase
-        .from("proxy_assignments")
-        .select("id, leave_request_id, proxy_teacher_id, proxy_date, subject, class_name, start_time, end_time")
-        .in("leave_request_id", leaveIds)
-        .in("status", ["accepted", "pending"])
-        .gte("proxy_date", from)
-        .lte("proxy_date", to)
+    ? await supabase.from("proxy_assignments").select("id,leave_request_id,proxy_teacher_id,absentee_teacher_id,proxy_date,subject,class_name,start_time,end_time,status").in("leave_request_id", leaveIds).in("status", ["accepted","pending"]).gte("proxy_date", from).lte("proxy_date", to)
     : { data: [] };
 
-  return { teachers, fixedLectures: fixedLectures ?? [], datedLectures: datedLectures ?? [], leaves: leaves ?? [], proxies: proxies ?? [] };
+  const proxyIds = (proxies ?? []).map((p) => p.id);
+  const { data: compensations } = proxyIds.length
+    ? await supabase.from("compensation_assignments").select("id,proxy_assignment_id,from_teacher_id,to_teacher_id,lecture_id,compensation_date,status,note").in("proxy_assignment_id", proxyIds).gte("compensation_date", from).lte("compensation_date", to)
+    : { data: [] };
+
+  return { teachers, fixedLectures: fixedLectures??[], datedLectures: datedLectures??[], leaves: leaves??[], proxies: proxies??[], compensations: compensations??[] };
 }
 
-// ── Per-day cell: returns list of lecture names/subjects ──────────────────────
-function getLecturesForDay(
+// ── Per-teacher computed row ──────────────────────────────────────────────────
+interface DayInfo {
+  dateStr: string;
+  isLeave: boolean;
+  ownLectures: { subject: string; class_name: string; start_time: string; end_time: string }[];
+  proxyLectures: { subject: string; class_name: string; start_time: string; end_time: string }[];
+}
+
+function computeTeacherRow(
   teacherId: string,
-  dateStr: string,
-  dow: number,
-  fixedLectures: any[],
-  datedLectures: any[],
-  proxies: any[],
-  leaves: any[],
-): { subjects: string[]; isLeave: boolean; proxyCount: number } {
-  const onLeave = leaves.some((l) => l.teacher_id === teacherId && l.from_date <= dateStr && l.to_date >= dateStr);
-  const proxyDuties = proxies.filter((p) => p.proxy_teacher_id === teacherId && p.proxy_date === dateStr);
-
-  if (onLeave) return { subjects: [], isLeave: true, proxyCount: proxyDuties.length };
-
-  const fixedSubjects = fixedLectures
-    .filter((l) => l.teacher_id === teacherId && l.day_of_week === dow)
-    .map((l) => l.subject);
-  const datedSubjects = datedLectures
-    .filter((l) => l.teacher_id === teacherId && l.lecture_date === dateStr)
-    .map((l) => l.subject);
-  const proxySubjects = proxyDuties.map((p) => `P:${p.subject}`);
-
-  return {
-    subjects: [...fixedSubjects, ...datedSubjects, ...proxySubjects],
-    isLeave: false,
-    proxyCount: proxyDuties.length,
-  };
-}
-
-// ── Count lectures in a date range ────────────────────────────────────────────
-function countLecturesInDays(
-  teacherId: string,
-  days: Date[],
-  fixedLectures: any[],
-  datedLectures: any[],
-  proxies: any[],
-  leaves: any[],
-): number {
-  let count = 0;
-  for (const day of days) {
-    const dateStr = day.toISOString().slice(0, 10);
-    const dow = day.getDay();
-    const { subjects } = getLecturesForDay(teacherId, dateStr, dow, fixedLectures, datedLectures, proxies, leaves);
-    count += subjects.length;
-  }
-  return count;
-}
-
-function countLeaveDaysInRange(teacherLeaves: any[], days: Date[]): number {
-  let n = 0;
-  for (const day of days) {
-    const dateStr = day.toISOString().slice(0, 10);
-    if (teacherLeaves.some((l) => l.from_date <= dateStr && l.to_date >= dateStr)) n++;
-  }
-  return n;
-}
-
-// ── Build table rows ──────────────────────────────────────────────────────────
-function buildTableRows(teachers: any[], workingDays: Date[], fixedLectures: any[], datedLectures: any[], proxies: any[], leaves: any[]) {
-  const weeks = getWeeksInMonth(workingDays);
-
-  return teachers.map((t) => {
-    const teacherLeaves = leaves.filter((l) => l.teacher_id === t.id);
-
-    // Per-day: subjects list
-    const dayData = workingDays.map((day) => {
-      const dateStr = day.toISOString().slice(0, 10);
-      const dow = day.getDay();
-      return getLecturesForDay(t.id, dateStr, dow, fixedLectures, datedLectures, proxies, leaves);
-    });
-
-    // Weekly counts
-    const weeklyLectureCounts = weeks.map((weekDays) =>
-      countLecturesInDays(t.id, weekDays, fixedLectures, datedLectures, proxies, leaves)
-    );
-
-    const totalLectures = weeklyLectureCounts.reduce((a, b) => a + b, 0);
-    const totalLeaveDays = countLeaveDaysInRange(teacherLeaves, workingDays);
-    const totalProxyDuties = proxies.filter((p) => p.proxy_teacher_id === t.id).length;
-
-    return { id: t.id, name: t.full_name, role: t.role, dayData, weeklyLectureCounts, totalLectures, totalLeaveDays, totalProxyDuties };
-  });
-}
-
-// ── Excel helpers ─────────────────────────────────────────────────────────────
-function fmtExcelTime(t: string): string {
-  if (!t) return "";
-  const [h, m] = t.split(":").map(Number);
-  const ampm = h >= 12 ? "PM" : "AM";
-  const hh = h % 12 || 12;
-  return `${hh}:${String(m).padStart(2, "0")} ${ampm}`;
-}
-
-// ── Excel export ──────────────────────────────────────────────────────────────
-function exportExcel(
-  month: number,
-  year: number,
-  deptName: string,
-  rows: ReturnType<typeof buildTableRows>,
   workingDays: Date[],
   fixedLectures: any[],
   datedLectures: any[],
   proxies: any[],
-) {
-  const weeks = getWeeksInMonth(workingDays);
-  const wb = XLSX.utils.book_new();
+  leaves: any[],
+): DayInfo[] {
+  return workingDays.map((day) => {
+    const dateStr = dateISO(day);
+    const dow = day.getDay();
+    const isLeave = leaves.some((l) => l.teacher_id === teacherId && l.from_date <= dateStr && l.to_date >= dateStr);
 
-  // ── Sheet 1: Monthly Schedule ─────────────────────────────────────────────
+    // Tombstone dated lectures (subject starts with __COMP_GIVEN__) mark that
+    // this teacher gave away their fixed lecture on this date — suppress that
+    // fixed lecture from showing and don't count the tombstone itself.
+    const tombstonedSlots = datedLectures
+      .filter((l) => l.teacher_id === teacherId && l.lecture_date === dateStr && l.subject.startsWith("__COMP_GIVEN__"))
+      .map((l) => `${l.start_time}|${l.end_time}`);
+
+    const ownLectures = isLeave ? [] : [
+      // Fixed lectures, excluding any that have a tombstone for this date
+      ...fixedLectures.filter((l) =>
+        l.teacher_id === teacherId &&
+        l.day_of_week === dow &&
+        !tombstonedSlots.includes(`${l.start_time}|${l.end_time}`)
+      ),
+      // Dated lectures, excluding tombstones
+      ...datedLectures.filter((l) =>
+        l.teacher_id === teacherId &&
+        l.lecture_date === dateStr &&
+        !l.subject.startsWith("__COMP_GIVEN__")
+      ),
+    ].map((l) => ({ subject: l.subject, class_name: l.class_name, start_time: l.start_time, end_time: l.end_time }));
+
+    const proxyLectures = proxies
+      .filter((p) => p.proxy_teacher_id === teacherId && p.proxy_date === dateStr)
+      .map((p) => ({ subject: p.subject, class_name: p.class_name, start_time: p.start_time, end_time: p.end_time }));
+
+    return { dateStr, isLeave, ownLectures, proxyLectures };
+  });
+}
+
+function buildTeacherSummary(teacherId: string, teacherName: string, teacherRole: string, days: DayInfo[], workingDays: Date[], leaves: any[], proxies: any[], compensations: any[]) {
+  const weeks = getWeeksInMonth(workingDays);
+  const totalOwn    = days.reduce((s, d) => s + d.ownLectures.length, 0);
+  const totalProxy  = days.reduce((s, d) => s + d.proxyLectures.length, 0);
+  const totalLeave  = days.filter((d) => d.isLeave).length;
+  const weeklyOwn   = weeks.map((wk) => {
+    const wkDates = new Set(wk.map((d) => dateISO(d)));
+    return days.filter((d) => wkDates.has(d.dateStr) && !d.isLeave).reduce((s, d) => s + d.ownLectures.length, 0);
+  });
+  const myLeaves    = leaves.filter((l) => l.teacher_id === teacherId);
+  const myProxies   = proxies.filter((p) => p.proxy_teacher_id === teacherId);
+  // Compensations offered by this teacher (they covered someone, offered their lecture back)
+  const myCompGiven    = compensations.filter((c) => c.from_teacher_id === teacherId);
+  // Compensations received by this teacher (someone gifted them a lecture)
+  const myCompReceived = compensations.filter((c) => c.to_teacher_id === teacherId);
+  const totalCompGiven    = myCompGiven.length;
+  const totalCompReceived = myCompReceived.filter((c) => c.status === "accepted").length;
+  return { id: teacherId, name: teacherName, role: teacherRole, days, weeklyOwn, totalOwn, totalProxy, totalLeave, myLeaves, myProxies, myCompGiven, myCompReceived, totalCompGiven, totalCompReceived };
+}
+
+// ── Excel export ──────────────────────────────────────────────────────────────
+function exportExcel(month: number, year: number, label: string, summaries: ReturnType<typeof buildTeacherSummary>[], workingDays: Date[], fixedLectures: any[], datedLectures: any[], proxies: any[], compensations: any[]) {
+  const wb = XLSX.utils.book_new();
+  const weeks = getWeeksInMonth(workingDays);
+
+  // Sheet 1: Schedule grid
   const dayHeaders = workingDays.map((d) => `${d.getDate()} ${DAY_NAMES[d.getDay()]}`);
-  const weekHeaders = weeks.map((_, i) => `Week ${i + 1}`);
+  const weekHeaders = weeks.map((_, i) => `Wk${i+1} Lectures`);
   const headers = ["Teacher", "Role", ...dayHeaders, ...weekHeaders, "Total Lectures", "Leave Days", "Proxy Duties"];
 
-  // For each day cell, include subject + timing for each lecture
-  const body = rows.map((r) => [
-    r.name,
-    r.role === "hod" ? "HOD" : "Teacher",
-    ...workingDays.map((day, idx) => {
-      const d = r.dayData[idx];
-      if (d.isLeave) return "LEAVE";
-      if (d.subjects.length === 0) return "—";
-      // Build "Subject (HH:MM–HH:MM)" entries for each lecture on this day
-      const dateStr = day.toISOString().slice(0, 10);
-      const dow = day.getDay();
-      const entries: string[] = [];
-      const fixed = fixedLectures.filter((l) => l.teacher_id === r.id && l.day_of_week === dow);
-      const dated = datedLectures.filter((l) => l.teacher_id === r.id && l.lecture_date === dateStr);
-      const proxyDuties = proxies.filter((p) => p.proxy_teacher_id === r.id && p.proxy_date === dateStr);
-      for (const l of [...fixed, ...dated]) {
-        entries.push(`${l.subject} (${fmtExcelTime(l.start_time)}–${fmtExcelTime(l.end_time)})`);
-      }
-      for (const p of proxyDuties) {
-        entries.push(`P:${p.subject} (${fmtExcelTime(p.start_time)}–${fmtExcelTime(p.end_time)})`);
-      }
-      return entries.join("\n") || d.subjects.join(", ");
+  const body = summaries.map((s) => [
+    s.name,
+    s.role === "hod" ? "HOD" : "Teacher",
+    ...s.days.map((d) => {
+      if (d.isLeave) return "ON LEAVE";
+      const own = d.ownLectures.map((l) => `${l.subject} (${fmtTime(l.start_time)}-${fmtTime(l.end_time)}) [${l.class_name}]`);
+      const prx = d.proxyLectures.map((l) => `PROXY: ${l.subject} (${fmtTime(l.start_time)}-${fmtTime(l.end_time)}) [${l.class_name}]`);
+      return [...own, ...prx].join("\n") || "—";
     }),
-    ...r.weeklyLectureCounts,
-    r.totalLectures,
-    r.totalLeaveDays,
-    r.totalProxyDuties,
+    ...s.weeklyOwn,
+    s.totalOwn,
+    s.totalLeave,
+    s.totalProxy,
   ]);
 
-  const legend = ["Legend: Subject (Time) = lecture taken  |  LEAVE = on leave  |  P:Subject = proxy duty  |  — = no lectures"];
+  const ws1 = XLSX.utils.aoa_to_sheet([headers, ...body]);
+  ws1["!cols"] = [{ wch: 26 }, { wch: 10 }, ...workingDays.map(() => ({ wch: 28 })), ...weeks.map(() => ({ wch: 14 })), { wch: 16 }, { wch: 12 }, { wch: 14 }];
+  XLSX.utils.book_append_sheet(wb, ws1, `${MONTH_NAMES[month].slice(0,8)} ${year}`);
 
-  const ws1 = XLSX.utils.aoa_to_sheet([headers, ...body, [], legend]);
-  ws1["!cols"] = [
-    { wch: 26 },
-    { wch: 10 },
-    ...workingDays.map(() => ({ wch: 20 })),
-    ...weeks.map(() => ({ wch: 8 })),
-    { wch: 15 },
-    { wch: 12 },
-    { wch: 13 },
-  ];
-  XLSX.utils.book_append_sheet(wb, ws1, `${MONTH_NAMES[month].slice(0, 10)} ${year}`);
-
-  // ── Sheet 2: Weekly Timetable (fixed lectures with timings) ──────────────
-  const timingHeaders = ["Teacher", "Role", "Day", "Start Time", "End Time", "Subject", "Class"];
+  // Sheet 2: Weekly timetable (fixed lectures)
+  const timingHeaders = ["Teacher", "Role", "Day", "Subject", "Class", "Start", "End"];
   const timingBody: any[][] = [];
-  for (const r of rows) {
-    const teacherFixed = fixedLectures
-      .filter((l) => l.teacher_id === r.id)
-      .sort((a, b) => a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time));
-    for (const l of teacherFixed) {
-      timingBody.push([
-        r.name,
-        r.role === "hod" ? "HOD" : "Teacher",
-        DAY_NAMES[l.day_of_week] || "",
-        fmtExcelTime(l.start_time),
-        fmtExcelTime(l.end_time),
-        l.subject,
-        l.class_name,
-      ]);
-    }
+  for (const s of summaries) {
+    const fixed = fixedLectures.filter((l) => l.teacher_id === s.id).sort((a, b) => a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time));
+    for (const l of fixed) timingBody.push([s.name, s.role === "hod" ? "HOD" : "Teacher", DAY_FULL[l.day_of_week], l.subject, l.class_name, fmtTime(l.start_time), fmtTime(l.end_time)]);
   }
   const ws2 = XLSX.utils.aoa_to_sheet([timingHeaders, ...timingBody]);
-  ws2["!cols"] = [{ wch: 26 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 20 }, { wch: 14 }];
-  XLSX.utils.book_append_sheet(wb, ws2, "Lecture Timings");
+  ws2["!cols"] = [{ wch: 26 }, { wch: 10 }, { wch: 12 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 12 }];
+  XLSX.utils.book_append_sheet(wb, ws2, "Timetable");
 
-  // ── Sheet 3: Proxy Duties this month ─────────────────────────────────────
-  if (proxies.length > 0) {
-    const proxyHeaders = ["Proxy Teacher", "Date", "Day", "Start Time", "End Time", "Subject", "Class"];
-    const proxyBody = proxies
-      .slice()
-      .sort((a, b) => a.proxy_date.localeCompare(b.proxy_date) || a.start_time.localeCompare(b.start_time))
-      .map((p) => {
-        const teacher = rows.find((r) => r.id === p.proxy_teacher_id);
-        const d = new Date(p.proxy_date + "T00:00:00");
-        return [
-          teacher?.name ?? p.proxy_teacher_id,
-          p.proxy_date,
-          DAY_NAMES[d.getDay()],
-          fmtExcelTime(p.start_time),
-          fmtExcelTime(p.end_time),
-          p.subject,
-          p.class_name,
-        ];
-      });
-    const ws3 = XLSX.utils.aoa_to_sheet([proxyHeaders, ...proxyBody]);
-    ws3["!cols"] = [{ wch: 26 }, { wch: 14 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 20 }, { wch: 14 }];
+  // Sheet 3: Proxy duties
+  if (proxies.length) {
+    const ph = ["Proxy Teacher", "Date", "Day", "Subject", "Class", "Start", "End", "Status"];
+    const pb = proxies.sort((a, b) => a.proxy_date.localeCompare(b.proxy_date)).map((p) => {
+      const t = summaries.find((s) => s.id === p.proxy_teacher_id);
+      const d = new Date(p.proxy_date + "T00:00:00");
+      return [t?.name ?? p.proxy_teacher_id, p.proxy_date, DAY_FULL[d.getDay()], p.subject, p.class_name, fmtTime(p.start_time), fmtTime(p.end_time), p.status];
+    });
+    const ws3 = XLSX.utils.aoa_to_sheet([ph, ...pb]);
+    ws3["!cols"] = [{ wch: 26 }, { wch: 14 }, { wch: 12 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
     XLSX.utils.book_append_sheet(wb, ws3, "Proxy Duties");
   }
 
-  XLSX.writeFile(wb, `${deptName}_Schedule_${MONTH_NAMES[month]}_${year}.xlsx`);
+  // Sheet 4: Leave log
+  const lh = ["Teacher", "Leave Type", "From", "To", "Days", "Session"];
+  const lb: any[][] = [];
+  for (const s of summaries) {
+    for (const l of s.myLeaves) lb.push([s.name, leaveTypeLabel(l.leave_type as LeaveType), l.from_date, l.to_date, l.total_days, l.session ?? "full_day"]);
+  }
+  const ws4 = XLSX.utils.aoa_to_sheet([lh, ...lb]);
+  ws4["!cols"] = [{ wch: 26 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 12 }];
+  XLSX.utils.book_append_sheet(wb, ws4, "Leave Log");
+
+  // Sheet 5: Compensation assignments
+  if (compensations.length) {
+    const ch = ["From Teacher (Proxy)", "To Teacher (Absentee)", "Compensation Date", "Day", "Status", "Note"];
+    const cb = compensations.map((c) => {
+      const from = summaries.find((s) => s.id === c.from_teacher_id);
+      const to   = summaries.find((s) => s.id === c.to_teacher_id);
+      const d    = new Date(c.compensation_date + "T00:00:00");
+      return [
+        from?.name ?? c.from_teacher_id,
+        to?.name   ?? c.to_teacher_id,
+        c.compensation_date,
+        DAY_FULL[d.getDay()],
+        c.status,
+        c.note ?? "",
+      ];
+    });
+    const ws5 = XLSX.utils.aoa_to_sheet([ch, ...cb]);
+    ws5["!cols"] = [{ wch: 26 }, { wch: 26 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 30 }];
+    XLSX.utils.book_append_sheet(wb, ws5, "Compensations");
+  }
+
+  XLSX.writeFile(wb, `${label.replace(/[^a-zA-Z0-9 _-]/g,"_")}_${MONTH_NAMES[month]}_${year}.xlsx`);
 }
 
 // ── PDF export ────────────────────────────────────────────────────────────────
-function exportPDF(month: number, year: number, deptName: string, rows: ReturnType<typeof buildTableRows>, workingDays: Date[]) {
+function exportPDF(month: number, year: number, label: string, summaries: ReturnType<typeof buildTeacherSummary>[], workingDays: Date[]) {
   const weeks = getWeeksInMonth(workingDays);
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
 
-  doc.setFontSize(14);
-  doc.text(`${deptName} — Monthly Schedule: ${MONTH_NAMES[month]} ${year}`, 14, 16);
-  doc.setFontSize(7);
-  doc.setTextColor(120, 120, 120);
-  doc.text("Legend: Subject = lecture taken  |  LEAVE = on leave  |  P:Sub = proxy duty  |  — = no lectures  |  Wk# = weekly lecture count", 14, 22);
-  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(15); doc.setFont("helvetica", "bold");
+  doc.text(`${label}`, 14, 15);
+  doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(100,100,100);
+  doc.text(`Monthly Schedule · ${MONTH_NAMES[month]} ${year}  |  L = On Leave  ·  P = Proxy duty  ·  Numbers = lectures taken`, 14, 22);
+  doc.setTextColor(0,0,0);
 
-  const head = [["Teacher", "Role", ...workingDays.map((d) => `${d.getDate()}\n${DAY_NAMES[d.getDay()]}`), ...weeks.map((_, i) => `Wk${i + 1}`), "Total", "Leave", "Proxy"]];
-  const body = rows.map((r) => [
-    r.name,
-    r.role === "hod" ? "HOD" : "Teacher",
-    ...r.dayData.map((d) => (d.isLeave ? "L" : d.subjects.length > 0 ? d.subjects.join("\n") : "—")),
-    ...r.weeklyLectureCounts,
-    r.totalLectures,
-    r.totalLeaveDays,
-    r.totalProxyDuties,
+  const head = [["Teacher", "Role", ...workingDays.map((d) => `${d.getDate()}\n${DAY_NAMES[d.getDay()]}`), ...weeks.map((_, i) => `Wk${i+1}`), "Total", "Leave", "Proxy"]];
+  const body = summaries.map((s) => [
+    s.name,
+    s.role === "hod" ? "HOD" : "Tchr",
+    ...s.days.map((d) => {
+      if (d.isLeave) return "L";
+      const n = d.ownLectures.length;
+      const p = d.proxyLectures.length;
+      if (!n && !p) return "—";
+      const parts = [];
+      if (n) parts.push(d.ownLectures.map((l) => l.subject.slice(0, 5)).join("\n"));
+      if (p) parts.push(d.proxyLectures.map((l) => `P:${l.subject.slice(0,4)}`).join("\n"));
+      return parts.join("\n");
+    }),
+    ...s.weeklyOwn,
+    s.totalOwn,
+    s.totalLeave || "—",
+    s.totalProxy || "—",
   ]);
 
   autoTable(doc, {
-    head,
-    body,
-    startY: 26,
-    styles: { fontSize: 5.5, cellPadding: 1, halign: "center", valign: "middle" },
-    headStyles: { fillColor: [30, 64, 175], textColor: 255, fontSize: 6, fontStyle: "bold" },
-    columnStyles: { 0: { halign: "left", cellWidth: 26 }, 1: { cellWidth: 11 } },
-    didParseCell: (data) => {
-      const val = String(data.cell.raw ?? "");
-      if (data.section === "body" && data.column.index >= 2) {
-        if (val === "L") {
-          data.cell.styles.fillColor = [254, 202, 202];
-          data.cell.styles.textColor = [185, 28, 28];
-          data.cell.styles.fontStyle = "bold";
-        } else if (val.includes("P:")) {
-          data.cell.styles.fillColor = [254, 249, 195];
-          data.cell.styles.textColor = [133, 77, 14];
-        }
+    head, body,
+    startY: 27,
+    styles: { fontSize: 5.5, cellPadding: 1.2, halign: "center", valign: "middle", lineColor: [220,220,220], lineWidth: 0.2 },
+    headStyles: { fillColor: [30,64,175], textColor: 255, fontSize: 6.5, fontStyle: "bold" },
+    columnStyles: {
+      0: { halign: "left", cellWidth: 30, fontStyle: "bold" },
+      1: { cellWidth: 10 },
+    },
+    didParseCell: (d) => {
+      const v = String(d.cell.raw ?? "");
+      if (d.section === "body" && d.column.index >= 2) {
+        if (v === "L") { d.cell.styles.fillColor = [254,226,226]; d.cell.styles.textColor = [185,28,28]; d.cell.styles.fontStyle = "bold"; }
+        else if (v.startsWith("P:") || v.includes("\nP:")) { d.cell.styles.fillColor = [254,243,199]; d.cell.styles.textColor = [120,53,15]; }
+        else if (v !== "—") { d.cell.styles.fillColor = [240,249,255]; d.cell.styles.textColor = [30,64,175]; }
       }
     },
   });
 
-  doc.save(`${deptName}_Schedule_${MONTH_NAMES[month]}_${year}.pdf`);
+  doc.save(`${label.replace(/[^a-zA-Z0-9 _-]/g,"_")}_${MONTH_NAMES[month]}_${year}.pdf`);
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -395,15 +385,19 @@ function ReportsPage() {
   const year = new Date().getFullYear();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [downloading, setDownloading] = useState<"excel" | "pdf" | null>(null);
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("month");
+  const [selectedTeacher, setSelectedTeacher] = useState<string>("all");
+  const [expandedTeacher, setExpandedTeacher] = useState<string | null>(null);
 
   const isHod = role === "hod";
   const deptName = profile?.department_name ?? "Department";
 
+  // ── Yearly leave data (all roles) ─────────────────────────────────────────
   const { data } = useQuery({
     queryKey: ["reports", role, profile?.department_id, year],
     enabled: !!profile,
     queryFn: async () => {
-      let q = supabase.from("leave_requests").select("*").in("status", ["approved", "hod_approved"]).gte("from_date", `${year}-01-01`).lte("from_date", `${year}-12-31`);
+      let q = supabase.from("leave_requests").select("*").in("status", ["approved","hod_approved"]).gte("from_date", `${year}-01-01`).lte("from_date", `${year}-12-31`);
       if (isHod) q = q.eq("department_id", profile!.department_id ?? "");
       const { data: leaves, error } = await q;
       if (error) throw error;
@@ -412,43 +406,145 @@ function ReportsPage() {
     },
   });
 
+  // ── Monthly schedule (HOD only) ────────────────────────────────────────────
   const { data: monthlyData, isLoading: monthLoading } = useQuery({
     queryKey: ["monthly-schedule", profile?.department_id, year, selectedMonth],
     enabled: !!profile && isHod && !!profile.department_id,
     queryFn: () => fetchMonthlySchedule(profile!.department_id!, year, selectedMonth),
   });
 
-  const workingDays = getWorkingDaysInMonth(year, selectedMonth);
-  const weeks = getWeeksInMonth(workingDays);
-  const tableRows = monthlyData ? buildTableRows(monthlyData.teachers, workingDays, monthlyData.fixedLectures, monthlyData.datedLectures, monthlyData.proxies, monthlyData.leaves) : [];
+  // ── Compute schedule rows filtered by period + teacher ────────────────────
+  const downloadRange = getDateRangeForPeriod(periodFilter, selectedMonth, year);
+  const viewWorkingDays   = getWorkingDaysInMonth(year, selectedMonth);
+  const filterWorkingDays = getWorkingDaysInRange(downloadRange.from, downloadRange.to);
 
+  const allSummaries = useMemo(() => {
+    if (!monthlyData) return [];
+    return monthlyData.teachers.map((t) => {
+      const days = computeTeacherRow(t.id, viewWorkingDays, monthlyData.fixedLectures, monthlyData.datedLectures, monthlyData.proxies, monthlyData.leaves);
+      return buildTeacherSummary(t.id, t.full_name, t.role, days, viewWorkingDays, monthlyData.leaves, monthlyData.proxies, monthlyData.compensations);
+    });
+  }, [monthlyData, viewWorkingDays]);
+
+  const filteredSummaries = useMemo(() => {
+    let rows = allSummaries;
+    if (selectedTeacher !== "all") rows = rows.filter((r) => r.id === selectedTeacher);
+    if (periodFilter !== "month") {
+      rows = rows.map((r) => {
+        const filtDays = computeTeacherRow(r.id, filterWorkingDays, monthlyData?.fixedLectures??[], monthlyData?.datedLectures??[], monthlyData?.proxies??[], monthlyData?.leaves??[]);
+        return buildTeacherSummary(r.id, r.name, r.role, filtDays, filterWorkingDays, monthlyData?.leaves??[], monthlyData?.proxies??[], monthlyData?.compensations??[]);
+      });
+    }
+    return rows;
+  }, [allSummaries, selectedTeacher, periodFilter, filterWorkingDays, monthlyData]);
+
+  const displayWorkingDays = periodFilter !== "month" ? filterWorkingDays : viewWorkingDays;
+  const weeks = getWeeksInMonth(displayWorkingDays);
+  const downloadLabel = `${deptName} — ${downloadRange.label}${selectedTeacher !== "all" ? ` (${monthlyData?.teachers.find((t: any) => t.id === selectedTeacher)?.full_name ?? ""})` : ""}`;
+
+  // ── Leave stats (filtered) ────────────────────────────────────────────────
+  const allLeaves = data?.leaves ?? [];
+  const filteredLeaves = useMemo(() => allLeaves.filter((l) => {
+    const inPeriod = isHod ? (l.from_date <= downloadRange.to && l.to_date >= downloadRange.from) : true;
+    const byTeacher = isHod && selectedTeacher !== "all" ? l.teacher_id === selectedTeacher : true;
+    return inPeriod && byTeacher;
+  }), [allLeaves, isHod, downloadRange, selectedTeacher]);
+
+  const leaves = isHod ? filteredLeaves : allLeaves;
+  const totalDays  = leaves.reduce((s, l) => s + Number(l.total_days), 0);
+  const unpaidDays = leaves.reduce((s, l) => s + Number(l.unpaid_days), 0);
+  const byType     = LEAVE_TYPES.map((t) => ({ ...t, days: leaves.filter((l) => l.leave_type === t.value).reduce((s, l) => s + Number(l.total_days), 0) }));
+  const maxType    = Math.max(1, ...byType.map((t) => t.days));
+
+  // ── Download handlers ─────────────────────────────────────────────────────
   const handleDownloadExcel = useCallback(() => {
     setDownloading("excel");
-    try { exportExcel(selectedMonth, year, deptName, tableRows, workingDays, monthlyData?.fixedLectures ?? [], monthlyData?.datedLectures ?? [], monthlyData?.proxies ?? []); }
+    try { exportExcel(selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, monthlyData?.fixedLectures??[], monthlyData?.datedLectures??[], monthlyData?.proxies??[], monthlyData?.compensations??[]); }
     finally { setDownloading(null); }
-  }, [selectedMonth, year, deptName, tableRows, workingDays, monthlyData]);
+  }, [selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, monthlyData]);
 
   const handleDownloadPDF = useCallback(() => {
     setDownloading("pdf");
-    try { exportPDF(selectedMonth, year, deptName, tableRows, workingDays); }
+    try { exportPDF(selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays); }
     finally { setDownloading(null); }
-  }, [selectedMonth, year, deptName, tableRows, workingDays]);
-
-  const leaves = data?.leaves ?? [];
-  const totalDays = leaves.reduce((s, l) => s + Number(l.total_days), 0);
-  const unpaidDays = leaves.reduce((s, l) => s + Number(l.unpaid_days), 0);
-  const byType = LEAVE_TYPES.map((t) => ({ ...t, days: leaves.filter((l) => l.leave_type === t.value).reduce((s, l) => s + Number(l.total_days), 0) }));
-  const maxType = Math.max(1, ...byType.map((t) => t.days));
+  }, [selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays]);
 
   return (
-    <AppShell title="Leave Reports" subtitle={`Approved leaves in ${year}`}>
+    <AppShell
+      title="Leave Reports"
+      subtitle={isHod ? `${MONTH_NAMES[selectedMonth]} ${year} · ${deptName}` : `Approved leaves in ${year}`}
+    >
       <div className="space-y-6">
+
+        {/* ── HOD filter bar (top, before stats) ─────────────────────────── */}
+        {isHod && (
+          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3">
+            {/* Month */}
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground font-medium">Month</p>
+              <Select value={String(selectedMonth)} onValueChange={(v) => { setSelectedMonth(Number(v)); setPeriodFilter("month"); }}>
+                <SelectTrigger className="h-9 w-40 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {MONTH_NAMES.map((m, i) => <SelectItem key={i} value={String(i)}>{m} {year}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Period */}
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground font-medium">Period</p>
+              <Select value={periodFilter} onValueChange={(v) => setPeriodFilter(v as PeriodFilter)}>
+                <SelectTrigger className="h-9 w-36 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="month">Full month</SelectItem>
+                  <SelectItem value="week">This week</SelectItem>
+                  <SelectItem value="day">Today</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Teacher */}
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground font-medium">Staff</p>
+              <Select value={selectedTeacher} onValueChange={setSelectedTeacher}>
+                <SelectTrigger className="h-9 w-52 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All staff</SelectItem>
+                  {(monthlyData?.teachers ?? []).map((t: any) => (
+                    <SelectItem key={t.id} value={t.id}>{t.full_name}{t.role === "hod" ? " (HOD)" : ""}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Active filter label */}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-muted-foreground">Showing</p>
+              <p className="text-sm font-semibold truncate">{downloadRange.label}{selectedTeacher !== "all" ? ` · ${monthlyData?.teachers.find((t: any) => t.id === selectedTeacher)?.full_name ?? ""}` : " · All staff"}</p>
+            </div>
+
+            {/* Download */}
+            <div className="flex gap-2 shrink-0">
+              <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadExcel} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
+                <FileSpreadsheet className="size-4 text-emerald-600" />
+                {downloading === "excel" ? "…" : "Excel"}
+              </Button>
+              <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadPDF} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
+                <FileText className="size-4 text-red-600" />
+                {downloading === "pdf" ? "…" : "PDF"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Stat cards ────────────────────────────────────────────────────── */}
         <div className="grid gap-4 md:grid-cols-3">
           <StatCard label="Approved requests" value={leaves.length} />
-          <StatCard label="Total leave days" value={totalDays} tone="warning" />
-          <StatCard label="Pay-cut days" value={unpaidDays} tone="destructive" />
+          <StatCard label="Total leave days"   value={totalDays}   tone="warning" />
+          <StatCard label="Pay-cut days"        value={unpaidDays}  tone="destructive" />
         </div>
 
+        {/* ── Leave type breakdown ──────────────────────────────────────────── */}
         <SectionCard title="Leave type breakdown">
           <ul className="space-y-3">
             {byType.map((t) => (
@@ -458,38 +554,45 @@ function ReportsPage() {
                   <span className="font-semibold">{t.days} day(s)</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full bg-primary" style={{ width: `${(t.days / maxType) * 100}%` }} />
+                  <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(t.days/maxType)*100}%` }} />
                 </div>
               </li>
             ))}
           </ul>
         </SectionCard>
 
-        <SectionCard title="Detailed log">
+        {/* ── Detailed leave log ────────────────────────────────────────────── */}
+        <SectionCard title="Leave log" subtitle={`${leaves.length} record(s)`}>
           {leaves.length === 0 ? (
-            <Empty>No approved leaves this year.</Empty>
+            <Empty>No approved leaves for this period.</Empty>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="pb-2 font-semibold">Teacher</th>
-                    <th className="pb-2 font-semibold">Type</th>
-                    <th className="pb-2 font-semibold">Dates</th>
-                    <th className="pb-2 font-semibold">Days</th>
-                    <th className="pb-2 font-semibold">Paid</th>
-                    <th className="pb-2 font-semibold">Pay cut</th>
+                  <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-4 py-2.5 text-left font-semibold">Teacher</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Type</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">From</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">To</th>
+                    <th className="px-4 py-2.5 text-center font-semibold">Days</th>
+                    <th className="px-4 py-2.5 text-center font-semibold">Paid</th>
+                    <th className="px-4 py-2.5 text-center font-semibold">Pay cut</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {leaves.map((l) => (
-                    <tr key={l.id} className="border-t border-border">
-                      <td className="py-3 font-medium">{data?.people[l.teacher_id]?.full_name ?? "—"}</td>
-                      <td className="py-3">{leaveTypeLabel(l.leave_type as LeaveType)}</td>
-                      <td className="py-3">{fmtDate(l.from_date)} – {fmtDate(l.to_date)}</td>
-                      <td className="py-3">{Number(l.total_days)}</td>
-                      <td className="py-3">{Number(l.paid_days)}</td>
-                      <td className="py-3 font-semibold text-destructive">{Number(l.unpaid_days)}</td>
+                  {leaves.map((l, i) => (
+                    <tr key={l.id} className={`border-t border-border ${i%2===0?"":"bg-muted/20"}`}>
+                      <td className="px-4 py-3 font-medium">{data?.people[l.teacher_id]?.full_name ?? "—"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{leaveTypeLabel(l.leave_type as LeaveType)}</td>
+                      <td className="px-4 py-3">{fmtDate(l.from_date)}</td>
+                      <td className="px-4 py-3">{fmtDate(l.to_date)}</td>
+                      <td className="px-4 py-3 text-center font-medium">{Number(l.total_days)}</td>
+                      <td className="px-4 py-3 text-center text-success">{Number(l.paid_days)}</td>
+                      <td className="px-4 py-3 text-center">
+                        {Number(l.unpaid_days) > 0
+                          ? <span className="font-semibold text-destructive">{Number(l.unpaid_days)}</span>
+                          : <span className="text-muted-foreground">—</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -498,118 +601,319 @@ function ReportsPage() {
           )}
         </SectionCard>
 
-        {/* HOD monthly schedule */}
+        {/* ── HOD: Monthly Schedule ─────────────────────────────────────────── */}
         {isHod && (
-          <SectionCard title="Monthly Schedule" subtitle="Full department schedule with lecture names, weekly counts, leaves and proxy duties">
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <Select value={String(selectedMonth)} onValueChange={(v) => setSelectedMonth(Number(v))}>
-                  <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {MONTH_NAMES.map((m, i) => <SelectItem key={i} value={String(i)}>{m} {year}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Button variant="outline" size="sm" className="gap-2" onClick={handleDownloadExcel} disabled={!!downloading || monthLoading || tableRows.length === 0}>
-                  <FileSpreadsheet className="size-4 text-green-600" />
-                  {downloading === "excel" ? "Preparing…" : "Download Excel"}
-                </Button>
-                <Button variant="outline" size="sm" className="gap-2" onClick={handleDownloadPDF} disabled={!!downloading || monthLoading || tableRows.length === 0}>
-                  <FileText className="size-4 text-red-600" />
-                  {downloading === "pdf" ? "Preparing…" : "Download PDF"}
-                </Button>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-lg">Department Schedule</h2>
+                <p className="text-sm text-muted-foreground">{downloadRange.label} · {displayWorkingDays.length} working day(s)</p>
               </div>
-
-              {monthLoading ? (
-                <p className="text-sm text-muted-foreground">Loading schedule…</p>
-              ) : tableRows.length === 0 ? (
-                <Empty>No teachers found in this department.</Empty>
-              ) : (
-                <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-muted text-left">
-                        <th className="sticky left-0 z-10 bg-muted px-3 py-2 font-semibold min-w-[150px]">Teacher</th>
-                        {workingDays.map((d, i) => {
-                          // Show week header before first day of each week
-                          const isWeekStart = i === 0 || getISOWeek(d) !== getISOWeek(workingDays[i - 1]);
-                          return (
-                            <th key={d.toISOString()} className={`px-1 py-2 text-center font-semibold min-w-[52px] ${isWeekStart ? "border-l-2 border-primary/30" : ""}`}>
-                              <div>{d.getDate()}</div>
-                              <div className="text-[10px] font-normal text-muted-foreground">{DAY_NAMES[d.getDay()]}</div>
-                            </th>
-                          );
-                        })}
-                        {weeks.map((_, i) => (
-                          <th key={`wk${i}`} className="px-2 py-2 text-center font-semibold min-w-[44px] border-l border-primary/20 bg-primary/5">
-                            <div>Wk{i + 1}</div>
-                            <div className="text-[10px] font-normal text-muted-foreground">count</div>
-                          </th>
-                        ))}
-                        <th className="px-3 py-2 text-center font-semibold min-w-[56px] border-l border-border">Total</th>
-                        <th className="px-3 py-2 text-center font-semibold min-w-[48px]">Leave</th>
-                        <th className="px-3 py-2 text-center font-semibold min-w-[48px]">Proxy</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tableRows.map((r) => (
-                        <tr key={r.id} className="border-t border-border hover:bg-muted/30">
-                          <td className="sticky left-0 z-10 bg-background px-3 py-2 font-medium">
-                            {r.name}
-                            {r.role === "hod" && <span className="ml-1 text-[10px] text-muted-foreground">(HOD)</span>}
-                          </td>
-                          {r.dayData.map((d, i) => {
-                            const day = workingDays[i];
-                            const isWeekStart = i === 0 || getISOWeek(day) !== getISOWeek(workingDays[i - 1]);
-                            return (
-                              <td
-                                key={i}
-                                title={d.isLeave ? "On Leave" : d.subjects.join(", ")}
-                                className={`px-0.5 py-1 text-center text-[10px] ${isWeekStart ? "border-l-2 border-primary/20" : ""} ${
-                                  d.isLeave
-                                    ? "bg-red-100 dark:bg-red-950 font-bold text-red-700 dark:text-red-300"
-                                    : d.subjects.some((s) => s.startsWith("P:"))
-                                    ? "bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-300"
-                                    : d.subjects.length > 0
-                                    ? "text-foreground"
-                                    : "text-muted-foreground"
-                                }`}
-                              >
-                                {d.isLeave ? "L" : d.subjects.length > 0 ? (
-                                  <div className="space-y-0.5">
-                                    {d.subjects.map((s, j) => (
-                                      <div key={j} className="leading-tight truncate max-w-[50px]" title={s}>
-                                        {s.startsWith("P:") ? s.slice(2) : s}
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : "—"}
-                              </td>
-                            );
-                          })}
-                          {r.weeklyLectureCounts.map((wc, i) => (
-                            <td key={`wc${i}`} className="px-2 py-2 text-center font-bold border-l border-primary/20 bg-primary/5">
-                              {wc}
-                            </td>
-                          ))}
-                          <td className="px-3 py-2 text-center font-bold border-l border-border">{r.totalLectures}</td>
-                          <td className={`px-3 py-2 text-center ${r.totalLeaveDays > 0 ? "text-red-600 font-semibold" : "text-muted-foreground"}`}>{r.totalLeaveDays || "—"}</td>
-                          <td className={`px-3 py-2 text-center ${r.totalProxyDuties > 0 ? "text-yellow-700 font-semibold" : "text-muted-foreground"}`}>{r.totalProxyDuties || "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="flex flex-wrap items-center gap-4 border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                    <span><span className="font-bold text-foreground">DSA</span> = lecture subject</span>
-                    <span className="rounded bg-red-100 px-1.5 py-0.5 font-bold text-red-700 dark:bg-red-950 dark:text-red-300">L</span><span>= on leave</span>
-                    <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300">P:Sub</span><span>= proxy duty</span>
-                    <span><span className="font-bold text-foreground">Wk#</span> = weekly lecture count</span>
-                  </div>
-                </div>
-              )}
             </div>
-          </SectionCard>
+
+            {monthLoading ? (
+              <div className="rounded-xl border border-border bg-muted/30 p-10 text-center">
+                <p className="text-sm text-muted-foreground animate-pulse">Loading schedule…</p>
+              </div>
+            ) : filteredSummaries.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border p-10 text-center">
+                <Empty>No teachers found for this filter.</Empty>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredSummaries.map((s) => (
+                  <TeacherScheduleCard
+                    key={s.id}
+                    summary={s}
+                    workingDays={displayWorkingDays}
+                    weeks={weeks}
+                    expanded={expandedTeacher === s.id}
+                    onToggle={() => setExpandedTeacher(expandedTeacher === s.id ? null : s.id)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Department totals row */}
+            {!monthLoading && filteredSummaries.length > 1 && (
+              <DeptTotalsCard summaries={filteredSummaries} weeks={weeks} />
+            )}
+          </div>
         )}
       </div>
     </AppShell>
+  );
+}
+
+// ── Teacher Schedule Card ─────────────────────────────────────────────────────
+function TeacherScheduleCard({
+  summary,
+  workingDays,
+  weeks,
+  expanded,
+  onToggle,
+}: {
+  summary: ReturnType<typeof buildTeacherSummary>;
+  workingDays: Date[];
+  weeks: Date[][];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const leaveDays   = summary.days.filter((d) => d.isLeave);
+  const activeDays  = summary.days.filter((d) => !d.isLeave && (d.ownLectures.length + d.proxyLectures.length) > 0);
+  const freeDays    = summary.days.filter((d) => !d.isLeave && d.ownLectures.length === 0 && d.proxyLectures.length === 0);
+  const attendancePct = workingDays.length ? Math.round(((workingDays.length - leaveDays.length) / workingDays.length) * 100) : 100;
+
+  return (
+    <div className={`rounded-xl border transition-all ${expanded ? "border-primary/40 shadow-sm" : "border-border hover:border-border/80"}`}>
+      {/* Header row — always visible */}
+      <button
+        onClick={onToggle}
+        className="w-full text-left px-5 py-4 flex flex-wrap items-center gap-4"
+      >
+        {/* Avatar + name */}
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className={`flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${summary.role === "hod" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>
+            {summary.name.charAt(0)}
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold truncate">
+              {summary.name}
+              {summary.role === "hod" && <span className="ml-2 text-xs font-normal text-primary bg-primary/10 rounded px-1.5 py-0.5">HOD</span>}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {workingDays.length} working days · {attendancePct}% attendance
+            </p>
+          </div>
+        </div>
+
+        {/* Stats chips */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <Chip icon={BookOpen} value={summary.totalOwn} label="Lectures" color="blue" />
+          {summary.totalProxy > 0 && <Chip icon={UserCheck} value={summary.totalProxy} label="Proxies" color="amber" />}
+          {summary.totalCompGiven > 0 && <Chip icon={ArrowLeftRight} value={summary.totalCompGiven} label="Comp. given" color="violet" />}
+          {summary.totalCompReceived > 0 && <Chip icon={Gift} value={summary.totalCompReceived} label="Comp. received" color="green" />}
+          {summary.totalLeave > 0 && <Chip icon={TrendingDown} value={summary.totalLeave} label="Leave days" color="red" />}
+          {/* Weekly counts */}
+          {summary.weeklyOwn.map((wc, i) => (
+            <span key={i} className="text-xs rounded-md bg-muted px-2 py-1 font-medium">
+              Wk{i+1}: <strong>{wc}</strong>
+            </span>
+          ))}
+        </div>
+
+        {/* Expand icon */}
+        <div className="shrink-0 text-muted-foreground ml-auto">
+          {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+        </div>
+      </button>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="border-t border-border px-5 pb-5 pt-4 space-y-5">
+
+          {/* Week-by-week grid */}
+          {weeks.map((weekDays, wi) => {
+            const weekDates = new Set(weekDays.map((d) => dateISO(d)));
+            const weekSummaryDays = summary.days.filter((d) => weekDates.has(d.dateStr));
+            const weekOwn   = weekSummaryDays.reduce((s, d) => s + d.ownLectures.length, 0);
+            const weekProxy = weekSummaryDays.reduce((s, d) => s + d.proxyLectures.length, 0);
+            const weekLeave = weekSummaryDays.filter((d) => d.isLeave).length;
+
+            return (
+              <div key={wi}>
+                {/* Week header */}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">Week {wi+1}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {fmtDate(weekDays[0])} – {fmtDate(weekDays[weekDays.length-1])}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    {weekOwn > 0   && <span className="text-blue-600 font-medium">{weekOwn} lec</span>}
+                    {weekProxy > 0 && <span className="text-amber-600 font-medium">{weekProxy} proxy</span>}
+                    {weekLeave > 0 && <span className="text-red-600 font-medium">{weekLeave} leave</span>}
+                  </div>
+                </div>
+
+                {/* Day cards */}
+                <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(weekDays.length, 6)}, minmax(0, 1fr))` }}>
+                  {weekDays.map((day) => {
+                    const dateStr = dateISO(day);
+                    const info = summary.days.find((d) => d.dateStr === dateStr);
+                    if (!info) return null;
+                    return <DayCard key={dateStr} day={day} info={info} />;
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Leave list */}
+          {summary.myLeaves.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Approved leaves this period</p>
+              <div className="space-y-1.5">
+                {summary.myLeaves.map((l: any, i: number) => (
+                  <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs">
+                    <span className="font-medium text-destructive">{leaveTypeLabel(l.leave_type as LeaveType)}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span>{fmtDate(l.from_date)} – {fmtDate(l.to_date)}</span>
+                    <span className="ml-auto font-semibold">{Number(l.total_days)} day(s)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Compensation given (this teacher did proxy and offered their lecture back) */}
+          {summary.myCompGiven.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Compensation offered by this teacher</p>
+              <div className="space-y-1.5">
+                {summary.myCompGiven.map((c: any, i: number) => (
+                  <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 dark:border-violet-800 dark:bg-violet-950/30 px-3 py-2 text-xs">
+                    <ArrowLeftRight className="size-3 text-violet-600 shrink-0" />
+                    <span className="font-medium text-violet-800 dark:text-violet-200">To colleague</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span>{fmtDate(c.compensation_date)}</span>
+                    {c.note && <span className="text-muted-foreground italic">"{c.note}"</span>}
+                    <Badge variant="secondary" className={`ml-auto text-[10px] capitalize ${c.status === "accepted" ? "bg-success/15 text-success" : c.status === "rejected" ? "bg-destructive/15 text-destructive" : ""}`}>{c.status}</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Compensation received (someone gifted this teacher a lecture) */}
+          {summary.myCompReceived.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Compensation received</p>
+              <div className="space-y-1.5">
+                {summary.myCompReceived.map((c: any, i: number) => (
+                  <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/30 px-3 py-2 text-xs">
+                    <Gift className="size-3 text-green-600 shrink-0" />
+                    <span className="font-medium text-green-800 dark:text-green-200">From colleague</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span>{fmtDate(c.compensation_date)}</span>
+                    {c.note && <span className="text-muted-foreground italic">"{c.note}"</span>}
+                    <Badge variant="secondary" className={`ml-auto text-[10px] capitalize ${c.status === "accepted" ? "bg-success/15 text-success" : c.status === "rejected" ? "bg-destructive/15 text-destructive" : ""}`}>{c.status}</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Proxy duties list */}
+          {summary.myProxies.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Proxy duties this period</p>
+              <div className="space-y-1.5">
+                {summary.myProxies.map((p: any, i: number) => (
+                  <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2 text-xs">
+                    <Clock className="size-3 text-amber-600 shrink-0" />
+                    <span className="font-medium">{p.subject} · {p.class_name}</span>
+                    <span className="text-muted-foreground">·</span>
+                    <span>{fmtDate(p.proxy_date)}</span>
+                    <span className="text-muted-foreground">{fmtTime(p.start_time)}–{fmtTime(p.end_time)}</span>
+                    <Badge variant="secondary" className="ml-auto text-[10px] capitalize">{p.status}</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Day Card (inside expanded teacher row) ────────────────────────────────────
+function DayCard({ day, info }: { day: Date; info: DayInfo }) {
+  const dow = day.getDay();
+  const date = day.getDate();
+  const isToday = dateISO(day) === dateISO(new Date());
+
+  return (
+    <div className={`rounded-lg border p-2 text-xs min-h-[80px] flex flex-col ${
+      info.isLeave
+        ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30"
+        : info.ownLectures.length + info.proxyLectures.length > 0
+        ? "border-blue-100 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20"
+        : "border-border bg-muted/20"
+    } ${isToday ? "ring-2 ring-primary ring-offset-1" : ""}`}>
+      {/* Date header */}
+      <div className="flex items-center justify-between mb-1.5">
+        <span className={`font-bold ${isToday ? "text-primary" : "text-foreground"}`}>{date}</span>
+        <span className="text-muted-foreground text-[10px]">{DAY_NAMES[dow]}</span>
+      </div>
+
+      {info.isLeave ? (
+        <div className="flex-1 flex items-center justify-center">
+          <span className="font-bold text-red-600 text-[11px]">ON LEAVE</span>
+        </div>
+      ) : info.ownLectures.length === 0 && info.proxyLectures.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center">
+          <span className="text-muted-foreground text-[10px]">No lectures</span>
+        </div>
+      ) : (
+        <div className="space-y-1 flex-1">
+          {info.ownLectures.map((l, i) => (
+            <div key={i} className="rounded bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5" title={`${l.subject} · ${l.class_name} · ${fmtTime(l.start_time)}-${fmtTime(l.end_time)}`}>
+              <p className="font-semibold text-blue-800 dark:text-blue-200 truncate leading-tight">{l.subject}</p>
+              <p className="text-blue-600 dark:text-blue-400 text-[9px] leading-tight">{l.class_name} · {fmtTime(l.start_time)}</p>
+            </div>
+          ))}
+          {info.proxyLectures.map((l, i) => (
+            <div key={i} className="rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5" title={`PROXY: ${l.subject} · ${l.class_name} · ${fmtTime(l.start_time)}-${fmtTime(l.end_time)}`}>
+              <p className="font-semibold text-amber-800 dark:text-amber-200 truncate leading-tight text-[9px]">P: {l.subject}</p>
+              <p className="text-amber-600 dark:text-amber-400 text-[9px] leading-tight">{l.class_name} · {fmtTime(l.start_time)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Department totals row ─────────────────────────────────────────────────────
+function DeptTotalsCard({ summaries, weeks }: { summaries: ReturnType<typeof buildTeacherSummary>[]; weeks: Date[][] }) {
+  const totalOwn      = summaries.reduce((s, r) => s + r.totalOwn, 0);
+  const totalProxy    = summaries.reduce((s, r) => s + r.totalProxy, 0);
+  const totalLeave    = summaries.reduce((s, r) => s + r.totalLeave, 0);
+  const totalCompGiven = summaries.reduce((s, r) => s + r.totalCompGiven, 0);
+  const weeklyTotals  = weeks.map((_, i) => summaries.reduce((s, r) => s + (r.weeklyOwn[i] ?? 0), 0));
+
+  return (
+    <div className="rounded-xl border border-primary/25 bg-primary/5 px-5 py-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Department totals</p>
+      <div className="flex flex-wrap gap-4 text-sm">
+        <span><span className="text-muted-foreground">Total lectures:</span> <strong className="text-primary">{totalOwn}</strong></span>
+        <span><span className="text-muted-foreground">Proxy duties:</span> <strong className="text-amber-600">{totalProxy}</strong></span>
+        <span><span className="text-muted-foreground">Compensations:</span> <strong className="text-violet-600">{totalCompGiven}</strong></span>
+        <span><span className="text-muted-foreground">Leave days:</span> <strong className="text-destructive">{totalLeave}</strong></span>
+        {weeklyTotals.map((wt, i) => (
+          <span key={i}><span className="text-muted-foreground">Wk{i+1}:</span> <strong>{wt}</strong></span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Chip helper ───────────────────────────────────────────────────────────────
+function Chip({ icon: Icon, value, label, color }: { icon: any; value: number; label: string; color: "blue"|"amber"|"red"|"violet"|"green" }) {
+  const cls = {
+    blue:   "bg-blue-50   text-blue-700   border-blue-200   dark:bg-blue-950/30   dark:text-blue-300   dark:border-blue-800",
+    amber:  "bg-amber-50  text-amber-700  border-amber-200  dark:bg-amber-950/30  dark:text-amber-300  dark:border-amber-800",
+    red:    "bg-red-50    text-red-700    border-red-200    dark:bg-red-950/30    dark:text-red-300    dark:border-red-800",
+    violet: "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-300 dark:border-violet-800",
+    green:  "bg-green-50  text-green-700  border-green-200  dark:bg-green-950/30  dark:text-green-300  dark:border-green-800",
+  }[color];
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium ${cls}`}>
+      <Icon className="size-3" />
+      {value} {label}
+    </span>
   );
 }

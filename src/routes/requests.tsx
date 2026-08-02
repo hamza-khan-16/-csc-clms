@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,9 +21,7 @@ import {
 } from "@/components/ui/select";
 import {
   eachDate,
-  emergencyMsRemaining,
   fmtDate,
-  fmtMs,
   fmtTime,
   leaveTypeLabel,
   needsPaymentDecision,
@@ -98,11 +96,10 @@ function RequestsPage() {
     },
   });
 
-  // HOD actionable: pending_hod (all types) + emergency pending_principal
-  // Principal actionable: hod_recommended + pending_principal (normal flow)
-  // Principal docs section: hod_approved with doc uploaded (doc_status = 'uploaded')
+  // HOD actionable: pending_hod only (no emergency in new system)
+  // Principal actionable: hod_recommended + pending_principal
   const actionable = requests.filter((r) => {
-    if (isHod) return r.status === "pending_hod" || (r.leave_type === "emergency" && r.status === "pending_principal");
+    if (isHod) return r.status === "pending_hod";
     return r.status === "hod_recommended" || r.status === "pending_principal";
   });
   // Principal: medical/duty leaves that are hod_approved but document not yet verified
@@ -117,7 +114,7 @@ function RequestsPage() {
       subtitle={
         isHod
           ? "Assign proxy teachers, then recommend to the principal"
-          : "Final approval for HOD-recommended and emergency requests"
+          : "Final approval for HOD-recommended requests"
       }
     >
       <div className="space-y-6">
@@ -198,7 +195,7 @@ interface RequestRow {
   session: string;
   from_date: string;
   to_date: string;
-  reason: string;
+  reason: string | null;
   total_days: number;
   paid_days: number;
   unpaid_days: number;
@@ -214,10 +211,10 @@ interface RequestRow {
 
 function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }) {
   const qc = useQueryClient();
+  const { profile } = useAuth();
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [choices, setChoices] = useState<Record<string, string>>({});
-  const isEmergency = request.leave_type === "emergency";
   const isHodFinal = isHodFinalLeave(request.leave_type as LeaveType);
   const isMedical = request.leave_type === "medical";
   const requiredDoc = docLabel(request.leave_type as LeaveType);
@@ -227,7 +224,6 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   );
 
   // Fetch how many medical days this teacher has already taken this year
-  // to determine whether they're still within the 10-day paid quota
   const { data: medicalDaysTaken = 0 } = useQuery({
     queryKey: ["medical-days-taken", request.teacher_id, new Date().getFullYear()],
     enabled: !isHod && isMedical,
@@ -239,7 +235,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         .eq("teacher_id", request.teacher_id)
         .eq("leave_type", "medical")
         .in("status", ["hod_approved", "approved"])
-        .neq("id", request.id) // exclude current request
+        .neq("id", request.id)
         .gte("from_date", `${year}-01-01`);
       return (data ?? []).reduce((s, r) => s + Number(r.total_days), 0);
     },
@@ -247,46 +243,27 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
 
   const requestDays = Number(request.total_days);
   const medicalSplit = isMedical ? medicalPaidSplit(medicalDaysTaken, requestDays) : null;
-  // Principal needs to decide only if there are over-quota days
   const medicalRequiresDecision = isMedical && medicalNeedsDecision(medicalDaysTaken, requestDays);
 
-  // Live countdown timer for emergency leaves
-  const [msLeft, setMsLeft] = useState(() =>
-    isEmergency ? emergencyMsRemaining(request.created_at) : 0,
-  );
-
-  useEffect(() => {
-    if (!isEmergency) return;
-    const id = setInterval(() => {
-      const remaining = emergencyMsRemaining(request.created_at);
-      setMsLeft(remaining);
-      if (remaining === 0) {
-        // Auto-approve on the client when timer hits zero
-        supabase
-          .from("leave_requests")
-          .update({
-            status: "approved",
-            auto_approved_at: new Date().toISOString(),
-            paid_days: 0,
-            unpaid_days: Number(request.total_days),
-          })
-          .eq("id", request.id)
-          .eq("status", "pending_principal") // only if not already acted on
-          .then(() => qc.invalidateQueries());
-        clearInterval(id);
-      }
-    }, 1000);
-    return () => clearInterval(id);
-  }, [isEmergency, request.created_at, request.id, request.total_days, qc]);
-
+  // All dates in the leave range, used to drive proxy slot generation
   const dates = useMemo(
     () => eachDate(request.from_date, request.to_date),
     [request.from_date, request.to_date],
   );
 
-  // Lectures of the absent teacher falling on the leave dates
+  /**
+   * Lectures of the absent teacher that fall within the leave dates,
+   * filtered by session (forenoon/afternoon).
+   *
+   * Session logic:
+   * - forenoon: only lectures with start_time < 13:00 (morning sessions)
+   * - afternoon: only lectures with start_time >= 13:00 (afternoon sessions)
+   * - full_day: all lectures
+   *
+   * No extra lectures are created — only existing scheduled lectures are shown.
+   */
   const { data: slots = [] } = useQuery({
-    queryKey: ["leave-lectures", request.id],
+    queryKey: ["leave-lectures", request.id, request.session],
     enabled: isHod,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -294,18 +271,25 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         .select("*")
         .eq("teacher_id", request.teacher_id);
       if (error) throw error;
+
       const out: {
         key: string;
         date: string;
         lecture: (typeof data)[number];
       }[] = [];
+
       for (const date of dates) {
         const dow = new Date(date + "T00:00:00").getDay();
+        // Skip Sundays
         if (dow === 0) continue;
+
         for (const lec of data ?? []) {
           if (lec.day_of_week !== dow) continue;
+
+          // Session filter — only include lectures matching the leave session
           if (request.session === "forenoon" && lec.start_time >= "13:00:00") continue;
           if (request.session === "afternoon" && lec.start_time < "13:00:00") continue;
+
           out.push({ key: `${date}-${lec.id}`, date, lecture: lec });
         }
       }
@@ -344,13 +328,11 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     queryKey: ["dept-availability", request.department_id, request.from_date, request.to_date],
     enabled: isHod,
     queryFn: async () => {
-      // Get all teachers in dept (excluding the absent teacher)
       let pq = supabase.from("profiles").select("id, full_name, designation").eq("approved", true);
       if (request.department_id) pq = pq.eq("department_id", request.department_id);
       const { data: people, error } = await pq.neq("id", request.teacher_id).order("full_name");
       if (error) throw error;
 
-      // Fixed lectures for conflict checking
       const teacherIds = (people ?? []).map((p) => p.id);
       const { data: lectures } = teacherIds.length
         ? await supabase
@@ -360,7 +342,6 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
             .is("lecture_date", null)
         : { data: [] };
 
-      // Also fetch accepted proxy assignments during leave period (so we know who's already busy)
       const { data: existingProxies } = teacherIds.length
         ? await supabase
             .from("proxy_assignments")
@@ -378,7 +359,6 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   function candidates(date: string, start: string, end: string) {
     const dow = new Date(date + "T00:00:00").getDay();
     return (dept?.people ?? []).map((p) => {
-      // Busy if they have a fixed lecture at this time
       const busyFixed = (dept?.lectures ?? []).some(
         (l) =>
           l.teacher_id === p.id &&
@@ -386,7 +366,6 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
           l.start_time < end &&
           l.end_time > start,
       );
-      // Busy if they already have a proxy assignment at this time on this date
       const busyProxy = (dept?.existingProxies ?? []).some(
         (p2) =>
           p2.proxy_teacher_id === p.id &&
@@ -419,23 +398,28 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     const incomplete = allSlots.some((s) => !s.subject.trim() || !s.class_name.trim());
     if (incomplete) { toast.error("Add subject and class for every proxy lecture"); return false; }
     const { error: pErr } = await supabase.from("proxy_assignments").insert(
-      allSlots.map((s) => ({
-        leave_request_id: request.id,
-        lecture_id: s.lecture_id,
-        proxy_teacher_id: choices[s.key],
-        absentee_teacher_id: request.teacher_id,   // store directly — avoids RLS join issues
-        proxy_date: s.date,
-        start_time: s.start_time,
-        end_time: s.end_time,
-        subject: s.subject,
-        class_name: s.class_name,
-      })),
+      allSlots.map((s) => {
+        // When the HOD assigns the proxy to themselves, auto-accept it
+        const isHodSelf = profile?.id && choices[s.key] === profile.id;
+        return {
+          leave_request_id: request.id,
+          lecture_id: s.lecture_id,
+          proxy_teacher_id: choices[s.key],
+          absentee_teacher_id: request.teacher_id,
+          proxy_date: s.date,
+          start_time: s.start_time,
+          end_time: s.end_time,
+          subject: s.subject,
+          class_name: s.class_name,
+          // Auto-accept if HOD assigns to themselves
+          status: isHodSelf ? "accepted" : "pending",
+        };
+      }),
     );
     if (pErr) { toast.error(pErr.message); return false; }
     return true;
   }
 
-  // HOD recommends normal leaves → moves to pending_principal
   async function hodRecommend() {
     setBusy(true);
     const ok = await saveProxies();
@@ -454,7 +438,6 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     qc.invalidateQueries();
   }
 
-  // HOD directly approves medical/duty leave → status = hod_approved, doc_status = required
   async function hodDirectApprove() {
     setBusy(true);
     const ok = await saveProxies();
@@ -474,7 +457,6 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     qc.invalidateQueries();
   }
 
-  // HOD or principal rejects
   async function reject() {
     setBusy(true);
     const patch = isHod
@@ -495,13 +477,8 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     qc.invalidateQueries();
   }
 
-  // Principal gives final approval (also decides paid/unpaid here)
   async function principalApprove() {
     setBusy(true);
-    // Compute paid/unpaid days:
-    // - Medical: first 10 days/yr are auto-paid; over-quota days per principal's decision
-    // - Emergency: always unpaid
-    // - Others: per principal's decision
     const total = Number(request.total_days);
     let paidDays: number;
     let unpaidDays: number;
@@ -509,7 +486,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       const overQuotaPaid = medicalRequiresDecision ? (payment === "paid" ? medicalSplit.overQuota : 0) : 0;
       paidDays = medicalSplit.withinQuota + overQuotaPaid;
       unpaidDays = total - paidDays;
-    } else if (needsDecision && !isEmergency) {
+    } else if (needsDecision) {
       paidDays = payment === "paid" ? total : 0;
       unpaidDays = payment === "unpaid" ? total : 0;
     } else {
@@ -520,7 +497,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       .from("leave_requests")
       .update({
         status: "approved",
-        payment_decision: needsDecision && !isEmergency ? payment : null,
+        payment_decision: needsDecision ? payment : null,
         paid_days: paidDays,
         unpaid_days: unpaidDays,
         principal_note: note.trim() || null,
@@ -533,35 +510,25 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     qc.invalidateQueries();
   }
 
-  const isEmergencyPendingPrincipal = isEmergency && request.status === "pending_principal";
+  // Compute the session-filtered working dates to display in the HOD panel
+  const sessionLabel = SESSION_LABEL[request.session as LeaveSession] ?? request.session;
 
   return (
     <div className="rounded-xl border border-border p-4">
-      {/* Emergency countdown banner */}
-      {isEmergencyPendingPrincipal && msLeft > 0 && (
-        <div className="mb-3 flex items-center justify-between rounded-lg border border-destructive/40 bg-destructive/8 px-3 py-2 text-sm">
-          <span className="font-semibold text-destructive">⚡ Emergency Leave</span>
-          <span className="text-muted-foreground">
-            Auto-approves in <span className="font-mono font-bold text-destructive">{fmtMs(msLeft)}</span>
-          </span>
-        </div>
-      )}
-      {isEmergencyPendingPrincipal && msLeft === 0 && (
-        <div className="mb-3 rounded-lg border border-success/40 bg-success/8 px-3 py-2 text-sm font-semibold text-success">
-          ✓ Auto-approved (5-hour window elapsed)
-        </div>
-      )}
-
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-bold">{request.teacher?.full_name}</p>
           <p className="text-sm text-muted-foreground">
-            {leaveTypeLabel(request.leave_type as LeaveType)} ·{" "}
-            {SESSION_LABEL[request.session as LeaveSession]}
+            {leaveTypeLabel(request.leave_type as LeaveType)} · {sessionLabel}
           </p>
+          {/* Exact dates display — inclusive from→to */}
           <p className="text-sm text-muted-foreground">
             {fmtDate(request.from_date)} – {fmtDate(request.to_date)} · {Number(request.total_days)}{" "}
             day(s)
+          </p>
+          {/* Show all leave dates explicitly for clarity */}
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Dates: {dates.map(fmtDate).join(", ")}
           </p>
         </div>
         <div className="text-right text-sm">
@@ -575,20 +542,27 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         </div>
       </div>
 
-      <p className="mt-3 rounded-lg bg-muted p-3 text-sm">{request.reason}</p>
+      {request.reason && (
+        <p className="mt-3 rounded-lg bg-muted p-3 text-sm">{request.reason}</p>
+      )}
       {request.hod_note && !isHod && (
         <p className="mt-2 text-xs text-muted-foreground">HOD note: {request.hod_note}</p>
       )}
 
-      {/* Proxy assignment — HOD only, not for emergency */}
-      {isHod && !isEmergency && (
+      {/* Proxy assignment — HOD only */}
+      {isHod && (
         <div className="mt-4">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Proxy assignment
+            {request.session !== "full_day" && (
+              <span className="ml-2 text-info normal-case">
+                ({sessionLabel} only — showing only matching lectures)
+              </span>
+            )}
           </p>
           {allSlots.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              No lectures on the timetable for these dates — add a proxy lecture manually if needed.
+              No lectures found on the timetable for these dates{request.session !== "full_day" ? ` (${sessionLabel})` : ""} — add a proxy lecture manually if needed.
             </p>
           )}
           <ul className="space-y-2">
@@ -706,8 +680,8 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         </div>
       )}
 
-      {/* Payment decision — Principal only, non-emergency */}
-      {!isHod && needsDecision && !isEmergency && (
+      {/* Payment decision — Principal only */}
+      {!isHod && needsDecision && (
         <div className="mt-4 rounded-lg border border-border p-3 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Salary decision for this {leaveTypeLabel(request.leave_type as LeaveType).toLowerCase()}
@@ -739,7 +713,6 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
             </div>
           )}
 
-          {/* Only show paid/unpaid toggle if over-quota days exist */}
           {(!isMedical || medicalRequiresDecision) && (
             <div className="flex flex-wrap gap-2">
               <Button
@@ -768,7 +741,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       )}
 
       {/* HOD sees a note that principal will decide pay */}
-      {isHod && needsDecision && !isEmergency && !isHodFinal && (
+      {isHod && needsDecision && !isHodFinal && (
         <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-muted p-2">
           💡 The principal will decide whether this leave is paid or unpaid upon final approval.
         </p>
@@ -778,13 +751,6 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       {isHod && isHodFinal && (
         <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-info/8 border border-info/30 p-2">
           📄 Approving this leave will require the teacher to upload a <strong>{requiredDoc}</strong>. The principal will verify the document and finalise salary.
-        </p>
-      )}
-
-      {/* Emergency leave: always unpaid notice */}
-      {isEmergency && (
-        <p className="mt-3 rounded-lg border border-destructive/30 bg-destructive/8 p-2 text-xs text-destructive">
-          Emergency leave — salary deduction is automatic for all {Number(request.total_days)} day(s).
         </p>
       )}
 
@@ -798,19 +764,19 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       />
 
       <div className="mt-3 flex flex-wrap gap-2">
-        {isHod && !isEmergency && isHodFinal && (
+        {isHod && isHodFinal && (
           <Button onClick={hodDirectApprove} disabled={busy}>
             Approve Leave
           </Button>
         )}
-        {isHod && !isEmergency && !isHodFinal && (
+        {isHod && !isHodFinal && (
           <Button onClick={hodRecommend} disabled={busy}>
             Approve &amp; send to principal
           </Button>
         )}
         {!isHod && (
           <Button onClick={principalApprove} disabled={busy}>
-            {isEmergency ? "Approve Early" : "Approve Leave"}
+            Approve Leave
           </Button>
         )}
         <Button variant="outline" onClick={reject} disabled={busy}>
@@ -820,15 +786,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
 
       {/* Approval flow indicator */}
       <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        {isEmergency ? (
-          <>
-            <span className="rounded bg-muted px-2 py-0.5">Submitted</span>
-            <span>→</span>
-            <span className="rounded bg-muted px-2 py-0.5">HOD &amp; Principal notified</span>
-            <span>→</span>
-            <span className="rounded bg-muted px-2 py-0.5">Auto-approves in 5h (unpaid)</span>
-          </>
-        ) : isHodFinal ? (
+        {isHodFinal ? (
           <>
             <span className="rounded bg-muted px-2 py-0.5">Submitted</span>
             <span>→</span>
@@ -859,8 +817,6 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
 }
 
 // ─── DocCard ──────────────────────────────────────────────────────────────────
-// Shown to the principal for hod_approved leaves pending document verification.
-
 function DocCard({ request }: { request: RequestRow }) {
   const qc = useQueryClient();
   const [note, setNote] = useState("");
@@ -870,6 +826,11 @@ function DocCard({ request }: { request: RequestRow }) {
 
   const docUploaded = request.doc_status === "uploaded";
 
+  const dates = useMemo(
+    () => eachDate(request.from_date, request.to_date),
+    [request.from_date, request.to_date],
+  );
+
   async function verifyAndApprove() {
     setBusy(true);
     const total = Number(request.total_days);
@@ -878,7 +839,6 @@ function DocCard({ request }: { request: RequestRow }) {
     const { error } = await supabase
       .from("leave_requests")
       .update({
-        // Leave status stays hod_approved — the leave itself is already approved
         doc_status: "verified",
         doc_note: note.trim() || null,
         doc_acted_at: new Date().toISOString(),
@@ -900,7 +860,6 @@ function DocCard({ request }: { request: RequestRow }) {
     const { error } = await supabase
       .from("leave_requests")
       .update({
-        // Leave stays hod_approved — we only flag the document as needing re-upload
         doc_status: "required",
         doc_note: note.trim() || null,
         doc_url: null,
@@ -928,6 +887,9 @@ function DocCard({ request }: { request: RequestRow }) {
             {fmtDate(request.from_date)} – {fmtDate(request.to_date)} ·{" "}
             {Number(request.total_days)} day(s)
           </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Dates: {dates.map(fmtDate).join(", ")}
+          </p>
         </div>
         <div className="flex flex-col items-end gap-1">
           <Badge
@@ -940,12 +902,13 @@ function DocCard({ request }: { request: RequestRow }) {
         </div>
       </div>
 
-      <p className="mt-3 rounded-lg bg-muted p-3 text-sm">{request.reason}</p>
+      {request.reason && (
+        <p className="mt-3 rounded-lg bg-muted p-3 text-sm">{request.reason}</p>
+      )}
       {request.hod_note && (
         <p className="mt-2 text-xs text-muted-foreground">HOD note: {request.hod_note}</p>
       )}
 
-      {/* Document status */}
       <div className={`mt-3 rounded-lg border p-3 text-sm ${docUploaded ? "border-info/30 bg-info/8" : "border-warning/30 bg-warning/10"}`}>
         <p className="font-semibold">
           {docUploaded ? `✅ ${requiredDoc} uploaded` : `⏳ Waiting for teacher to upload ${requiredDoc}`}
@@ -955,12 +918,11 @@ function DocCard({ request }: { request: RequestRow }) {
         )}
         {!docUploaded && (
           <p className="mt-1 text-xs text-muted-foreground">
-            The leave is already approved. This section is for document verification only. Once the teacher uploads the document, you can verify it and set the salary decision.
+            The leave is already approved. This section is for document verification only.
           </p>
         )}
       </div>
 
-      {/* Salary decision — only when document is uploaded */}
       {docUploaded && (
         <div className="mt-4 rounded-lg border border-border p-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1019,7 +981,6 @@ function ViewDocButton({ path }: { path: string }) {
   const [loading, setLoading] = useState(false);
 
   async function open() {
-    // doc_url may be a full Supabase public URL from an old upload — extract just the storage path
     const storagePath = path.includes("/object/public/leave-docs/")
       ? path.split("/object/public/leave-docs/")[1]
       : path.includes("/object/sign/leave-docs/")

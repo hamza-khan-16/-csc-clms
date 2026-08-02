@@ -8,9 +8,8 @@ import { Guarded } from "@/components/Guard";
 import { SectionCard, StatusBadge, Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import {
-  emergencyMsRemaining,
+  eachDate,
   fmtDate,
-  fmtMs,
   fmtTime,
   leaveTypeLabel,
   isHodFinalLeave,
@@ -21,7 +20,7 @@ import {
   type LeaveType,
   type DocStatus,
 } from "@/lib/leave";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -171,6 +170,9 @@ function MyLeavesPage() {
                     {fmtDate(l.from_date)} – {fmtDate(l.to_date)} ·{" "}
                     {SESSION_LABEL[l.session as LeaveSession]}
                   </p>
+                  <p className="text-xs text-muted-foreground">
+                    Dates: {eachDate(l.from_date, l.to_date).map(fmtDate).join(", ")}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={l.status as LeaveStatus} />
@@ -181,10 +183,6 @@ function MyLeavesPage() {
                   )}
                 </div>
               </div>
-
-              {l.leave_type === "emergency" && l.status === "pending_principal" && (
-                <EmergencyCountdown createdAt={l.created_at} />
-              )}
 
               <div className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
                 <Field label="Reason" value={l.reason} />
@@ -253,26 +251,6 @@ function MyLeavesPage() {
   );
 }
 
-function EmergencyCountdown({ createdAt }: { createdAt: string }) {
-  const [msLeft, setMsLeft] = useState(() => emergencyMsRemaining(createdAt));
-  useEffect(() => {
-    const id = setInterval(() => setMsLeft(emergencyMsRemaining(createdAt)), 1000);
-    return () => clearInterval(id);
-  }, [createdAt]);
-  if (msLeft === 0) {
-    return (
-      <div className="mt-2 rounded-lg border border-success/30 bg-success/8 px-3 py-2 text-xs font-semibold text-success">
-        ✓ Auto-approved — awaiting system update
-      </div>
-    );
-  }
-  return (
-    <div className="mt-2 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs text-destructive">
-      <span>⚡ Emergency leave — auto-approves (unpaid) in</span>
-      <span className="font-mono font-bold">{fmtMs(msLeft)}</span>
-    </div>
-  );
-}
 
 function ViewDocButton({ path }: { path: string }) {
   const [loading, setLoading] = useState(false);

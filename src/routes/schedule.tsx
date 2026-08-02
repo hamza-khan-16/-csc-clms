@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2, LayoutGrid, X } from "lucide-react";
+import { Trash2, LayoutGrid, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
@@ -249,6 +249,29 @@ function SchedulePage() {
   // Selected weekday tab (1=Mon … 6=Sat)
   const [selectedDay, setSelectedDay] = useState<number>(todayDow());
 
+  // Week offset: 0 = current week, -1 = last week, +1 = next week, etc.
+  const [weekOffset, setWeekOffset] = useState(0);
+
+  // Derive the Mon–Sat ISO date range for the currently viewed week
+  const { weekStart, weekEnd, weekDates } = useMemo(() => {
+    const now = new Date(today + "T00:00:00");
+    const dow = now.getDay() === 0 ? 7 : now.getDay(); // Mon=1…Sun=7
+    const mon = new Date(now);
+    mon.setDate(now.getDate() - dow + 1 + weekOffset * 7);
+    const sat = new Date(mon);
+    sat.setDate(mon.getDate() + 5);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    // Map dow (1=Mon…6=Sat) → the ISO date of that day this week
+    const dates: Record<number, string> = {};
+    for (let i = 1; i <= 6; i++) {
+      const d = new Date(mon);
+      d.setDate(mon.getDate() + (i - 1));
+      dates[i] = iso(d);
+    }
+    return { weekStart: iso(mon), weekEnd: iso(sat), weekDates: dates };
+  }, [today, weekOffset]);
+
   const [mode, setMode] = useState<"fixed" | "added">("fixed");
   const [form, setForm] = useState({
     day: String(todayDow()),
@@ -361,43 +384,60 @@ function SchedulePage() {
   });
 
   // ── Cleanup stale dated lectures (past dates) ───────────────────────────────
+  // Calls the server-side function which cleans up ALL expired dated rows:
+  // - Compensation lectures added to the leave-taker's schedule
+  // - __COMP_GIVEN__ tombstone rows that suppressed the proxy teacher's slot
+  // Both categories are temporary and must vanish once their date has passed.
   useEffect(() => {
     if (!profile) return;
-    supabase
-      .from("lectures")
-      .delete()
-      .eq("teacher_id", profile.id)
-      .not("lecture_date", "is", null)
-      .lt("lecture_date", today)
-      .then(({ error }) => {
-        if (!error) qc.invalidateQueries({ queryKey: ["my-lectures"] });
-      });
-  }, [profile, qc, today]);
+    supabase.rpc("cleanup_expired_dated_lectures").then(({ error }) => {
+      if (!error) qc.invalidateQueries({ queryKey: ["my-lectures"] });
+    });
+  }, [profile, qc]);
 
-  // ── Derive what to show for selectedDay ────────────────────────────────────
-  // Fixed lectures: always show for the selected weekday
+  // ── Derive what to show for selectedDay in the viewed week ─────────────────
+  // Tombstones scoped to the viewed week's date for selectedDay.
+  // A __COMP_GIVEN__ row means the teacher gave away that fixed slot on that
+  // specific date — suppress the recurring lecture only for that date.
+  const tombstonedOnViewedDate = useMemo(() => {
+    const viewedDate = weekDates[selectedDay];
+    return new Set(
+      lectures
+        .filter((l) => l.lecture_date === viewedDate && l.subject.startsWith("__COMP_GIVEN__"))
+        .map((l) => `${l.start_time}|${l.end_time}`)
+    );
+  }, [lectures, weekDates, selectedDay]);
+
   const fixedForDay = useMemo(
-    () => lectures.filter((l) => !l.lecture_date && l.day_of_week === selectedDay),
-    [lectures, selectedDay],
+    () => lectures.filter((l) => {
+      if (l.lecture_date || l.day_of_week !== selectedDay) return false;
+      // Suppress if this slot was given away via compensation on the viewed date
+      if (tombstonedOnViewedDate.has(`${l.start_time}|${l.end_time}`)) return false;
+      return true;
+    }),
+    [lectures, selectedDay, tombstonedOnViewedDate],
   );
 
-  // Dated lectures for the selected weekday: only those whose date falls on that weekday
-  // AND that date is today or in the future
+  // Dated lectures for the selected weekday — only the one that falls on this
+  // week's date for that day, not any future/past week's entry.
   const datedForDay = useMemo(
     () =>
       lectures.filter(
         (l) =>
           l.lecture_date &&
-          l.lecture_date >= today &&
-          l.day_of_week === selectedDay,
+          l.lecture_date === weekDates[selectedDay] &&
+          l.day_of_week === selectedDay &&
+          !l.subject.startsWith("__COMP_GIVEN__"),
       ),
-    [lectures, selectedDay, today],
+    [lectures, selectedDay, weekDates],
   );
 
   // Accepted proxies for the selected weekday
+  // Proxies scoped to this week only — a proxy on Wed 13 Aug only shows on
+  // the Wednesday tab when you're viewing the week of 11–16 Aug.
   const proxiesForDay = useMemo(
-    () => proxies.filter((p) => p.day_of_week === selectedDay),
-    [proxies, selectedDay],
+    () => proxies.filter((p) => p.day_of_week === selectedDay && p.lecture_date === weekDates[selectedDay]),
+    [proxies, selectedDay, weekDates],
   );
 
   const allForDay = useMemo(
@@ -479,12 +519,52 @@ function SchedulePage() {
             </div>
           )}
 
+          {/* Week navigator */}
+          {(() => {
+            const pad = (n: number) => String(n).padStart(2, "0");
+            const fmt = (iso: string) => {
+              const [, m, d] = iso.split("-");
+              return `${Number(d)} ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(m)-1]}`;
+            };
+            const isCurrentWeek = weekOffset === 0;
+            return (
+              <div className="flex items-center justify-between rounded-xl border border-border bg-muted/30 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => setWeekOffset((w) => w - 1)}
+                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  aria-label="Previous week"
+                >
+                  <ChevronLeft className="size-4" />
+                </button>
+                <div className="text-center">
+                  <p className="text-sm font-semibold">
+                    {isCurrentWeek ? "This week" : weekOffset === 1 ? "Next week" : weekOffset === -1 ? "Last week" : `Week of ${fmt(weekStart)}`}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{fmt(weekStart)} – {fmt(weekEnd)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWeekOffset((w) => w + 1)}
+                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  aria-label="Next week"
+                >
+                  <ChevronRight className="size-4" />
+                </button>
+              </div>
+            );
+          })()}
+
           {/* Day-of-week tab strip */}
           <div className="flex flex-wrap gap-2 items-center justify-between">
             <div className="flex flex-wrap gap-2">
             {WEEKDAYS.map((dow) => {
-              const isToday = dow === todayDowValue;
+              const isToday = weekDates[dow] === today;
               const isSelected = dow === selectedDay;
+              // Dot indicators for this week's date on this day
+              const dateForDow = weekDates[dow];
+              const hasProxy = proxies.some((p) => p.lecture_date === dateForDow);
+              const hasComp  = lectures.some((l) => l.lecture_date === dateForDow && !l.subject.startsWith("__COMP_GIVEN__"));
               return (
                 <button
                   key={dow}
@@ -500,6 +580,12 @@ function SchedulePage() {
                   {DAYS[dow].slice(0, 3)}
                   {isToday && (
                     <span className="absolute -top-1 -right-1 size-2 rounded-full bg-success" />
+                  )}
+                  {!isToday && hasProxy && (
+                    <span className="absolute -top-1 -right-1 size-2 rounded-full bg-amber-400" />
+                  )}
+                  {!isToday && !hasProxy && hasComp && (
+                    <span className="absolute -top-1 -right-1 size-2 rounded-full bg-blue-400" />
                   )}
                 </button>
               );
@@ -518,14 +604,16 @@ function SchedulePage() {
           </div>
 
           {/* Day schedule card */}
-          <SectionCard
-            title={DAYS[selectedDay]}
-            subtitle={
-              selectedDay === todayDowValue
-                ? "Today's schedule"
-                : `Your ${DAYS[selectedDay]} schedule`
-            }
-          >
+          {(() => {
+            const viewedDate = weekDates[selectedDay];
+            const isToday = viewedDate === today;
+            const [, m, d] = viewedDate.split("-");
+            const dateLabel = `${Number(d)} ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(m)-1]}`;
+            return (
+              <SectionCard
+                title={DAYS[selectedDay]}
+                subtitle={isToday ? `Today · ${dateLabel}` : dateLabel}
+              >
             {allForDay.length === 0 ? (
               <Empty>No lectures scheduled for {DAYS[selectedDay]}.</Empty>
             ) : (
@@ -535,12 +623,14 @@ function SchedulePage() {
                 ))}
               </ul>
             )}
-          </SectionCard>
+              </SectionCard>
+            );
+          })()}
 
           {/* Upcoming dated lectures summary (all days) */}
           {(() => {
             const upcoming = lectures
-              .filter((l) => l.lecture_date && l.lecture_date >= today)
+              .filter((l) => l.lecture_date && l.lecture_date >= today && !l.subject.startsWith("__COMP_GIVEN__"))
               .sort((a, b) =>
                 (a.lecture_date! + a.start_time).localeCompare(b.lecture_date! + b.start_time),
               );

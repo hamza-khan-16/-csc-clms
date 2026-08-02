@@ -67,11 +67,10 @@ function PayrollPage() {
 
   const totals = useMemo(() => {
     // Only deduct for leaves that have BOTH HOD and Principal approval
-    // (emergency leaves auto-approve and bypass HOD, so auto_approved_at counts)
+
     const fullyApproved = leaves.filter((l) => {
-      const isEmergency = l.leave_type === "emergency";
+
       const isHodFinal = l.leave_type === "medical" || l.leave_type === "duty";
-      if (isEmergency) return !!(l as any).auto_approved_at || !!(l as any).principal_acted_at;
       // Medical/duty: deduction applies once principal has verified the document and set payment_decision
       if (isHodFinal) return !!(l as any).payment_decision;
       return !!(l as any).hod_acted_at && !!(l as any).principal_acted_at;
