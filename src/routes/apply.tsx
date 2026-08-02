@@ -142,17 +142,22 @@ function ApplyPage() {
 
   /** Remaining balance label shown inline in the dropdown */
   function balanceLabel(type: LeaveType): string {
-    const bal = balances.find((b) => b.type === type);
-    if (!bal) return "";
     if (type === "casual") {
+      const bal = balances.find((b) => b.type === type);
+      if (!bal) return "";
       const monthly = bal.monthlyCap !== undefined ? Math.max(bal.monthlyCap - bal.usedMonth, 0) : null;
       const yearly  = Math.max(bal.yearlyCap - bal.usedYear, 0);
-      return monthly !== null
-        ? `${monthly} this month · ${yearly}/yr`
-        : `${yearly} remaining`;
+      return monthly !== null ? `${monthly} this month · ${yearly}/yr` : `${yearly} remaining`;
     }
-    const yearly = Math.max(bal.yearlyCap - bal.usedYear, 0);
-    return `${yearly} remaining`;
+    if (type === "medical") {
+      // Medical: 10 days per year total
+      const bal = balances.find((b) => b.type === type);
+      const usedYear = bal ? bal.usedYear : 0;
+      const remaining = Math.max(10 - usedYear, 0);
+      return `${remaining}/10 remaining this year`;
+    }
+    // Bereavement, maternity, duty — no balance counter shown
+    return "";
   }
 
   // Medical flow derived from preview
