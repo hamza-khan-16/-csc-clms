@@ -50,7 +50,7 @@ function PayrollPage() {
       // can see the salary impact once the principal decides.
       const { data, error } = await supabase
         .from("leave_requests")
-        .select("id, leave_type, from_date, to_date, status, total_days, paid_days, unpaid_days, payment_decision, principal_acted_at, auto_approved_at, hod_acted_at, doc_status")
+        .select("id, leave_type, from_date, to_date, status, total_days, paid_days, unpaid_days, payment_decision, principal_acted_at, hod_acted_at, doc_status")
         .eq("teacher_id", profile!.id)
         .in("status", ["approved", "hod_approved"])
         // Use overlap: leave intersects the month if it starts before month end AND ends after month start

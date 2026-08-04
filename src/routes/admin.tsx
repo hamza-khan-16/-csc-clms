@@ -335,7 +335,14 @@ function StaffRowCard({
         )}
         <div className="space-y-1.5">
           <Label className="text-xs">Designation</Label>
-          <Input value={designation} onChange={(e) => setDesignation(e.target.value)} />
+          <Select value={designation} onValueChange={setDesignation}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {["Assistant Professor","Associate Professor","Professor","Senior Professor","Head of Department","Principal","Vice Principal","Lecturer","Senior Lecturer","Lab Assistant","Teaching Assistant"].map((d) => (
+                <SelectItem key={d} value={d}>{d}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">Department</Label>
@@ -518,10 +525,14 @@ function AddStaffCard({
         </div>
         <div className="space-y-1.5">
           <Label>Designation</Label>
-          <Input
-            value={form.designation}
-            onChange={(e) => setForm({ ...form, designation: e.target.value })}
-          />
+          <Select value={form.designation} onValueChange={(v) => setForm({ ...form, designation: v })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {["Assistant Professor","Associate Professor","Professor","Senior Professor","Head of Department","Principal","Vice Principal","Lecturer","Senior Lecturer","Lab Assistant","Teaching Assistant"].map((d) => (
+                <SelectItem key={d} value={d}>{d}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         {form.role !== "principal" && (
         <div className="space-y-1.5">

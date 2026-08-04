@@ -8,8 +8,7 @@ import { useBalances } from "@/hooks/useBalances";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, StatusBadge, Empty } from "@/components/ui-bits";
-import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL, MEDICAL_PAID_QUOTA } from "@/lib/leave";
-import type { LeaveStatus, LeaveType, LeaveSession } from "@/lib/leave";
+import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL, MEDICAL_PAID_QUOTA, type LeaveStatus, type LeaveType, type LeaveSession } from "@/lib/leave";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
 
@@ -37,7 +36,7 @@ function DashboardPage() {
   return (
     <AppShell
       title={`Welcome, ${profile?.full_name ?? ""}`}
-      subtitle={`${profile?.designation ?? ""}${profile?.department_name ? `, ${profile.department_name}` : ""}`}
+      subtitle={`${profile?.designation ?? ""}${role === "principal" || role === "admin" ? ", College" : (profile?.department_name ? `, ${profile.department_name}` : "")}`}
     >
       {role === "principal" ? <PrincipalDashboard /> : <TeacherDashboard />}
     </AppShell>

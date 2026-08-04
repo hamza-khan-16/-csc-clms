@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import {
   Select,
   SelectContent,
@@ -22,13 +23,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  LEAVE_TYPES,
   countWorkingDays,
   fmtDate,
   todayISO,
   isHodFinalLeave,
   docLabel,
   getMedicalFlow,
+  LEAVE_TYPES,
   type LeaveType,
   type LeaveSession,
   type LeaveStatus,
@@ -88,6 +89,7 @@ function ApplyPage() {
 
   const { data: holidays = [] } = useQuery({
     queryKey: ["holidays-all"],
+    staleTime: 1000 * 60 * 60, // 1 hour — holidays don't change mid-session
     queryFn: async () => {
       const { data, error } = await supabase.from("holidays").select("holiday_date, occasion");
       if (error) throw error;
@@ -174,6 +176,11 @@ function ApplyPage() {
     if (toDate < fromDate) return toast.error("To date must be after the from date");
     if (session !== "full_day" && fromDate !== toDate)
       return toast.error("Half day leave must be for a single date");
+    // Validate reason contains meaningful words if provided
+    if (reason.trim()) {
+      const reasonCheck = validateMeaningfulText(reason, "Reason");
+      if (!reasonCheck.valid) return toast.error(reasonCheck.error!);
+    }
     if (preview && preview.total === 0)
       return toast.error("The selected dates are all Sundays or holidays");
     if (overlappingLeave)
@@ -194,7 +201,7 @@ function ApplyPage() {
       from_date: fromDate,
       to_date: toDate,
       session: session,
-      reason: reason.trim() || null,
+      ...(reason.trim() ? { reason: reason.trim() } : {}),
       status: initialStatus,
       ...(docStatus ? { doc_status: docStatus } : {}),
     });
@@ -373,6 +380,9 @@ function ApplyPage() {
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
+            {liveTextHint(reason) && (
+              <p className="text-xs text-destructive">{liveTextHint(reason)}</p>
+            )}
           </div>
 
           <Button type="submit" className="w-full" disabled={busy || !!overlappingLeave}>

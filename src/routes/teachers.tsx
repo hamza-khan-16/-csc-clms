@@ -42,8 +42,12 @@ function TeachersPage() {
     queryKey: ["staff", role, profile?.department_id],
     enabled: !!profile,
     queryFn: async () => {
-      const { data: adminRoles } = await supabase.from("user_roles").select("user_id").eq("role", "admin");
-      const adminIds = new Set((adminRoles ?? []).map((r) => r.user_id));
+      // Exclude admin AND principal from the staff/teacher list
+      const { data: excludedRoles } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .in("role", ["admin", "principal"]);
+      const adminIds = new Set((excludedRoles ?? []).map((r) => r.user_id));
 
       let q = supabase
         .from("profiles")

@@ -172,7 +172,7 @@ function SignInForm() {
             id="userid"
             type="text"
             required
-            placeholder="Firstname.CSC.COM or email"
+            placeholder="Firstname.CSC.COM"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="pr-10"
@@ -368,11 +368,28 @@ function RegisterForm() {
         </div>
         <div className="space-y-2">
           <Label htmlFor="desig">Designation</Label>
-          <Input
-            id="desig"
-            value={designation}
-            onChange={(e) => setDesignation(e.target.value)}
-          />
+          <Select value={designation} onValueChange={setDesignation}>
+            <SelectTrigger id="desig">
+              <SelectValue placeholder="Select designation" />
+            </SelectTrigger>
+            <SelectContent>
+              {[
+                "Assistant Professor",
+                "Associate Professor",
+                "Professor",
+                "Senior Professor",
+                "Head of Department",
+                "Principal",
+                "Vice Principal",
+                "Lecturer",
+                "Senior Lecturer",
+                "Lab Assistant",
+                "Teaching Assistant",
+              ].map((d) => (
+                <SelectItem key={d} value={d}>{d}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

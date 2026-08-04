@@ -40,6 +40,7 @@ import {
   type DocStatus,
 } from "@/lib/leave";
 import { AlertCircle } from "lucide-react";
+import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 
 export const Route = createFileRoute("/requests")({
   head: () => ({
@@ -162,6 +163,10 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
     if (toDate < fromDate) return toast.error("To date must be after from date");
     if (overlap) return toast.error(`This teacher already has an active leave from ${fmtDate(overlap.from_date)} to ${fmtDate(overlap.to_date)}`);
     if (session !== "full_day" && fromDate !== toDate) return toast.error("Half-day leave must be a single date");
+    if (reason.trim()) {
+      const check = validateMeaningfulText(reason, "Reason");
+      if (!check.valid) return toast.error(check.error!);
+    }
 
     const missingProxy = allProxySlots.filter((s) => !choices[s.key]);
     if (missingProxy.length > 0) return toast.error("Assign a proxy for every lecture before submitting");
@@ -214,7 +219,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
           end_time: s.end_time,
           subject: s.subject,
           class_name: s.class_name,
-          status: choices[s.key] === profile?.id ? "accepted" : "pending",
+          status: (choices[s.key] === profile?.id ? "accepted" : "pending") as "accepted" | "pending",
         }));
       if (proxyRows.length > 0) {
         const { error: pErr } = await supabase.from("proxy_assignments").insert(proxyRows);
@@ -364,7 +369,11 @@ function RequestsPage() {
     queryKey: ["review-requests", role, profile?.id],
     enabled: !!profile,
     queryFn: async () => {
-      const { data: adminRoles } = await supabase.from("user_roles").select("user_id").eq("role", "admin");
+      // Exclude admin and principal from teacher-submitted leave lists
+      const { data: adminRoles } = await supabase
+        .from("user_roles")
+        .select("user_id")
+        .in("role", ["admin", "principal"]);
       const adminIds = new Set((adminRoles ?? []).map((r) => r.user_id));
       let q = supabase.from("leave_requests").select("*").order("created_at", { ascending: false });
       if (isHod) {
@@ -549,14 +558,22 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     const { error: pErr } = await supabase.from("proxy_assignments").insert(
       allSlots.map((s) => {
         const isHodSelf = profile?.id && choices[s.key] === profile.id;
-        return { leave_request_id: request.id, lecture_id: s.lecture_id, proxy_teacher_id: choices[s.key], absentee_teacher_id: request.teacher_id, proxy_date: s.date, start_time: s.start_time, end_time: s.end_time, subject: s.subject, class_name: s.class_name, status: isHodSelf ? "accepted" : "pending" };
+        return { leave_request_id: request.id, lecture_id: s.lecture_id, proxy_teacher_id: choices[s.key], absentee_teacher_id: request.teacher_id, proxy_date: s.date, start_time: s.start_time, end_time: s.end_time, subject: s.subject, class_name: s.class_name, status: (isHodSelf ? "accepted" : "pending") as "accepted" | "pending" };
       }),
     );
     if (pErr) { toast.error(pErr.message); return false; }
     return true;
   }
 
+  function checkNote(): boolean {
+    if (!note.trim()) return true; // notes are optional — only validate if filled
+    const r = validateMeaningfulText(note, "Note");
+    if (!r.valid) { toast.error(r.error!); return false; }
+    return true;
+  }
+
   async function hodRecommend() {
+    if (!checkNote()) return;
     setBusy(true);
     const ok = await saveProxies();
     if (!ok) { setBusy(false); return; }
@@ -568,6 +585,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   }
 
   async function hodDirectApprove() {
+    if (!checkNote()) return;
     setBusy(true);
     const ok = await saveProxies();
     if (!ok) { setBusy(false); return; }
@@ -579,6 +597,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   }
 
   async function reject() {
+    if (!checkNote()) return;
     setBusy(true);
     const patch = isHod
       ? { status: "rejected" as const, hod_note: note.trim() || null, hod_acted_at: new Date().toISOString() }
@@ -591,6 +610,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   }
 
   async function principalApprove() {
+    if (!checkNote()) return;
     setBusy(true);
     const total = Number(request.total_days);
     let paidDays: number;
@@ -723,6 +743,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       )}
 
       <Textarea className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+      {liveTextHint(note) && <p className="mt-1 text-xs text-destructive">{liveTextHint(note)}</p>}
 
       <div className="mt-3 flex flex-wrap gap-2">
         {isHod && isHodFinal && <Button onClick={hodDirectApprove} disabled={busy}>Approve Leave</Button>}

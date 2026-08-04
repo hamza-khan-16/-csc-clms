@@ -46,6 +46,7 @@ export type Database = {
           id: string
           kind: string
           occasion: string
+          source: string
         }
         Insert: {
           created_at?: string
@@ -54,6 +55,7 @@ export type Database = {
           id?: string
           kind?: string
           occasion: string
+          source?: string
         }
         Update: {
           created_at?: string
@@ -62,6 +64,7 @@ export type Database = {
           id?: string
           kind?: string
           occasion?: string
+          source?: string
         }
         Relationships: [
           {
@@ -88,7 +91,7 @@ export type Database = {
           payment_decision: string | null
           principal_acted_at: string | null
           principal_note: string | null
-          reason: string
+          reason: string | null
           session: Database["public"]["Enums"]["leave_session"]
           status: Database["public"]["Enums"]["leave_status"]
           teacher_id: string
@@ -118,7 +121,7 @@ export type Database = {
           payment_decision?: string | null
           principal_acted_at?: string | null
           principal_note?: string | null
-          reason: string
+          reason?: string | null
           session?: Database["public"]["Enums"]["leave_session"]
           status?: Database["public"]["Enums"]["leave_status"]
           teacher_id: string
@@ -214,26 +217,32 @@ export type Database = {
       }
       notices: {
         Row: {
-          body: string
+          body: string | null
           created_at: string
           created_by: string
           department_id: string | null
+          event_date: string | null
+          event_time: string | null
           id: string
           title: string
         }
         Insert: {
-          body?: string
+          body?: string | null
           created_at?: string
           created_by: string
           department_id?: string | null
+          event_date?: string | null
+          event_time?: string | null
           id?: string
           title: string
         }
         Update: {
-          body?: string
+          body?: string | null
           created_at?: string
           created_by?: string
           department_id?: string | null
+          event_date?: string | null
+          event_time?: string | null
           id?: string
           title?: string
         }
@@ -251,31 +260,40 @@ export type Database = {
         Row: {
           approved: boolean
           created_at: string
+          date_of_joining: string | null
           department_id: string | null
           designation: string
+          experience_years: number | null
           full_name: string
           id: string
           monthly_salary: number
+          subjects_taught: string | null
           user_id: string
         }
         Insert: {
           approved?: boolean
           created_at?: string
+          date_of_joining?: string | null
           department_id?: string | null
           designation?: string
+          experience_years?: number | null
           full_name: string
           id: string
           monthly_salary?: number
+          subjects_taught?: string | null
           user_id: string
         }
         Update: {
           approved?: boolean
           created_at?: string
+          date_of_joining?: string | null
           department_id?: string | null
           designation?: string
+          experience_years?: number | null
           full_name?: string
           id?: string
           monthly_salary?: number
+          subjects_taught?: string | null
           user_id?: string
         }
         Relationships: [
@@ -451,6 +469,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cleanup_expired_dated_lectures: {
+        Args: Record<string, never>
+        Returns: undefined
+      }
       count_working_days: {
         Args: { _dept: string; _from: string; _to: string }
         Returns: number
@@ -480,7 +502,7 @@ export type Database = {
       app_role: "teacher" | "hod" | "principal" | "admin"
       leave_session: "full_day" | "forenoon" | "afternoon"
       leave_status: "pending_hod" | "hod_recommended" | "pending_principal" | "hod_approved" | "approved" | "rejected"
-      leave_type: "casual" | "maternity" | "bereavement" | "emergency" | "medical" | "duty"
+      leave_type: "casual" | "maternity" | "bereavement" | "medical" | "duty"
       proxy_status: "pending" | "accepted" | "rejected"
     }
     CompositeTypes: {
@@ -612,7 +634,7 @@ export const Constants = {
       app_role: ["teacher", "hod", "principal", "admin"],
       leave_session: ["full_day", "forenoon", "afternoon"],
       leave_status: ["pending_hod", "hod_recommended", "pending_principal", "hod_approved", "approved", "rejected"],
-      leave_type: ["casual", "maternity", "bereavement", "emergency", "medical", "duty"],
+      leave_type: ["casual", "maternity", "bereavement", "medical", "duty"],
       proxy_status: ["pending", "accepted", "rejected"],
     },
   },

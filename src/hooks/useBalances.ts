@@ -22,7 +22,6 @@ export function useBalances(userId: string | undefined) {
         .select("leave_type, from_date, total_days, status")
         .eq("teacher_id", userId!)
         .in("status", ["hod_recommended", "pending_principal", "hod_approved", "approved"])
-        .neq("leave_type", "emergency")
         .gte("from_date", `${year}-01-01`)
         .lte("from_date", `${year}-12-31`);
       if (error) throw error;

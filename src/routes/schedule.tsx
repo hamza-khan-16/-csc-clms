@@ -22,6 +22,175 @@ import {
 import { DAYS, fmtDate, fmtTime, todayISO } from "@/lib/leave";
 import { cn } from "@/lib/utils";
 
+// ── Common subjects list ──────────────────────────────────────────────────────
+const COMMON_SUBJECTS = [
+  // ── Science & Technology — B.Sc.IT ───────────────────────────────────────
+  "Programming in C", "Data Structures", "Database Management Systems",
+  "Operating Systems", "Computer Networks", "Web Technologies",
+  "Software Engineering", "Object Oriented Programming with Java",
+  "Python Programming", "Mobile Application Development",
+  "Cloud Computing", "Cyber Security", "Network Security",
+  "Linux Administration", "PHP & MySQL", "JavaScript & Frameworks",
+  "Computer Organization & Architecture", "Discrete Mathematics",
+  "Numerical Methods", "Statistics & Probability",
+  "Data Communication", "Internet of Things", "DevOps",
+
+  // ── B.Sc.DS — Data Science ───────────────────────────────────────────────
+  "Introduction to Data Science", "Machine Learning", "Deep Learning",
+  "Big Data Analytics", "Data Visualization", "Statistical Modeling",
+  "R Programming", "Python for Data Science", "Natural Language Processing",
+  "Business Intelligence", "Data Warehousing & Mining",
+  "Artificial Intelligence", "Neural Networks", "Time Series Analysis",
+
+  // ── B.Sc. AI & ML ────────────────────────────────────────────────────────
+  "Foundations of Artificial Intelligence", "Supervised Learning",
+  "Unsupervised Learning", "Reinforcement Learning",
+  "Computer Vision", "Speech Recognition", "Expert Systems",
+  "Knowledge Representation", "Fuzzy Logic", "Genetic Algorithms",
+  "Deep Neural Networks", "Transfer Learning", "MLOps",
+
+  // ── B.Sc. CS & DF — Cyber Security & Digital Forensics ──────────────────
+  "Ethical Hacking", "Penetration Testing", "Digital Forensics",
+  "Cryptography", "Information Security", "Malware Analysis",
+  "Incident Response", "Cyber Laws & Ethics", "Steganography",
+  "Vulnerability Assessment", "Network Forensics", "Dark Web & Anonymity",
+
+  // ── B.Sc. VFX — Animation & Visual Effects ───────────────────────────────
+  "2D Animation", "3D Animation", "Visual Effects",
+  "Motion Graphics", "Compositing", "Digital Sculpting",
+  "Character Design", "Storyboarding", "Video Editing",
+  "Maya & Blender", "Adobe After Effects", "Photoshop & Illustrator",
+  "Game Design", "AR / VR Fundamentals",
+
+  // ── BCA — Computer Applications ──────────────────────────────────────────
+  "Problem Solving using C", "Object Oriented Programming",
+  "Web Designing", "E-Commerce", "Multimedia Applications",
+  "Project Management", "Computer Graphics", "Compiler Design",
+  "Theory of Computation", "Software Testing",
+
+  // ── Commerce & Arts — B.COM ──────────────────────────────────────────────
+  "Financial Accounting", "Cost Accounting", "Management Accounting",
+  "Business Law", "Economics", "Business Communication",
+  "Taxation (Direct & Indirect)", "Auditing", "Business Mathematics",
+  "Commerce", "Entrepreneurship Development",
+
+  // ── BAF — Accounting & Finance ───────────────────────────────────────────
+  "Advanced Accounting", "Corporate Finance", "Financial Analysis",
+  "Investment Management", "Portfolio Management", "Derivatives & Risk Management",
+  "Strategic Financial Management", "International Finance",
+  "Mergers & Acquisitions", "Financial Reporting",
+
+  // ── BBI — Banking & Insurance ────────────────────────────────────────────
+  "Principles of Banking", "Banking Law & Operations",
+  "Insurance Principles & Practice", "Life Insurance", "General Insurance",
+  "Central Banking", "Credit Management", "Forex Management",
+  "Retail Banking", "Microfinance",
+
+  // ── BFM — Financial Markets ───────────────────────────────────────────────
+  "Capital Markets", "Securities Analysis", "Mutual Funds",
+  "Commodity Markets", "Technical Analysis", "Fundamental Analysis",
+  "Stock Broking", "Wealth Management", "Financial Planning",
+  "Regulatory Framework", "Derivatives Trading",
+
+  // ── BAMMC — Multimedia & Mass Communication ───────────────────────────────
+  "Journalism", "Advertising & Public Relations",
+  "Media Laws & Ethics", "Radio Production", "Television Production",
+  "Digital Media & Social Media", "Photography", "Film Studies",
+  "Print Media", "Content Writing & Editing", "Event Management",
+  "Media Research", "Corporate Communication",
+
+  // ── BMS — Management Studies ─────────────────────────────────────────────
+  "Principles of Management", "Human Resource Management",
+  "Marketing Management", "Operations Management",
+  "Strategic Management", "Organizational Behaviour",
+  "Business Research Methods", "Supply Chain Management",
+  "Consumer Behaviour", "International Business",
+  "Retail Management", "Brand Management",
+
+  // ── Common / Foundation subjects (all courses) ───────────────────────────
+  "English Communication", "Environmental Studies",
+  "Foundation Course", "Professional Ethics",
+  "Applied Mathematics", "Linear Algebra", "Calculus",
+];
+
+// ── Subject Combobox ──────────────────────────────────────────────────────────
+function SubjectCombobox({
+  value,
+  onChange,
+  existingSubjects,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  existingSubjects: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  // Merge existing lectures subjects with the common list, deduped
+  const allOptions = useMemo(() => {
+    const combined = [...new Set([...existingSubjects, ...COMMON_SUBJECTS])];
+    return combined.sort((a, b) => a.localeCompare(b));
+  }, [existingSubjects]);
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return allOptions;
+    const q = query.toLowerCase();
+    return allOptions.filter((s) => s.toLowerCase().includes(q));
+  }, [allOptions, query]);
+
+  function select(subject: string) {
+    onChange(subject);
+    setQuery("");
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        id="subject"
+        placeholder="Search or type a subject…"
+        value={open ? query : value}
+        onFocus={() => { setOpen(true); setQuery(""); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { setQuery(e.target.value); onChange(e.target.value); }}
+        autoComplete="off"
+        className={value && !open ? "text-foreground font-medium" : ""}
+      />
+      {/* Current value chip shown when closed */}
+      {value && !open && (
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground truncate max-w-[60%]" />
+      )}
+      {open && (
+        <div className="absolute z-50 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
+          {/* "Use typed value" option when query doesn't match any option */}
+          {query.trim() && !allOptions.some((s) => s.toLowerCase() === query.toLowerCase()) && (
+            <button
+              type="button"
+              className="w-full px-3 py-2 text-left text-sm font-medium text-primary hover:bg-muted border-b border-border"
+              onMouseDown={() => select(query.trim())}
+            >
+              Use "{query.trim()}"
+            </button>
+          )}
+          {filtered.length === 0 && !query.trim() && (
+            <p className="px-3 py-2 text-xs text-muted-foreground">Start typing to search…</p>
+          )}
+          {filtered.map((s) => (
+            <button
+              key={s}
+              type="button"
+              className={`w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors ${s === value ? "bg-primary/8 text-primary font-medium" : ""}`}
+              onMouseDown={() => select(s)}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/schedule")({
   head: () => ({
     meta: [
@@ -725,21 +894,36 @@ function SchedulePage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="subject">Subject</Label>
-              <Input
-                id="subject"
-                placeholder="DSA"
+              {/* Combobox: choose from existing subjects or type a new one */}
+              <SubjectCombobox
                 value={form.subject}
-                onChange={(e) => setForm({ ...form, subject: e.target.value })}
+                onChange={(v) => setForm({ ...form, subject: v })}
+                existingSubjects={Array.from(new Set(lectures.map((l) => l.subject).filter(Boolean)))}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="class">Class</Label>
-              <Input
-                id="class"
-                placeholder="TY CS"
+              <Select
                 value={form.className}
-                onChange={(e) => setForm({ ...form, className: e.target.value })}
-              />
+                onValueChange={(v) => setForm({ ...form, className: v })}
+              >
+                <SelectTrigger id="class">
+                  <SelectValue placeholder="Select class…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {/* Science & Technology */}
+                  {[
+                    "B.Sc.IT","B.Sc.DS","B.Sc.(AI & ML)","B.Sc.(CS & DF)","B.Sc.(VFX)","BCA",
+                    "B.COM","BAF","BBI","BFM","BAMMC","BMS",
+                  ].flatMap((course) =>
+                    ["FY","SY","TY"].map((yr) => (
+                      <SelectItem key={`${course}-${yr}`} value={`${yr} ${course}`}>
+                        {yr} {course}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="room">Room</Label>

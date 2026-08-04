@@ -185,7 +185,7 @@ function MyLeavesPage() {
               </div>
 
               <div className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
-                <Field label="Reason" value={l.reason} />
+                <Field label="Reason" value={l.reason ?? "—"} />
                 <Field label="Days counted" value={`${Number(l.total_days)}`} />
                 <Field label="Paid days" value={`${Number(l.paid_days)}`} />
                 <Field

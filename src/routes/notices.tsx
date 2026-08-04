@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Trash2, CalendarClock } from "lucide-react";
+import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
@@ -20,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fmtDate, fmtTime } from "@/lib/leave";
-import { CalendarClock } from "lucide-react";
+
 
 export const Route = createFileRoute("/notices")({
   head: () => ({
@@ -78,6 +79,12 @@ function NoticesPage() {
   async function post(e: React.FormEvent) {
     e.preventDefault();
     if (title.trim().length < 3) return toast.error("Give the notice a title");
+    const titleCheck = validateMeaningfulText(title, "Title", true);
+    if (!titleCheck.valid) return toast.error(titleCheck.error!);
+    if (body.trim()) {
+      const bodyCheck = validateMeaningfulText(body, "Details");
+      if (!bodyCheck.valid) return toast.error(bodyCheck.error!);
+    }
     const departmentId = isPrincipal
       ? scope === "all"
         ? null
@@ -88,7 +95,7 @@ function NoticesPage() {
     setBusy(true);
     const { error } = await supabase.from("notices").insert({
       title: title.trim(),
-      body: body.trim() || null,
+      body: body.trim() || undefined,
       department_id: departmentId,
       created_by: profile!.id,
       event_date: eventDate || null,
@@ -175,6 +182,9 @@ function NoticesPage() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
               />
+              {liveTextHint(title) && (
+                <p className="text-xs text-destructive">{liveTextHint(title)}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="notice-body">Details <span className="text-xs text-muted-foreground">(optional)</span></Label>
@@ -186,6 +196,9 @@ function NoticesPage() {
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
               />
+              {liveTextHint(body) && (
+                <p className="text-xs text-destructive">{liveTextHint(body)}</p>
+              )}
             </div>
 
             {/* Event date / time — optional */}
