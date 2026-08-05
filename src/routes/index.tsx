@@ -31,37 +31,7 @@ export const Route = createFileRoute("/")({
   component: SignInPage,
 });
 
-const SALUTATIONS = [
-  "Mr.",
-  "Mrs.",
-  "Ms.",
-  "Miss",
-  "Mast.",
-  "Dr.",
-  "Prof.",
-  "Er.",
-  "Adv.",
-  "Ar.",
-  "CA",
-  "CS",
-  "CMA",
-  "Shri",
-  "Smt.",
-  "Sushri",
-  "Km.",
-  "Kr.",
-  "Hon'ble",
-  "H.E.",
-  "Justice",
-  "Gen.",
-  "Adm.",
-  "ACM",
-  "Col.",
-  "Maj.",
-  "Capt.",
-  "Lt.",
-  "Cmdr."
-];
+const SALUTATIONS = ["Dr.", "Prof.", "Mr.", "Mrs.", "Ms.", "Shri", "Smt.", "Er.", "Adv."];
 
 const PW_RULES = [
   { re: /.{8,}/, label: "At least 8 characters" },
@@ -172,7 +142,7 @@ function SignInForm() {
             id="userid"
             type="text"
             required
-            placeholder="Firstname.CSC.COM"
+            placeholder="Firstname.CSC.COM or email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="pr-10"

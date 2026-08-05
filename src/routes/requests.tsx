@@ -84,6 +84,11 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
     queryKey: ["dept-teachers", deptId],
     enabled: !!deptId,
     queryFn: async () => {
+      // Exclude principal and admin — they are not teaching staff
+      const { data: excludedRoles } = await supabase.from("user_roles").select("user_id")
+        .in("role", ["admin", "principal"]);
+      const excludedIds = new Set((excludedRoles ?? []).map((r) => r.user_id));
+
       const { data, error } = await supabase
         .from("profiles")
         .select("id, full_name")
@@ -91,7 +96,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
         .eq("approved", true)
         .order("full_name");
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []).filter((p) => !excludedIds.has(p.id));
     },
   });
 
@@ -140,11 +145,16 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
   });
 
   const { data: deptPeople = [] } = useQuery({
-    queryKey: ["dept-all-for-proxy", deptId],
+    queryKey: ["dept-all-for-proxy", deptId, teacherId],
     enabled: !!deptId,
     queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("id, full_name").eq("department_id", deptId).eq("approved", true).order("full_name");
-      return (data ?? []).filter((p) => p.id !== teacherId);
+      const { data: excludedRoles } = await supabase.from("user_roles").select("user_id")
+        .in("role", ["admin", "principal"]);
+      const excludedIds = new Set((excludedRoles ?? []).map((r) => r.user_id));
+
+      const { data } = await supabase.from("profiles").select("id, full_name")
+        .eq("department_id", deptId).eq("approved", true).order("full_name");
+      return (data ?? []).filter((p) => p.id !== teacherId && !excludedIds.has(p.id));
     },
   });
 
@@ -369,21 +379,25 @@ function RequestsPage() {
     queryKey: ["review-requests", role, profile?.id],
     enabled: !!profile,
     queryFn: async () => {
-      // Exclude admin and principal from teacher-submitted leave lists
-      const { data: adminRoles } = await supabase
-        .from("user_roles")
-        .select("user_id")
+      const { data: adminRoles } = await supabase.from("user_roles").select("user_id, role")
         .in("role", ["admin", "principal"]);
-      const adminIds = new Set((adminRoles ?? []).map((r) => r.user_id));
+      const excludedIds = new Set((adminRoles ?? []).map((r) => r.user_id));
       let q = supabase.from("leave_requests").select("*").order("created_at", { ascending: false });
       if (isHod) {
         q = q.eq("department_id", profile!.department_id ?? "");
       } else {
-        q = q.in("status", ["hod_recommended", "pending_principal", "hod_approved", "approved", "rejected"]);
+        // Principal sees leaves that:
+        // 1. Are in the principal's workflow (recommended/pending/hod_approved/approved)
+        // 2. Were rejected BUT by the principal themselves (principal_acted_at is set)
+        // HOD-rejected leaves (rejected + hod_acted_at set + principal_acted_at null) stay with HOD only
+        q = q.or(
+          "status.in.(hod_recommended,pending_principal,hod_approved,approved)," +
+          "and(status.eq.rejected,principal_acted_at.not.is.null)"
+        );
       }
       const { data, error } = await q;
       if (error) throw error;
-      const filtered = (data ?? []).filter((r) => !adminIds.has(r.teacher_id));
+      const filtered = (data ?? []).filter((r) => !excludedIds.has(r.teacher_id));
       const people = await fetchPeople(filtered.map((r) => r.teacher_id));
       return filtered.map((r) => ({ ...r, teacher: people[r.teacher_id] }));
     },
@@ -529,14 +543,21 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     queryKey: ["dept-availability", request.department_id, request.from_date, request.to_date],
     enabled: isHod,
     queryFn: async () => {
+      // Exclude principal and admin from proxy candidates
+      const { data: excludedRoles } = await supabase.from("user_roles").select("user_id")
+        .in("role", ["admin", "principal"]);
+      const excludedIds = new Set((excludedRoles ?? []).map((r) => r.user_id));
+
       let pq = supabase.from("profiles").select("id, full_name, designation").eq("approved", true);
       if (request.department_id) pq = pq.eq("department_id", request.department_id);
       const { data: people, error } = await pq.neq("id", request.teacher_id).order("full_name");
       if (error) throw error;
-      const teacherIds = (people ?? []).map((p) => p.id);
+
+      const filteredPeople = (people ?? []).filter((p) => !excludedIds.has(p.id));
+      const teacherIds = filteredPeople.map((p) => p.id);
       const { data: lectures } = teacherIds.length ? await supabase.from("lectures").select("teacher_id, day_of_week, start_time, end_time").in("teacher_id", teacherIds).is("lecture_date", null) : { data: [] };
       const { data: existingProxies } = teacherIds.length ? await supabase.from("proxy_assignments").select("proxy_teacher_id, proxy_date, start_time, end_time").in("proxy_teacher_id", teacherIds).in("status", ["pending", "accepted"]).gte("proxy_date", request.from_date).lte("proxy_date", request.to_date) : { data: [] };
-      return { people: people ?? [], lectures: lectures ?? [], existingProxies: existingProxies ?? [] };
+      return { people: filteredPeople, lectures: lectures ?? [], existingProxies: existingProxies ?? [] };
     },
   });
 
@@ -600,8 +621,18 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     if (!checkNote()) return;
     setBusy(true);
     const patch = isHod
-      ? { status: "rejected" as const, hod_note: note.trim() || null, hod_acted_at: new Date().toISOString() }
-      : { status: "rejected" as const, principal_note: note.trim() || null, principal_acted_at: new Date().toISOString() };
+      ? {
+          status: "rejected" as const,
+          hod_note: note.trim() || null,
+          hod_acted_at: new Date().toISOString(),
+          // Ensure principal_acted_at stays null so we can distinguish HOD-rejected vs principal-rejected
+          principal_acted_at: null as string | null,
+        }
+      : {
+          status: "rejected" as const,
+          principal_note: note.trim() || null,
+          principal_acted_at: new Date().toISOString(),
+        };
     const { error } = await supabase.from("leave_requests").update(patch).eq("id", request.id);
     setBusy(false);
     if (error) return toast.error(error.message);

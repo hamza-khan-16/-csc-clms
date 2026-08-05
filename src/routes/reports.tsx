@@ -147,7 +147,11 @@ async function fetchMonthlySchedule(deptId: string, year: number, month: number)
   const { data: userRoles } = await supabase.from("user_roles").select("user_id, role").in("user_id", ids);
   const roleMap: Record<string, string> = {};
   for (const r of userRoles ?? []) roleMap[r.user_id] = r.role;
-  const teachers = (profiles ?? []).map((p) => ({ ...p, role: roleMap[p.id] ?? "teacher" }));
+
+  // Exclude principal and admin — they are not teaching staff
+  const teachers = (profiles ?? [])
+    .map((p) => ({ ...p, role: roleMap[p.id] ?? "teacher" }))
+    .filter((p) => p.role !== "principal" && p.role !== "admin");
 
   const [{ data: fixedLectures }, { data: datedLectures }, { data: leaves }] = await Promise.all([
     supabase.from("lectures").select("id,teacher_id,day_of_week,start_time,end_time,subject,class_name").in("teacher_id", ids).is("lecture_date", null),
@@ -478,61 +482,68 @@ function ReportsPage() {
 
         {/* ── HOD filter bar (top, before stats) ─────────────────────────── */}
         {isHod && (
-          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3">
-            {/* Month */}
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground font-medium">Month</p>
-              <Select value={String(selectedMonth)} onValueChange={(v) => { setSelectedMonth(Number(v)); setPeriodFilter("month"); }}>
-                <SelectTrigger className="h-9 w-40 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {MONTH_NAMES.map((m, i) => <SelectItem key={i} value={String(i)}>{m} {year}</SelectItem>)}
-                </SelectContent>
-              </Select>
+          <div className="rounded-xl border border-border bg-muted/40 p-4 space-y-3">
+            {/* Row 1: selectors */}
+            <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end sm:gap-3">
+              {/* Month */}
+              <div className="space-y-1 col-span-1">
+                <p className="text-xs text-muted-foreground font-medium">Month</p>
+                <Select value={String(selectedMonth)} onValueChange={(v) => { setSelectedMonth(Number(v)); setPeriodFilter("month"); }}>
+                  <SelectTrigger className="h-9 text-sm w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {MONTH_NAMES.map((m, i) => <SelectItem key={i} value={String(i)}>{m} {year}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Period */}
+              <div className="space-y-1 col-span-1">
+                <p className="text-xs text-muted-foreground font-medium">Period</p>
+                <Select value={periodFilter} onValueChange={(v) => setPeriodFilter(v as PeriodFilter)}>
+                  <SelectTrigger className="h-9 text-sm w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="month">Full month</SelectItem>
+                    <SelectItem value="week">This week</SelectItem>
+                    <SelectItem value="day">Today</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Staff */}
+              <div className="space-y-1 col-span-2 sm:col-span-1">
+                <p className="text-xs text-muted-foreground font-medium">Staff</p>
+                <Select value={selectedTeacher} onValueChange={setSelectedTeacher}>
+                  <SelectTrigger className="h-9 text-sm w-full sm:w-52"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All staff</SelectItem>
+                    {(monthlyData?.teachers ?? []).map((t: any) => (
+                      <SelectItem key={t.id} value={t.id}>{t.full_name}{t.role === "hod" ? " (HOD)" : ""}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            {/* Period */}
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground font-medium">Period</p>
-              <Select value={periodFilter} onValueChange={(v) => setPeriodFilter(v as PeriodFilter)}>
-                <SelectTrigger className="h-9 w-36 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="month">Full month</SelectItem>
-                  <SelectItem value="week">This week</SelectItem>
-                  <SelectItem value="day">Today</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Teacher */}
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground font-medium">Staff</p>
-              <Select value={selectedTeacher} onValueChange={setSelectedTeacher}>
-                <SelectTrigger className="h-9 w-52 text-sm"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All staff</SelectItem>
-                  {(monthlyData?.teachers ?? []).map((t: any) => (
-                    <SelectItem key={t.id} value={t.id}>{t.full_name}{t.role === "hod" ? " (HOD)" : ""}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Active filter label */}
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-muted-foreground">Showing</p>
-              <p className="text-sm font-semibold truncate">{downloadRange.label}{selectedTeacher !== "all" ? ` · ${monthlyData?.teachers.find((t: any) => t.id === selectedTeacher)?.full_name ?? ""}` : " · All staff"}</p>
-            </div>
-
-            {/* Download */}
-            <div className="flex gap-2 shrink-0">
-              <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadExcel} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
-                <FileSpreadsheet className="size-4 text-emerald-600" />
-                {downloading === "excel" ? "…" : "Excel"}
-              </Button>
-              <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadPDF} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
-                <FileText className="size-4 text-red-600" />
-                {downloading === "pdf" ? "…" : "PDF"}
-              </Button>
+            {/* Row 2: active label + download buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-border/50">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-muted-foreground">Showing</p>
+                <p className="text-sm font-semibold truncate">
+                  {downloadRange.label}{selectedTeacher !== "all"
+                    ? ` · ${monthlyData?.teachers.find((t: any) => t.id === selectedTeacher)?.full_name ?? ""}`
+                    : " · All staff"}
+                </p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadExcel} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
+                  <FileSpreadsheet className="size-4 text-emerald-600" />
+                  <span className="hidden xs:inline">{downloading === "excel" ? "…" : "Excel"}</span>
+                </Button>
+                <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadPDF} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
+                  <FileText className="size-4 text-red-600" />
+                  <span className="hidden xs:inline">{downloading === "pdf" ? "…" : "PDF"}</span>
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -566,38 +577,55 @@ function ReportsPage() {
           {leaves.length === 0 ? (
             <Empty>No approved leaves for this period.</Empty>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-2.5 text-left font-semibold">Teacher</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">Type</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">From</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">To</th>
-                    <th className="px-4 py-2.5 text-center font-semibold">Days</th>
-                    <th className="px-4 py-2.5 text-center font-semibold">Paid</th>
-                    <th className="px-4 py-2.5 text-center font-semibold">Pay cut</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leaves.map((l, i) => (
-                    <tr key={l.id} className={`border-t border-border ${i%2===0?"":"bg-muted/20"}`}>
-                      <td className="px-4 py-3 font-medium">{data?.people[l.teacher_id]?.full_name ?? "—"}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{leaveTypeLabel(l.leave_type as LeaveType)}</td>
-                      <td className="px-4 py-3">{fmtDate(l.from_date)}</td>
-                      <td className="px-4 py-3">{fmtDate(l.to_date)}</td>
-                      <td className="px-4 py-3 text-center font-medium">{Number(l.total_days)}</td>
-                      <td className="px-4 py-3 text-center text-success">{Number(l.paid_days)}</td>
-                      <td className="px-4 py-3 text-center">
-                        {Number(l.unpaid_days) > 0
-                          ? <span className="font-semibold text-destructive">{Number(l.unpaid_days)}</span>
-                          : <span className="text-muted-foreground">—</span>}
-                      </td>
+            <>
+              {/* Mobile: card list */}
+              <ul className="sm:hidden space-y-2">
+                {leaves.map((l, i) => (
+                  <li key={l.id} className={`rounded-lg border border-border p-3 text-sm space-y-1 ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                    <p className="font-semibold">{data?.people[l.teacher_id]?.full_name ?? "—"}</p>
+                    <p className="text-xs text-muted-foreground">{leaveTypeLabel(l.leave_type as LeaveType)} · {fmtDate(l.from_date)} – {fmtDate(l.to_date)}</p>
+                    <div className="flex gap-3 text-xs pt-0.5">
+                      <span>{Number(l.total_days)} days</span>
+                      <span className="text-success">Paid: {Number(l.paid_days)}</span>
+                      {Number(l.unpaid_days) > 0 && <span className="text-destructive font-semibold">Cut: {Number(l.unpaid_days)}</span>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {/* Desktop: table */}
+              <div className="hidden sm:block overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-4 py-2.5 text-left font-semibold">Teacher</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Type</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">From</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">To</th>
+                      <th className="px-4 py-2.5 text-center font-semibold">Days</th>
+                      <th className="px-4 py-2.5 text-center font-semibold">Paid</th>
+                      <th className="px-4 py-2.5 text-center font-semibold">Pay cut</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {leaves.map((l, i) => (
+                      <tr key={l.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                        <td className="px-4 py-3 font-medium">{data?.people[l.teacher_id]?.full_name ?? "—"}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{leaveTypeLabel(l.leave_type as LeaveType)}</td>
+                        <td className="px-4 py-3">{fmtDate(l.from_date)}</td>
+                        <td className="px-4 py-3">{fmtDate(l.to_date)}</td>
+                        <td className="px-4 py-3 text-center font-medium">{Number(l.total_days)}</td>
+                        <td className="px-4 py-3 text-center text-success">{Number(l.paid_days)}</td>
+                        <td className="px-4 py-3 text-center">
+                          {Number(l.unpaid_days) > 0
+                            ? <span className="font-semibold text-destructive">{Number(l.unpaid_days)}</span>
+                            : <span className="text-muted-foreground">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </SectionCard>
 
@@ -666,45 +694,37 @@ function TeacherScheduleCard({
 
   return (
     <div className={`rounded-xl border transition-all ${expanded ? "border-primary/40 shadow-sm" : "border-border hover:border-border/80"}`}>
-      {/* Header row — always visible */}
-      <button
-        onClick={onToggle}
-        className="w-full text-left px-5 py-4 flex flex-wrap items-center gap-4"
-      >
-        {/* Avatar + name */}
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className={`flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${summary.role === "hod" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>
+      {/* Header — always visible */}
+      <button onClick={onToggle} className="w-full text-left px-4 py-3 sm:px-5 sm:py-4">
+        <div className="flex items-center gap-3">
+          {/* Avatar */}
+          <div className={`flex size-9 sm:size-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${summary.role === "hod" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>
             {summary.name.charAt(0)}
           </div>
-          <div className="min-w-0">
-            <p className="font-semibold truncate">
+          {/* Name + meta */}
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold truncate text-sm">
               {summary.name}
               {summary.role === "hod" && <span className="ml-2 text-xs font-normal text-primary bg-primary/10 rounded px-1.5 py-0.5">HOD</span>}
             </p>
-            <p className="text-xs text-muted-foreground">
-              {workingDays.length} working days · {attendancePct}% attendance
-            </p>
+            <p className="text-xs text-muted-foreground">{workingDays.length} working days · {attendancePct}% attendance</p>
+          </div>
+          {/* Chevron */}
+          <div className="shrink-0 text-muted-foreground">
+            {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
           </div>
         </div>
 
-        {/* Stats chips */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        {/* Chips — below name, always wrap */}
+        <div className="mt-2 flex flex-wrap gap-1.5 ml-12 sm:ml-13">
           <Chip icon={BookOpen} value={summary.totalOwn} label="Lectures" color="blue" />
           {summary.totalProxy > 0 && <Chip icon={UserCheck} value={summary.totalProxy} label="Proxies" color="amber" />}
           {summary.totalCompGiven > 0 && <Chip icon={ArrowLeftRight} value={summary.totalCompGiven} label="Comp. given" color="violet" />}
-          {summary.totalCompReceived > 0 && <Chip icon={Gift} value={summary.totalCompReceived} label="Comp. received" color="green" />}
-          {summary.totalLeave > 0 && <Chip icon={TrendingDown} value={summary.totalLeave} label="Leave days" color="red" />}
-          {/* Weekly counts */}
+          {summary.totalCompReceived > 0 && <Chip icon={Gift} value={summary.totalCompReceived} label="Comp. recv." color="green" />}
+          {summary.totalLeave > 0 && <Chip icon={TrendingDown} value={summary.totalLeave} label="Leave" color="red" />}
           {summary.weeklyOwn.map((wc, i) => (
-            <span key={i} className="text-xs rounded-md bg-muted px-2 py-1 font-medium">
-              Wk{i+1}: <strong>{wc}</strong>
-            </span>
+            <span key={i} className="text-xs rounded-md bg-muted px-2 py-1 font-medium">Wk{i + 1}: <strong>{wc}</strong></span>
           ))}
-        </div>
-
-        {/* Expand icon */}
-        <div className="shrink-0 text-muted-foreground ml-auto">
-          {expanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
         </div>
       </button>
 
@@ -719,26 +739,32 @@ function TeacherScheduleCard({
             const weekOwn   = weekSummaryDays.reduce((s, d) => s + d.ownLectures.length, 0);
             const weekProxy = weekSummaryDays.reduce((s, d) => s + d.proxyLectures.length, 0);
             const weekLeave = weekSummaryDays.filter((d) => d.isLeave).length;
+            const cols      = weekDays.length; // 1–6
 
             return (
               <div key={wi}>
                 {/* Week header */}
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">Week {wi+1}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {fmtDate(weekDays[0])} – {fmtDate(weekDays[weekDays.length-1])}
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="rounded bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary shrink-0">Wk {wi + 1}</span>
+                    <span className="text-xs text-muted-foreground truncate">
+                      {fmtDate(weekDays[0])} – {fmtDate(weekDays[weekDays.length - 1])}
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 text-xs shrink-0">
                     {weekOwn > 0   && <span className="text-blue-600 font-medium">{weekOwn} lec</span>}
                     {weekProxy > 0 && <span className="text-amber-600 font-medium">{weekProxy} proxy</span>}
                     {weekLeave > 0 && <span className="text-red-600 font-medium">{weekLeave} leave</span>}
                   </div>
                 </div>
 
-                {/* Day cards */}
-                <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(weekDays.length, 6)}, minmax(0, 1fr))` }}>
+                {/* Day cards — responsive grid: 3 cols on mobile, up to 6 on desktop */}
+                <div className={`grid gap-1.5 ${
+                  cols <= 3 ? "grid-cols-3" :
+                  cols <= 4 ? "grid-cols-4" :
+                  cols <= 5 ? "grid-cols-3 sm:grid-cols-5" :
+                  "grid-cols-3 sm:grid-cols-6"
+                }`}>
                   {weekDays.map((day) => {
                     const dateStr = dateISO(day);
                     const info = summary.days.find((d) => d.dateStr === dateStr);
@@ -831,12 +857,12 @@ function TeacherScheduleCard({
 
 // ── Day Card (inside expanded teacher row) ────────────────────────────────────
 function DayCard({ day, info }: { day: Date; info: DayInfo }) {
-  const dow = day.getDay();
-  const date = day.getDate();
+  const dow     = day.getDay();
+  const date    = day.getDate();
   const isToday = dateISO(day) === dateISO(new Date());
 
   return (
-    <div className={`rounded-lg border p-2 text-xs min-h-[80px] flex flex-col ${
+    <div className={`rounded-lg border p-1.5 sm:p-2 text-xs min-h-[72px] sm:min-h-[80px] flex flex-col ${
       info.isLeave
         ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30"
         : info.ownLectures.length + info.proxyLectures.length > 0
@@ -844,31 +870,31 @@ function DayCard({ day, info }: { day: Date; info: DayInfo }) {
         : "border-border bg-muted/20"
     } ${isToday ? "ring-2 ring-primary ring-offset-1" : ""}`}>
       {/* Date header */}
-      <div className="flex items-center justify-between mb-1.5">
-        <span className={`font-bold ${isToday ? "text-primary" : "text-foreground"}`}>{date}</span>
-        <span className="text-muted-foreground text-[10px]">{DAY_NAMES[dow]}</span>
+      <div className="flex items-center justify-between mb-1">
+        <span className={`font-bold text-xs sm:text-sm ${isToday ? "text-primary" : "text-foreground"}`}>{date}</span>
+        <span className="text-muted-foreground text-[9px] sm:text-[10px]">{DAY_NAMES[dow]}</span>
       </div>
 
       {info.isLeave ? (
         <div className="flex-1 flex items-center justify-center">
-          <span className="font-bold text-red-600 text-[11px]">ON LEAVE</span>
+          <span className="font-bold text-red-600 text-[9px] sm:text-[11px] text-center leading-tight">ON LEAVE</span>
         </div>
       ) : info.ownLectures.length === 0 && info.proxyLectures.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
-          <span className="text-muted-foreground text-[10px]">No lectures</span>
+          <span className="text-muted-foreground text-[9px] sm:text-[10px]">—</span>
         </div>
       ) : (
-        <div className="space-y-1 flex-1">
+        <div className="space-y-0.5 flex-1 overflow-hidden">
           {info.ownLectures.map((l, i) => (
-            <div key={i} className="rounded bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5" title={`${l.subject} · ${l.class_name} · ${fmtTime(l.start_time)}-${fmtTime(l.end_time)}`}>
-              <p className="font-semibold text-blue-800 dark:text-blue-200 truncate leading-tight">{l.subject}</p>
-              <p className="text-blue-600 dark:text-blue-400 text-[9px] leading-tight">{l.class_name} · {fmtTime(l.start_time)}</p>
+            <div key={i} className="rounded bg-blue-100 dark:bg-blue-900/40 px-1 py-0.5" title={`${l.subject} · ${l.class_name} · ${fmtTime(l.start_time)}–${fmtTime(l.end_time)}`}>
+              <p className="font-semibold text-blue-800 dark:text-blue-200 truncate leading-tight text-[9px] sm:text-[10px]">{l.subject}</p>
+              <p className="text-blue-600 dark:text-blue-400 text-[8px] sm:text-[9px] leading-tight truncate">{l.class_name}</p>
             </div>
           ))}
           {info.proxyLectures.map((l, i) => (
-            <div key={i} className="rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5" title={`PROXY: ${l.subject} · ${l.class_name} · ${fmtTime(l.start_time)}-${fmtTime(l.end_time)}`}>
-              <p className="font-semibold text-amber-800 dark:text-amber-200 truncate leading-tight text-[9px]">P: {l.subject}</p>
-              <p className="text-amber-600 dark:text-amber-400 text-[9px] leading-tight">{l.class_name} · {fmtTime(l.start_time)}</p>
+            <div key={i} className="rounded bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5" title={`PROXY: ${l.subject} · ${l.class_name} · ${fmtTime(l.start_time)}–${fmtTime(l.end_time)}`}>
+              <p className="font-semibold text-amber-800 dark:text-amber-200 truncate leading-tight text-[9px] sm:text-[10px]">P: {l.subject}</p>
+              <p className="text-amber-600 dark:text-amber-400 text-[8px] sm:text-[9px] leading-tight truncate">{l.class_name}</p>
             </div>
           ))}
         </div>
@@ -879,22 +905,37 @@ function DayCard({ day, info }: { day: Date; info: DayInfo }) {
 
 // ── Department totals row ─────────────────────────────────────────────────────
 function DeptTotalsCard({ summaries, weeks }: { summaries: ReturnType<typeof buildTeacherSummary>[]; weeks: Date[][] }) {
-  const totalOwn      = summaries.reduce((s, r) => s + r.totalOwn, 0);
-  const totalProxy    = summaries.reduce((s, r) => s + r.totalProxy, 0);
-  const totalLeave    = summaries.reduce((s, r) => s + r.totalLeave, 0);
+  const totalOwn       = summaries.reduce((s, r) => s + r.totalOwn, 0);
+  const totalProxy     = summaries.reduce((s, r) => s + r.totalProxy, 0);
+  const totalLeave     = summaries.reduce((s, r) => s + r.totalLeave, 0);
   const totalCompGiven = summaries.reduce((s, r) => s + r.totalCompGiven, 0);
-  const weeklyTotals  = weeks.map((_, i) => summaries.reduce((s, r) => s + (r.weeklyOwn[i] ?? 0), 0));
+  const weeklyTotals   = weeks.map((_, i) => summaries.reduce((s, r) => s + (r.weeklyOwn[i] ?? 0), 0));
 
   return (
-    <div className="rounded-xl border border-primary/25 bg-primary/5 px-5 py-4">
+    <div className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-4 sm:px-5">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Department totals</p>
-      <div className="flex flex-wrap gap-4 text-sm">
-        <span><span className="text-muted-foreground">Total lectures:</span> <strong className="text-primary">{totalOwn}</strong></span>
-        <span><span className="text-muted-foreground">Proxy duties:</span> <strong className="text-amber-600">{totalProxy}</strong></span>
-        <span><span className="text-muted-foreground">Compensations:</span> <strong className="text-violet-600">{totalCompGiven}</strong></span>
-        <span><span className="text-muted-foreground">Leave days:</span> <strong className="text-destructive">{totalLeave}</strong></span>
+      <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:gap-5 text-sm">
+        <div>
+          <p className="text-xs text-muted-foreground">Total lectures</p>
+          <p className="font-bold text-primary text-base">{totalOwn}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Proxy duties</p>
+          <p className="font-bold text-amber-600 text-base">{totalProxy}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Compensations</p>
+          <p className="font-bold text-violet-600 text-base">{totalCompGiven}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Leave days</p>
+          <p className="font-bold text-destructive text-base">{totalLeave}</p>
+        </div>
         {weeklyTotals.map((wt, i) => (
-          <span key={i}><span className="text-muted-foreground">Wk{i+1}:</span> <strong>{wt}</strong></span>
+          <div key={i}>
+            <p className="text-xs text-muted-foreground">Week {i + 1}</p>
+            <p className="font-bold text-foreground text-base">{wt}</p>
+          </div>
         ))}
       </div>
     </div>

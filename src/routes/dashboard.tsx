@@ -33,10 +33,15 @@ export const Route = createFileRoute("/dashboard")({
 
 function DashboardPage() {
   const { profile, role } = useAuth();
+  const isPrincipal = role === "principal";
   return (
     <AppShell
       title={`Welcome, ${profile?.full_name ?? ""}`}
-      subtitle={`${profile?.designation ?? ""}${role === "principal" || role === "admin" ? ", College" : (profile?.department_name ? `, ${profile.department_name}` : "")}`}
+      subtitle={
+        isPrincipal
+          ? `${profile?.designation ?? "Principal"} · Chandrabhan Sharma College`
+          : `${profile?.designation ?? ""}${profile?.department_name ? `, ${profile.department_name}` : ""}`
+      }
     >
       {role === "principal" ? <PrincipalDashboard /> : <TeacherDashboard />}
     </AppShell>
@@ -395,28 +400,42 @@ function PrincipalDashboard() {
     queryKey: ["principal-stats"],
     queryFn: async () => {
       const year = new Date().getFullYear();
-      const [teachers, pending, approved, rejected] = await Promise.all([
-        supabase.from("profiles").select("id", { count: "exact", head: true }),
-        supabase
-          .from("leave_requests")
+
+      // Exclude principal and admin from staff count — only count teaching staff
+      const { data: excludedRoles } = await supabase
+        .from("user_roles").select("user_id").in("role", ["admin", "principal"]);
+      const excludedIds = (excludedRoles ?? []).map((r) => r.user_id);
+
+      const [teachers, pending, approved, rejected, depts] = await Promise.all([
+        // Total teaching staff (excludes admin + principal)
+        supabase.from("profiles")
           .select("id", { count: "exact", head: true })
-          .in("status", ["pending_hod", "hod_recommended", "pending_principal"]),
-        supabase
-          .from("leave_requests")
+          .eq("approved", true)
+          .not("id", "in", excludedIds.length ? `(${excludedIds.join(",")})` : `('00000000-0000-0000-0000-000000000000')`),
+        // Pending across ALL departments
+        supabase.from("leave_requests")
+          .select("id", { count: "exact", head: true })
+          .in("status", ["hod_recommended", "pending_principal"]),
+        // Approved this year across ALL departments
+        supabase.from("leave_requests")
           .select("id", { count: "exact", head: true })
           .eq("status", "approved")
           .gte("from_date", `${year}-01-01`),
-        supabase
-          .from("leave_requests")
+        // Rejected this year across ALL departments
+        supabase.from("leave_requests")
           .select("id", { count: "exact", head: true })
           .eq("status", "rejected")
           .gte("from_date", `${year}-01-01`),
+        // Number of departments
+        supabase.from("departments").select("id", { count: "exact", head: true }),
       ]);
+
       return {
         teachers: teachers.count ?? 0,
-        pending: pending.count ?? 0,
+        pending:  pending.count ?? 0,
         approved: approved.count ?? 0,
         rejected: rejected.count ?? 0,
+        departments: depts.count ?? 0,
       };
     },
   });
@@ -424,31 +443,43 @@ function PrincipalDashboard() {
   const { data: queue = [] } = useQuery({
     queryKey: ["principal-queue"],
     queryFn: async () => {
+      // Exclude admin and principal from the leave queue
+      const { data: excludedRoles } = await supabase
+        .from("user_roles").select("user_id").in("role", ["admin", "principal"]);
+      const excludedIds = new Set((excludedRoles ?? []).map((r) => r.user_id));
+
       const { data, error } = await supabase
         .from("leave_requests")
         .select("id, leave_type, from_date, to_date, session, status, total_days, teacher_id")
         .in("status", ["hod_recommended", "pending_principal"])
         .order("created_at")
-        .limit(6);
+        .limit(8);
       if (error) throw error;
-      const people = await fetchPeople((data ?? []).map((r) => r.teacher_id));
-      return (data ?? []).map((r) => ({ ...r, person: people[r.teacher_id] }));
+      const filtered = (data ?? []).filter((r) => !excludedIds.has(r.teacher_id));
+      const people = await fetchPeople(filtered.map((r) => r.teacher_id));
+      return filtered.map((r) => ({ ...r, person: people[r.teacher_id] }));
     },
   });
 
-
   return (
     <div className="space-y-6">
+      {/* College identity banner */}
+      <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-4 flex items-center gap-4">
+        <div>
+          <p className="font-bold text-base">Chandrabhan Sharma College</p>
+          <p className="text-sm text-muted-foreground">Arts, Commerce &amp; Science · Principal's Overview</p>
+        </div>
+      </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Staff" value={stats?.teachers ?? 0} />
-        <StatCard label="Pending Requests" value={stats?.pending ?? 0} tone="warning" />
+        <StatCard label="Teaching Staff (College)" value={stats?.teachers ?? 0} />
+        <StatCard label="Departments" value={stats?.departments ?? 0} />
+        <StatCard label="Awaiting Your Approval" value={stats?.pending ?? 0} tone="warning" />
         <StatCard label="Approved (This Year)" value={stats?.approved ?? 0} tone="success" />
-        <StatCard label="Rejected (This Year)" value={stats?.rejected ?? 0} tone="destructive" />
       </div>
 
       <SectionCard
-        title="Awaiting Principal Approval"
-        subtitle="HOD-recommended requests"
+        title="Awaiting Your Approval"
+        subtitle="HOD-recommended requests from all departments"
         action={
           <Button asChild size="sm">
             <Link to="/requests">Open panel</Link>
