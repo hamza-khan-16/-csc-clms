@@ -13,6 +13,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   GraduationCap, Calendar, BookOpen, TrendingUp,
   X, ChevronRight, Clock, UserCircle2, Edit3, Check,
 } from "lucide-react";
@@ -37,6 +44,18 @@ export const Route = createFileRoute("/teachers")({
 function TeachersPage() {
   const { profile, role } = useAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [deptFilter, setDeptFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+
+  // Fetch all departments for the filter dropdown (principal/admin only)
+  const { data: departments = [] } = useQuery({
+    queryKey: ["departments-list"],
+    enabled: role !== "hod",
+    queryFn: async () => {
+      const { data } = await supabase.from("departments").select("id, name").order("name");
+      return data ?? [];
+    },
+  });
 
   const { data: rows = [] } = useQuery({
     queryKey: ["staff", role, profile?.department_id],
@@ -75,6 +94,16 @@ function TeachersPage() {
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
+  // Apply department filter + search
+  const filtered = rows.filter((r) => {
+    const matchDept = deptFilter === "all" || r.department_id === deptFilter;
+    const matchSearch = !search.trim() ||
+      r.full_name.toLowerCase().includes(search.toLowerCase()) ||
+      r.designation?.toLowerCase().includes(search.toLowerCase()) ||
+      r.deptName?.toLowerCase().includes(search.toLowerCase());
+    return matchDept && matchSearch;
+  });
+
   return (
     <AppShell
       title="Teachers"
@@ -82,9 +111,33 @@ function TeachersPage() {
     >
       <div className={`grid gap-6 transition-all ${selected ? "lg:grid-cols-[1fr_380px]" : "grid-cols-1"}`}>
         {/* Staff list */}
-        <SectionCard title={`${rows.length} staff member(s)`}>
-          {rows.length === 0 ? (
-            <Empty>No staff found.</Empty>
+        <SectionCard title={`${filtered.length} of ${rows.length} staff member(s)`}>
+
+          {/* Filter bar — principal/admin only */}
+          {role !== "hod" && (
+            <div className="flex flex-wrap gap-3 mb-4">
+              <Input
+                placeholder="Search by name, designation…"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setSelectedId(null); }}
+                className="h-9 text-sm flex-1 min-w-40"
+              />
+              <Select value={deptFilter} onValueChange={(v) => { setDeptFilter(v); setSelectedId(null); }}>
+                <SelectTrigger className="h-9 text-sm w-56">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All departments</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {filtered.length === 0 ? (
+            <Empty>{rows.length === 0 ? "No staff found." : "No staff match the current filter."}</Empty>
           ) : (
             <>
               {/* Desktop table */}
@@ -102,7 +155,7 @@ function TeachersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r) => (
+                    {filtered.map((r) => (
                       <tr
                         key={r.id}
                         className={`border-t border-border cursor-pointer transition-colors hover:bg-muted/40 ${selectedId === r.id ? "bg-primary/5" : ""}`}
@@ -133,7 +186,7 @@ function TeachersPage() {
 
               {/* Mobile cards */}
               <ul className="sm:hidden space-y-2">
-                {rows.map((r) => (
+                {filtered.map((r) => (
                   <li
                     key={r.id}
                     className={`rounded-lg border p-3 text-sm cursor-pointer transition-colors ${selectedId === r.id ? "border-primary/40 bg-primary/5" : "border-border hover:bg-muted/40"}`}

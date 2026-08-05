@@ -63,6 +63,7 @@ export function AppShell({
 
   const items: NavItem[] = [
     { to: "/admin", label: "Admin Panel", icon: ShieldCheck, roles: ["admin"] },
+    { to: "/admin-reports", label: "Reports", icon: BarChart3, roles: ["admin", "principal"] },
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["teacher", "hod", "principal"] },
     { to: "/apply", label: "Apply Leave", icon: CalendarPlus, roles: ["teacher", "hod"] },
     { to: "/leaves", label: "My Leaves", icon: FileText, roles: ["teacher", "hod"] },
@@ -74,7 +75,7 @@ export function AppShell({
     { to: "/teachers", label: "Teachers", icon: Users, roles: ["hod", "principal", "admin"] },
     { to: "/departments", label: "Departments", icon: Building2, roles: ["principal", "admin"] },
     { to: "/holidays", label: "Holidays", icon: PartyPopper, roles: ["teacher", "hod", "principal", "admin"] },
-    { to: "/reports", label: "Reports", icon: BarChart3, roles: ["hod", "principal", "admin"] },
+    { to: "/reports", label: "Reports", icon: BarChart3, roles: ["hod"] },
     { to: "/profile", label: "Profile", icon: UserRound, roles: ["teacher", "hod", "principal", "admin"] },
   ];
 

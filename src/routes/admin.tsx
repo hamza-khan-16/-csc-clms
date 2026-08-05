@@ -274,8 +274,6 @@ function AdminPage() {
           )}
         </SectionCard>
 
-        <ExportsCard />
-
         <DepartmentsCard departments={departments} />
       </div>
     </AppShell>
