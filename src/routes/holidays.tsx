@@ -41,25 +41,32 @@ const MONTH_NAMES = [
 function excelDateToISO(value: unknown): string | null {
   if (!value) return null;
 
-  // Already a string like "2026-01-26" or "26/01/2026" or "26-Jan-2026"
   if (typeof value === "string") {
     const s = value.trim();
-    // YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+    // DD-MM-YYYY  ← primary format (Excel auto-converts dates to this)
+    const dmy1 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (dmy1) return `${dmy1[3]}-${dmy1[2].padStart(2,"0")}-${dmy1[1].padStart(2,"0")}`;
+
     // DD/MM/YYYY
-    const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,"0")}-${dmy[1].padStart(2,"0")}`;
+    const dmy2 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (dmy2) return `${dmy2[3]}-${dmy2[2].padStart(2,"0")}-${dmy2[1].padStart(2,"0")}`;
+
+    // YYYY-MM-DD  (ISO — still supported)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
     // DD-MMM-YYYY  e.g. "26-Jan-2026"
     const abbr = s.match(/^(\d{1,2})[- ]([A-Za-z]+)[- ](\d{4})$/);
     if (abbr) {
-      const months: Record<string,string> = {
+      const months: Record<string, string> = {
         jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",
         jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12",
       };
       const m = months[abbr[2].toLowerCase().slice(0,3)];
       if (m) return `${abbr[3]}-${m}-${abbr[1].padStart(2,"0")}`;
     }
-    // Try native Date parse as last resort
+
+    // Native Date parse as last resort
     const d = new Date(s);
     if (!isNaN(d.getTime())) {
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -67,9 +74,8 @@ function excelDateToISO(value: unknown): string | null {
     return null;
   }
 
-  // Excel serial number (number of days since 1900-01-01)
+  // Excel serial number
   if (typeof value === "number") {
-    // xlsx library utility
     const date = XLSX.SSF.parse_date_code(value);
     if (date) {
       return `${date.y}-${String(date.m).padStart(2,"0")}-${String(date.d).padStart(2,"0")}`;
@@ -138,64 +144,68 @@ function parseHolidaySheet(workbook: XLSX.WorkBook): {
 
 // ── Generate the 2026 reference document ─────────────────────────────────────
 function downloadReferenceDoc() {
-  const data2026 = [
-    { Date: "2026-01-14", Occasion: "Makar Sankranti / Pongal",           Kind: "National" },
-    { Date: "2026-01-23", Occasion: "Netaji Subhas Chandra Bose Jayanti", Kind: "National" },
-    { Date: "2026-01-26", Occasion: "Republic Day",                       Kind: "National" },
-    { Date: "2026-02-15", Occasion: "Maha Shivratri",                     Kind: "National" },
-    { Date: "2026-03-04", Occasion: "Holi",                               Kind: "National" },
-    { Date: "2026-03-20", Occasion: "Id-ul-Fitr (Eid al-Fitr)",           Kind: "National" },
-    { Date: "2026-03-26", Occasion: "Ram Navami",                         Kind: "National" },
-    { Date: "2026-03-30", Occasion: "Mahavir Jayanti",                    Kind: "National" },
-    { Date: "2026-04-03", Occasion: "Good Friday",                        Kind: "National" },
-    { Date: "2026-04-14", Occasion: "Dr. B.R. Ambedkar Jayanti",          Kind: "National" },
-    { Date: "2026-04-30", Occasion: "Buddha Purnima",                     Kind: "National" },
-    { Date: "2026-05-01", Occasion: "Maharashtra Day",                    Kind: "State"    },
-    { Date: "2026-05-27", Occasion: "Id-ul-Zuha (Bakrid)",                Kind: "National" },
-    { Date: "2026-06-16", Occasion: "Muharram",                           Kind: "National" },
-    { Date: "2026-08-15", Occasion: "Independence Day",                   Kind: "National" },
-    { Date: "2026-08-25", Occasion: "Raksha Bandhan",                     Kind: "National" },
-    { Date: "2026-08-26", Occasion: "Janmashtami",                        Kind: "National" },
-    { Date: "2026-09-09", Occasion: "Id-e-Milad (Milad-un-Nabi)",         Kind: "National" },
-    { Date: "2026-10-02", Occasion: "Gandhi Jayanti",                     Kind: "National" },
-    { Date: "2026-10-19", Occasion: "Dussehra (Vijaya Dashami)",          Kind: "National" },
-    { Date: "2026-11-08", Occasion: "Diwali (Lakshmi Puja)",             Kind: "National" },
-    { Date: "2026-11-24", Occasion: "Guru Nanak Jayanti",                 Kind: "National" },
-    { Date: "2026-12-25", Occasion: "Christmas Day",                      Kind: "National" },
-    // College-specific examples
-    { Date: "2026-07-14", Occasion: "College Foundation Day",             Kind: "College"  },
+  // DD-MM-YYYY format — matches what Excel auto-displays when you type dates
+  const rows2026 = [
+    ["Date",        "Occasion",                              "Kind"    ],
+    ["14-01-2026", "Makar Sankranti / Pongal",              "National"],
+    ["23-01-2026", "Netaji Subhas Chandra Bose Jayanti",    "National"],
+    ["26-01-2026", "Republic Day",                          "National"],
+    ["15-02-2026", "Maha Shivratri",                        "National"],
+    ["04-03-2026", "Holi",                                  "National"],
+    ["20-03-2026", "Id-ul-Fitr (Eid al-Fitr)",              "National"],
+    ["26-03-2026", "Ram Navami",                            "National"],
+    ["30-03-2026", "Mahavir Jayanti",                       "National"],
+    ["03-04-2026", "Good Friday",                           "National"],
+    ["14-04-2026", "Dr. B.R. Ambedkar Jayanti",             "National"],
+    ["30-04-2026", "Buddha Purnima",                        "National"],
+    ["01-05-2026", "Maharashtra Day",                       "State"   ],
+    ["27-05-2026", "Id-ul-Zuha (Bakrid)",                   "National"],
+    ["16-06-2026", "Muharram",                              "National"],
+    ["14-07-2026", "College Foundation Day",                "College" ],
+    ["15-08-2026", "Independence Day",                      "National"],
+    ["25-08-2026", "Raksha Bandhan",                        "National"],
+    ["26-08-2026", "Janmashtami",                           "National"],
+    ["09-09-2026", "Id-e-Milad (Milad-un-Nabi)",            "National"],
+    ["02-10-2026", "Gandhi Jayanti",                        "National"],
+    ["19-10-2026", "Dussehra (Vijaya Dashami)",             "National"],
+    ["08-11-2026", "Diwali (Lakshmi Puja)",                "National"],
+    ["24-11-2026", "Guru Nanak Jayanti",                    "National"],
+    ["25-12-2026", "Christmas Day",                         "National"],
   ];
 
-  const ws = XLSX.utils.json_to_sheet(data2026);
-
-  // Column widths
-  ws["!cols"] = [{ wch: 14 }, { wch: 42 }, { wch: 12 }];
-
-  // Header style note in a separate row at top — we prepend instruction rows
-  const instructions = [
-    ["CSC Leave Management — Holiday Upload Format"],
+  const instrRows = [
+    ["CSC Leave Management System — Holiday Upload Format"],
     [""],
-    ["INSTRUCTIONS:"],
-    ["• Column 'Date'    — Required. Format: YYYY-MM-DD (e.g. 2026-01-26)"],
-    ["• Column 'Occasion' — Required. Name of the holiday"],
-    ["• Column 'Kind'   — Optional. National / State / College  (defaults to National)"],
-    ["• Each date must be unique. Duplicate dates will be merged (last row wins)."],
-    ["• Sundays are always excluded from leave counts regardless of this list."],
-    ["• Delete these instruction rows before uploading — start from the header row."],
+    ["HOW TO USE THIS FILE:"],
+    ["1. Use the sheet named  Upload Template (clean)  when uploading."],
+    ["2. DATE FORMAT: DD-MM-YYYY  (e.g. 26-01-2026 for Republic Day)"],
+    ["   Excel will show dates in this format automatically — keep it as-is."],
+    ["3. Column headers must be exactly: Date | Occasion | Kind"],
+    ["4. Kind values: National | State | College   (defaults to National if blank)"],
+    ["5. Each date must be unique. If two rows have the same date, the last one wins."],
+    ["6. Sundays are excluded from leave counts automatically — no need to list them."],
+    ["7. You can add your own college holidays — just add rows with Kind = College"],
     [""],
-    ["Date", "Occasion", "Kind"],
-    ...data2026.map((r) => [r.Date, r.Occasion, r.Kind]),
+    ["COLUMN DESCRIPTIONS:"],
+    ["Date     — DD-MM-YYYY format. Required."],
+    ["Occasion — Name of the holiday. Required."],
+    ["Kind     — National / State / College. Optional."],
+    [""],
+    ...rows2026,
   ];
-
-  const wsInstr = XLSX.utils.aoa_to_sheet(instructions);
-  wsInstr["!cols"] = [{ wch: 14 }, { wch: 44 }, { wch: 12 }];
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, wsInstr, "2026 Holidays");
-  XLSX.utils.book_append_sheet(wb, ws, "Upload Template (clean)");
+
+  const ws1 = XLSX.utils.aoa_to_sheet(instrRows);
+  ws1["!cols"] = [{ wch: 16 }, { wch: 46 }, { wch: 12 }];
+  XLSX.utils.book_append_sheet(wb, ws1, "Instructions & 2026 Data");
+
+  const ws2 = XLSX.utils.aoa_to_sheet(rows2026);
+  ws2["!cols"] = [{ wch: 14 }, { wch: 44 }, { wch: 12 }];
+  XLSX.utils.book_append_sheet(wb, ws2, "Upload Template (clean)");
 
   XLSX.writeFile(wb, "CSC_Holiday_Format_2026.xlsx");
-  toast.success("Format document downloaded — use the 'Upload Template (clean)' sheet for uploading");
+  toast.success("Format document downloaded — use 'Upload Template (clean)' sheet for uploading");
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -411,7 +421,7 @@ function HolidaysPage() {
             <div className="rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
               <p className="font-semibold text-foreground mb-1">Required column headers (case-insensitive):</p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-1">
-                <p><code className="bg-background rounded px-1">Date</code> — YYYY-MM-DD <span className="text-destructive font-medium">required</span></p>
+                <p><code className="bg-background rounded px-1">Date</code> — DD-MM-YYYY <span className="text-destructive font-medium">required</span></p>
                 <p><code className="bg-background rounded px-1">Occasion</code> — Holiday name <span className="text-destructive font-medium">required</span></p>
                 <p><code className="bg-background rounded px-1">Kind</code> — National / State / College <em className="text-muted-foreground">(optional, defaults to National)</em></p>
               </div>
