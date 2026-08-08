@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
@@ -12,13 +13,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { fmtDate } from "@/lib/leave";
-import { CalendarDays, Plus, Trash2 } from "lucide-react";
+import {
+  CalendarDays, Plus, Trash2, Upload, Download, AlertCircle, CheckCircle2,
+} from "lucide-react";
 
 export const Route = createFileRoute("/holidays")({
   head: () => ({
     meta: [
       { title: "Holiday Calendar — CSC Leave Management" },
-      { name: "description", content: "Indian public holidays 2025–2030." },
+      { name: "description", content: "Indian public holidays. Upload a yearly Excel file or add custom holidays." },
       { property: "og:title", content: "Holiday Calendar — CSC Leave Management" },
     ],
   }),
@@ -34,20 +37,192 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December",
 ];
 
+// ── Excel date helper (Excel stores dates as numbers) ─────────────────────────
+function excelDateToISO(value: unknown): string | null {
+  if (!value) return null;
+
+  // Already a string like "2026-01-26" or "26/01/2026" or "26-Jan-2026"
+  if (typeof value === "string") {
+    const s = value.trim();
+    // YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    // DD/MM/YYYY
+    const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,"0")}-${dmy[1].padStart(2,"0")}`;
+    // DD-MMM-YYYY  e.g. "26-Jan-2026"
+    const abbr = s.match(/^(\d{1,2})[- ]([A-Za-z]+)[- ](\d{4})$/);
+    if (abbr) {
+      const months: Record<string,string> = {
+        jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",
+        jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12",
+      };
+      const m = months[abbr[2].toLowerCase().slice(0,3)];
+      if (m) return `${abbr[3]}-${m}-${abbr[1].padStart(2,"0")}`;
+    }
+    // Try native Date parse as last resort
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    }
+    return null;
+  }
+
+  // Excel serial number (number of days since 1900-01-01)
+  if (typeof value === "number") {
+    // xlsx library utility
+    const date = XLSX.SSF.parse_date_code(value);
+    if (date) {
+      return `${date.y}-${String(date.m).padStart(2,"0")}-${String(date.d).padStart(2,"0")}`;
+    }
+  }
+
+  return null;
+}
+
+// ── Parse uploaded Excel/CSV into holiday rows ────────────────────────────────
+function parseHolidaySheet(workbook: XLSX.WorkBook): {
+  rows: { holiday_date: string; occasion: string; kind: string }[];
+  errors: string[];
+} {
+  const rows: { holiday_date: string; occasion: string; kind: string }[] = [];
+  const errors: string[] = [];
+
+  // Use the first sheet
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) { errors.push("No sheets found in the file"); return { rows, errors }; }
+
+  const ws = workbook.Sheets[sheetName];
+  // raw: true keeps numbers as numbers (for date serials)
+  const data: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws, { raw: true, defval: "" });
+
+  if (data.length === 0) { errors.push("Sheet is empty"); return { rows, errors }; }
+
+  // Normalise column names — case-insensitive, trim spaces
+  const normalise = (key: string) => key.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z_]/g, "");
+
+  for (let i = 0; i < data.length; i++) {
+    const raw = data[i];
+    const row: Record<string, unknown> = {};
+    for (const k of Object.keys(raw)) row[normalise(k)] = raw[k];
+
+    // Find Date column: "date", "holiday_date", "holiday date"
+    const dateVal = row["date"] ?? row["holiday_date"] ?? row["holiday_date"] ?? row["holiday"];
+    // Find Occasion column: "occasion", "name", "holiday_name", "description"
+    const occVal  = row["occasion"] ?? row["name"] ?? row["holiday_name"] ?? row["description"] ?? row["event"];
+    // Find Kind column: "kind", "type", "category" — optional, defaults to National
+    const kindVal = row["kind"] ?? row["type"] ?? row["category"] ?? "National";
+
+    const iso = excelDateToISO(dateVal);
+    const occ = String(occVal ?? "").trim();
+
+    if (!iso) {
+      errors.push(`Row ${i + 2}: Could not parse date "${dateVal}" — skipped`);
+      continue;
+    }
+    if (!occ) {
+      errors.push(`Row ${i + 2}: Missing occasion/name — skipped`);
+      continue;
+    }
+    // Basic date range guard
+    const year = parseInt(iso.slice(0, 4), 10);
+    if (year < 2020 || year > 2035) {
+      errors.push(`Row ${i + 2}: Date ${iso} is out of expected range (2020–2035) — skipped`);
+      continue;
+    }
+
+    rows.push({ holiday_date: iso, occasion: occ, kind: String(kindVal).trim() || "National" });
+  }
+
+  return { rows, errors };
+}
+
+// ── Generate the 2026 reference document ─────────────────────────────────────
+function downloadReferenceDoc() {
+  const data2026 = [
+    { Date: "2026-01-14", Occasion: "Makar Sankranti / Pongal",           Kind: "National" },
+    { Date: "2026-01-23", Occasion: "Netaji Subhas Chandra Bose Jayanti", Kind: "National" },
+    { Date: "2026-01-26", Occasion: "Republic Day",                       Kind: "National" },
+    { Date: "2026-02-15", Occasion: "Maha Shivratri",                     Kind: "National" },
+    { Date: "2026-03-04", Occasion: "Holi",                               Kind: "National" },
+    { Date: "2026-03-20", Occasion: "Id-ul-Fitr (Eid al-Fitr)",           Kind: "National" },
+    { Date: "2026-03-26", Occasion: "Ram Navami",                         Kind: "National" },
+    { Date: "2026-03-30", Occasion: "Mahavir Jayanti",                    Kind: "National" },
+    { Date: "2026-04-03", Occasion: "Good Friday",                        Kind: "National" },
+    { Date: "2026-04-14", Occasion: "Dr. B.R. Ambedkar Jayanti",          Kind: "National" },
+    { Date: "2026-04-30", Occasion: "Buddha Purnima",                     Kind: "National" },
+    { Date: "2026-05-01", Occasion: "Maharashtra Day",                    Kind: "State"    },
+    { Date: "2026-05-27", Occasion: "Id-ul-Zuha (Bakrid)",                Kind: "National" },
+    { Date: "2026-06-16", Occasion: "Muharram",                           Kind: "National" },
+    { Date: "2026-08-15", Occasion: "Independence Day",                   Kind: "National" },
+    { Date: "2026-08-25", Occasion: "Raksha Bandhan",                     Kind: "National" },
+    { Date: "2026-08-26", Occasion: "Janmashtami",                        Kind: "National" },
+    { Date: "2026-09-09", Occasion: "Id-e-Milad (Milad-un-Nabi)",         Kind: "National" },
+    { Date: "2026-10-02", Occasion: "Gandhi Jayanti",                     Kind: "National" },
+    { Date: "2026-10-19", Occasion: "Dussehra (Vijaya Dashami)",          Kind: "National" },
+    { Date: "2026-11-08", Occasion: "Diwali (Lakshmi Puja)",             Kind: "National" },
+    { Date: "2026-11-24", Occasion: "Guru Nanak Jayanti",                 Kind: "National" },
+    { Date: "2026-12-25", Occasion: "Christmas Day",                      Kind: "National" },
+    // College-specific examples
+    { Date: "2026-07-14", Occasion: "College Foundation Day",             Kind: "College"  },
+  ];
+
+  const ws = XLSX.utils.json_to_sheet(data2026);
+
+  // Column widths
+  ws["!cols"] = [{ wch: 14 }, { wch: 42 }, { wch: 12 }];
+
+  // Header style note in a separate row at top — we prepend instruction rows
+  const instructions = [
+    ["CSC Leave Management — Holiday Upload Format"],
+    [""],
+    ["INSTRUCTIONS:"],
+    ["• Column 'Date'    — Required. Format: YYYY-MM-DD (e.g. 2026-01-26)"],
+    ["• Column 'Occasion' — Required. Name of the holiday"],
+    ["• Column 'Kind'   — Optional. National / State / College  (defaults to National)"],
+    ["• Each date must be unique. Duplicate dates will be merged (last row wins)."],
+    ["• Sundays are always excluded from leave counts regardless of this list."],
+    ["• Delete these instruction rows before uploading — start from the header row."],
+    [""],
+    ["Date", "Occasion", "Kind"],
+    ...data2026.map((r) => [r.Date, r.Occasion, r.Kind]),
+  ];
+
+  const wsInstr = XLSX.utils.aoa_to_sheet(instructions);
+  wsInstr["!cols"] = [{ wch: 14 }, { wch: 44 }, { wch: 12 }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, wsInstr, "2026 Holidays");
+  XLSX.utils.book_append_sheet(wb, ws, "Upload Template (clean)");
+
+  XLSX.writeFile(wb, "CSC_Holiday_Format_2026.xlsx");
+  toast.success("Format document downloaded — use the 'Upload Template (clean)' sheet for uploading");
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 function HolidaysPage() {
   const { role } = useAuth();
   const qc = useQueryClient();
-  const isPrincipal = role === "principal" || role === "admin";
+  const isAdmin = role === "admin";
+  const isPrincipalOrAdmin = role === "principal" || role === "admin";
   const today = new Date().toISOString().slice(0, 10);
   const currentYear = new Date().getFullYear();
 
-  const [viewYear, setViewYear] = useState(currentYear);
-  const [addOpen, setAddOpen] = useState(false);
-  const [form, setForm] = useState({ date: "", occasion: "", kind: "College" });
+  const [viewYear, setViewYear]   = useState(currentYear);
+  const [addOpen, setAddOpen]     = useState(false);
+  const [form, setForm]           = useState({ date: "", occasion: "", kind: "College" });
+
+  // Excel upload state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading]         = useState(false);
+  const [uploadPreview, setUploadPreview] = useState<{
+    rows: { holiday_date: string; occasion: string; kind: string }[];
+    errors: string[];
+    year: number | null;
+  } | null>(null);
 
   const { data: holidays = [], isLoading } = useQuery({
     queryKey: ["holidays", viewYear],
-    staleTime: 1000 * 60 * 60,
+    staleTime: 1000 * 60 * 30,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("holidays")
@@ -60,16 +235,6 @@ function HolidaysPage() {
     },
   });
 
-  // Group by month
-  const byMonth: Record<number, typeof holidays> = {};
-  for (const h of holidays) {
-    const m = new Date(h.holiday_date + "T00:00:00").getMonth();
-    if (!byMonth[m]) byMonth[m] = [];
-    byMonth[m].push(h);
-  }
-
-  const upcoming = holidays.filter((h) => h.holiday_date >= today);
-
   function invalidateAll() {
     qc.invalidateQueries({ queryKey: ["holidays"] });
     qc.invalidateQueries({ queryKey: ["holidays-all"] });
@@ -79,6 +244,85 @@ function HolidaysPage() {
     qc.invalidateQueries({ queryKey: ["monthly-schedule"] });
   }
 
+  // ── Handle file selection — parse and preview, don't upload yet ────────────
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data  = new Uint8Array(ev.target!.result as ArrayBuffer);
+        const wb    = XLSX.read(data, { type: "array", cellDates: false });
+        const { rows, errors } = parseHolidaySheet(wb);
+
+        // Detect year from the data
+        const year = rows.length > 0 ? parseInt(rows[0].holiday_date.slice(0, 4), 10) : null;
+
+        setUploadPreview({ rows, errors, year });
+      } catch (err) {
+        toast.error(`Could not read file: ${String(err)}`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // ── Confirm upload — wipe old uploaded rows for that year, insert new ──────
+  async function confirmUpload() {
+    if (!uploadPreview || uploadPreview.rows.length === 0) return;
+    setUploading(true);
+
+    const year = uploadPreview.year ?? viewYear;
+
+    try {
+      // Delete existing 'upload' and 'system' source rows for that year
+      // Keep 'manual' rows the principal added individually
+      const { error: delErr } = await supabase
+        .from("holidays")
+        .delete()
+        .gte("holiday_date", `${year}-01-01`)
+        .lte("holiday_date", `${year}-12-31`)
+        .in("source", ["upload", "system"]);
+
+      if (delErr) throw delErr;
+
+      // Insert all parsed rows as source='upload' so they override system defaults
+      const toInsert = uploadPreview.rows.map((r) => ({
+        ...r,
+        source: "upload",
+      }));
+
+      // Deduplicate by date (keep last occurrence) before inserting
+      const deduped = Object.values(
+        Object.fromEntries(toInsert.map((r) => [r.holiday_date, r]))
+      );
+
+      const { error: insErr } = await supabase
+        .from("holidays")
+        .upsert(deduped, { onConflict: "holiday_date" });
+
+      if (insErr) throw insErr;
+
+      toast.success(
+        `Uploaded ${deduped.length} holidays for ${year}. They override the default calendar for this year.`
+      );
+      setUploadPreview(null);
+      setViewYear(year);
+      invalidateAll();
+    } catch (err: any) {
+      toast.error(err.message ?? "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function cancelUpload() {
+    setUploadPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  // ── Add custom holiday ─────────────────────────────────────────────────────
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!form.date || !form.occasion.trim()) return toast.error("Date and occasion are required");
@@ -93,6 +337,7 @@ function HolidaysPage() {
     invalidateAll();
   }
 
+  // ── Remove holiday ─────────────────────────────────────────────────────────
   async function remove(id: string, source: string) {
     if (source === "system") {
       if (!window.confirm("This is a pre-loaded national holiday. Remove it?")) return;
@@ -103,19 +348,163 @@ function HolidaysPage() {
     invalidateAll();
   }
 
+  // ── Group by month ─────────────────────────────────────────────────────────
+  const byMonth: Record<number, typeof holidays> = {};
+  for (const h of holidays) {
+    const m = new Date(h.holiday_date + "T00:00:00").getMonth();
+    if (!byMonth[m]) byMonth[m] = [];
+    byMonth[m].push(h);
+  }
+
+  const upcoming  = holidays.filter((h) => h.holiday_date >= today && h.holiday_date.startsWith(String(currentYear)));
+  const hasUpload = holidays.some((h) => (h as any).source === "upload");
+
   return (
     <AppShell
       title="Holiday Calendar"
-      subtitle="Indian public holidays 2025–2030 · Sundays and holidays are never counted as leave days"
+      subtitle="Manage public and college holidays · affects leave calculations everywhere"
     >
       <div className="space-y-5">
 
-        {/* Year nav + stats bar */}
+        {/* ── Admin: Excel upload section ─────────────────────────────────── */}
+        {isAdmin && (
+          <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold text-sm">Upload Holiday List</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Upload an Excel or CSV file to override the default holidays for a year. Manually-added holidays are preserved.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 shrink-0">
+                {/* Download format reference */}
+                <Button variant="outline" size="sm" className="gap-1.5 h-8" onClick={downloadReferenceDoc}>
+                  <Download className="size-3.5" />
+                  <span className="hidden xs:inline">Format reference (2026)</span>
+                  <span className="xs:hidden">Format</span>
+                </Button>
+                {/* Upload trigger */}
+                <Button size="sm" className="gap-1.5 h-8" onClick={() => fileInputRef.current?.click()}>
+                  <Upload className="size-3.5" />
+                  <span className="hidden xs:inline">Upload Excel / CSV</span>
+                  <span className="xs:hidden">Upload</span>
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv,.ods"
+                  className="hidden"
+                  onChange={onFileChange}
+                />
+              </div>
+            </div>
+
+            {/* Upload indicator */}
+            {hasUpload && !uploadPreview && (
+              <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/8 px-3 py-2 text-xs text-success">
+                <CheckCircle2 className="size-3.5 shrink-0" />
+                <span>Custom holiday file is active for {viewYear}. Uploaded holidays override default list for this year.</span>
+              </div>
+            )}
+
+            {/* Format hint */}
+            <div className="rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+              <p className="font-semibold text-foreground mb-1">Required column headers (case-insensitive):</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1">
+                <p><code className="bg-background rounded px-1">Date</code> — YYYY-MM-DD <span className="text-destructive font-medium">required</span></p>
+                <p><code className="bg-background rounded px-1">Occasion</code> — Holiday name <span className="text-destructive font-medium">required</span></p>
+                <p><code className="bg-background rounded px-1">Kind</code> — National / State / College <em className="text-muted-foreground">(optional, defaults to National)</em></p>
+              </div>
+            </div>
+
+            {/* Preview panel after file is parsed */}
+            {uploadPreview && (
+              <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="font-semibold text-sm">
+                    Preview — {uploadPreview.rows.length} holiday(s) found
+                    {uploadPreview.year && ` for ${uploadPreview.year}`}
+                  </p>
+                  <button onClick={cancelUpload} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+                </div>
+
+                {/* Parse errors */}
+                {uploadPreview.errors.length > 0 && (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-1">
+                    <p className="text-xs font-semibold text-destructive flex items-center gap-1.5">
+                      <AlertCircle className="size-3.5" />
+                      {uploadPreview.errors.length} row(s) skipped
+                    </p>
+                    <ul className="space-y-0.5">
+                      {uploadPreview.errors.map((e, i) => (
+                        <li key={i} className="text-xs text-destructive">{e}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {uploadPreview.rows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No valid rows to upload. Check the format and try again.</p>
+                ) : (
+                  <>
+                    {/* Preview table */}
+                    <div className="rounded-lg border border-border overflow-hidden max-h-64 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-muted/80">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground">#</th>
+                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Date</th>
+                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Occasion</th>
+                            <th className="px-3 py-2 text-left font-semibold text-muted-foreground">Kind</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {uploadPreview.rows.map((r, i) => (
+                            <tr key={i} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                              <td className="px-3 py-1.5 text-muted-foreground">{i + 1}</td>
+                              <td className="px-3 py-1.5 font-medium">{fmtDate(r.holiday_date)}</td>
+                              <td className="px-3 py-1.5">{r.occasion}</td>
+                              <td className="px-3 py-1.5">
+                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{r.kind}</Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Warning about override */}
+                    <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/8 px-3 py-2 text-xs">
+                      <AlertCircle className="size-3.5 text-warning-foreground shrink-0 mt-0.5" />
+                      <p className="text-warning-foreground">
+                        This will <strong>replace all system/uploaded holidays</strong> for{" "}
+                        {uploadPreview.year ?? viewYear}. Manually added holidays are kept.
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={confirmUpload} disabled={uploading} className="gap-1.5">
+                        <Upload className="size-3.5" />
+                        {uploading ? "Uploading…" : `Confirm — upload ${uploadPreview.rows.length} holidays`}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={cancelUpload}>Cancel</Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Year nav + stats ─────────────────────────────────────────────── */}
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/40 px-4 py-3">
           <p className="text-sm text-muted-foreground">
             <strong className="text-foreground">{holidays.length}</strong> holidays in {viewYear}
             {upcoming.length > 0 && viewYear === currentYear && (
               <> · <strong className="text-foreground">{upcoming.length}</strong> upcoming</>
+            )}
+            {hasUpload && (
+              <span className="ml-2 text-success font-medium text-xs">· Custom file active</span>
             )}
           </p>
           <div className="flex items-center gap-2">
@@ -135,8 +524,8 @@ function HolidaysPage() {
           </div>
         </div>
 
-        {/* Upcoming strip */}
-        {upcoming.length > 0 && viewYear === currentYear && (
+        {/* ── Upcoming strip ────────────────────────────────────────────────── */}
+        {upcoming.length > 0 && (
           <div className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Next upcoming</p>
             <div className="flex flex-wrap gap-2">
@@ -154,7 +543,7 @@ function HolidaysPage() {
           </div>
         )}
 
-        {/* Month grid */}
+        {/* ── Month grid ────────────────────────────────────────────────────── */}
         {isLoading ? (
           <div className="rounded-xl border border-border p-12 text-center">
             <p className="text-sm text-muted-foreground animate-pulse">Loading…</p>
@@ -179,10 +568,12 @@ function HolidaysPage() {
                   </div>
                   <ul className="divide-y divide-border">
                     {monthHolidays.map((h) => {
-                      const d = new Date(h.holiday_date + "T00:00:00");
-                      const dow = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
-                      const isPast = h.holiday_date < today;
-                      const isSystem = h.source === "system" || h.source === "nager";
+                      const d    = new Date(h.holiday_date + "T00:00:00");
+                      const dow  = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
+                      const isPast   = h.holiday_date < today;
+                      const src      = (h as any).source ?? "system";
+                      const isUpload = src === "upload";
+                      const isManual = src === "manual";
                       return (
                         <li key={h.id} className={`flex items-center gap-3 px-4 py-2.5 group ${isPast ? "opacity-45" : ""}`}>
                           <div className="flex size-10 shrink-0 flex-col items-center justify-center rounded-lg bg-muted">
@@ -194,17 +585,17 @@ function HolidaysPage() {
                             <Badge
                               variant="secondary"
                               className={`text-[10px] px-1.5 py-0 leading-4 mt-0.5 ${
-                                isSystem
-                                  ? "bg-success/12 text-success border-success/20"
-                                  : "bg-info/12 text-info border-info/20"
+                                isUpload ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-300" :
+                                isManual ? "bg-info/12 text-info border-info/20" :
+                                "bg-success/12 text-success border-success/20"
                               }`}
                             >
-                              {isSystem ? "National" : h.kind ?? "Custom"}
+                              {isUpload ? "Uploaded" : isManual ? (h.kind ?? "Custom") : "National"}
                             </Badge>
                           </div>
-                          {isPrincipal && (
+                          {isPrincipalOrAdmin && (
                             <button
-                              onClick={() => remove(h.id, h.source ?? "manual")}
+                              onClick={() => remove(h.id, src)}
                               className="shrink-0 rounded p-1.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/8 transition-all"
                               title="Remove"
                             >
@@ -220,8 +611,8 @@ function HolidaysPage() {
           </div>
         )}
 
-        {/* Add custom holiday — principal only */}
-        {isPrincipal && (
+        {/* ── Add custom holiday — principal/admin ──────────────────────────── */}
+        {isPrincipalOrAdmin && !uploadPreview && (
           <div>
             {!addOpen ? (
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAddOpen(true)}>
@@ -244,11 +635,7 @@ function HolidaysPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs">Type</Label>
-                    <select
-                      className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                      value={form.kind}
-                      onChange={(e) => setForm({ ...form, kind: e.target.value })}
-                    >
+                    <select className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
                       <option value="College">College</option>
                       <option value="State">State</option>
                       <option value="National">National</option>
@@ -264,20 +651,11 @@ function HolidaysPage() {
           </div>
         )}
 
-        {/* Legend */}
-        <div className="flex flex-wrap items-center gap-5 text-xs text-muted-foreground pt-2 border-t border-border">
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block size-2.5 rounded-full bg-success/60" />
-            National / pre-loaded holiday
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block size-2.5 rounded-full bg-info/60" />
-            Custom / college holiday
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block size-2.5 rounded-full bg-muted-foreground/30" />
-            Past (dimmed)
-          </span>
+        {/* ── Legend ────────────────────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground pt-2 border-t border-border">
+          <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-success/60 inline-block" /> National (default)</span>
+          <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-violet-400/60 inline-block" /> Uploaded from Excel</span>
+          <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-info/60 inline-block" /> Custom / college</span>
         </div>
       </div>
     </AppShell>
