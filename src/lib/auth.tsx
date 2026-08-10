@@ -13,6 +13,11 @@ export interface Profile {
   department_name?: string | null;
   monthly_salary: number;
   approved: boolean;
+  password_changed_at: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
+  account_locked: boolean;
+  failed_login_attempts: number;
 }
 
 
@@ -38,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       supabase
         .from("profiles")
         .select(
-          "id, user_id, full_name, designation, department_id, monthly_salary, approved, departments(name)",
+          "id, user_id, full_name, designation, department_id, monthly_salary, approved, password_changed_at, gender, date_of_birth, account_locked, failed_login_attempts, departments(name)",
         )
         .eq("id", userId)
         .maybeSingle(),
@@ -54,6 +59,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         monthly_salary: Number(p.monthly_salary ?? 0),
         approved: Boolean(p.approved),
         department_name: (p.departments as { name: string } | null)?.name ?? null,
+        password_changed_at: (p as any).password_changed_at ?? null,
+        gender: (p as any).gender ?? null,
+        date_of_birth: (p as any).date_of_birth ?? null,
+        account_locked: Boolean((p as any).account_locked),
+        failed_login_attempts: Number((p as any).failed_login_attempts ?? 0),
       });
 
     } else {

@@ -63,13 +63,13 @@ function ProfilePage() {
   async function changePassword(e: React.FormEvent) {
     e.preventDefault();
     if (!oldPw) return toast.error("Enter your current password");
-    if (newPw.length < 8) return toast.error("New password must be at least 8 characters");
+    if (newPw.length < 12) return toast.error("New password must be at least 12 characters");
     if (newPw !== confirmPw) return toast.error("New passwords do not match");
     if (oldPw === newPw) return toast.error("New password must be different from your current password");
 
     setPwBusy(true);
 
-    // Step 1: Verify old password by re-authenticating with current email + old password
+    // Step 1: Verify old password by re-authenticating
     const email = session?.user?.email;
     if (!email) { setPwBusy(false); return toast.error("Session error — please reload"); }
 
@@ -83,28 +83,33 @@ function ProfilePage() {
       return toast.error("Current password is incorrect");
     }
 
-    // Step 2: Update to new password immediately — no approval needed
+    // Step 2: Update password
     const { error: updateError } = await supabase.auth.updateUser({ password: newPw });
+    if (updateError) { setPwBusy(false); return toast.error(updateError.message); }
+
+    // Step 3: Update password_changed_at to restart the 90-day clock
+    await supabase
+      .from("profiles")
+      .update({ password_changed_at: new Date().toISOString() })
+      .eq("id", profile!.id);
+
     setPwBusy(false);
-
-    if (updateError) return toast.error(updateError.message);
-
     setPwSuccess(true);
     setOldPw("");
     setNewPw("");
     setConfirmPw("");
     toast.success("Password changed successfully");
+    qc.invalidateQueries();
 
-    // Hide the success state after a moment
     setTimeout(() => setPwSuccess(false), 4000);
   }
 
-  // Password strength indicator
+  // Password strength indicator (12-char minimum)
   const strength = (() => {
     if (!newPw) return null;
     let score = 0;
-    if (newPw.length >= 8) score++;
     if (newPw.length >= 12) score++;
+    if (newPw.length >= 16) score++;
     if (/[A-Z]/.test(newPw)) score++;
     if (/[0-9]/.test(newPw)) score++;
     if (/[^A-Za-z0-9]/.test(newPw)) score++;
@@ -143,6 +148,33 @@ function ProfilePage() {
                 <Input value={profile?.designation ?? ""} disabled className="capitalize" />
               </div>
             </div>
+            {profile?.gender && (
+              <div className="space-y-2">
+                <Label>Gender</Label>
+                <Input value={profile.gender} disabled />
+              </div>
+            )}
+            {profile?.date_of_birth && (
+              <div className="space-y-2">
+                <Label>Date of Birth</Label>
+                <Input value={profile.date_of_birth} disabled />
+              </div>
+            )}
+            {role !== "admin" && profile?.password_changed_at && (
+              <div className="space-y-1">
+                <Label>Password expiry</Label>
+                <p className="text-sm text-muted-foreground">
+                  {(() => {
+                    const daysLeft = Math.ceil(
+                      (new Date(profile.password_changed_at).getTime() + 90 * 86400000 - Date.now()) / 86400000
+                    );
+                    return daysLeft > 0
+                      ? `Expires in ${daysLeft} day${daysLeft !== 1 ? "s" : ""} (every 90 days)`
+                      : "Password has expired — please change it now";
+                  })()}
+                </p>
+              </div>
+            )}
             <Button type="submit" disabled={busy}>Save changes</Button>
           </form>
         </SectionCard>
@@ -206,10 +238,10 @@ function ProfilePage() {
                   <Input
                     id="newpw"
                     type={showNew ? "text" : "password"}
-                    placeholder="At least 8 characters"
+                    placeholder="At least 12 characters"
                     value={newPw}
                     onChange={(e) => setNewPw(e.target.value)}
-                    minLength={8}
+                    minLength={12}
                     className="pr-10"
                     autoComplete="new-password"
                   />
@@ -269,7 +301,7 @@ function ProfilePage() {
 
               <Button
                 type="submit"
-                disabled={pwBusy || !oldPw || !newPw || !confirmPw || newPw !== confirmPw}
+                disabled={pwBusy || !oldPw || newPw.length < 12 || !confirmPw || newPw !== confirmPw}
                 className="w-full"
               >
                 {pwBusy ? "Verifying & changing…" : "Change password"}

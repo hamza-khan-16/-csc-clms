@@ -5,7 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Trash2, Check, FileText, Download, BarChart2, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { adminCreateStaff, adminDeleteStaff } from "@/lib/admin.functions";
+import { adminCreateStaff, adminDeleteStaff, directPasswordReset, unlockAccount } from "@/lib/admin.functions";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
@@ -60,6 +60,7 @@ type StaffRow = {
   department_id: string | null;
   monthly_salary: number;
   approved: boolean;
+  account_locked: boolean;
   role: "teacher" | "hod" | "principal" | "admin" | null;
   deptName: string;
 };
@@ -82,7 +83,7 @@ function AdminPage() {
       const [{ data: profiles, error }, { data: roles }, { data: depts }] = await Promise.all([
         supabase
           .from("profiles")
-          .select("id, full_name, user_id, designation, department_id, monthly_salary, approved")
+          .select("id, full_name, user_id, designation, department_id, monthly_salary, approved, account_locked")
           .order("full_name"),
         supabase.from("user_roles").select("user_id, role"),
         supabase.from("departments").select("id, name"),
@@ -91,6 +92,7 @@ function AdminPage() {
       return (profiles ?? []).map((p) => ({
         ...p,
         monthly_salary: Number(p.monthly_salary ?? 0),
+        account_locked: Boolean((p as any).account_locked),
         role: ((roles ?? []).find((r) => r.user_id === p.id)?.role ?? null) as StaffRow["role"],
         deptName: (depts ?? []).find((d) => d.id === p.department_id)?.name ?? "—",
       }));
@@ -268,6 +270,7 @@ function AdminPage() {
                     changeRole.mutate({ id: s.id, role, departmentId })
                   }
                   onRemove={() => removeStaff.mutate(s.id)}
+                  onInvalidate={invalidate}
                 />
               ))}
             </div>
@@ -286,17 +289,48 @@ function StaffRowCard({
   onSaveProfile,
   onChangeRole,
   onRemove,
+  onInvalidate,
 }: {
   row: StaffRow;
   departments: { id: string; name: string }[];
   onSaveProfile: (values: ProfilePatch) => void;
   onChangeRole: (role: StaffRow["role"], departmentId: string | null) => void;
   onRemove: () => void;
+  onInvalidate: () => void;
 }) {
   const [salary, setSalary] = useState(String(row.monthly_salary));
   const [designation, setDesignation] = useState(row.designation);
   const [dept, setDept] = useState(row.department_id ?? "none");
   const [role, setRole] = useState<StaffRow["role"]>(row.role);
+  const [resetPw, setResetPw] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const resetFn = useServerFn(directPasswordReset);
+  const unlockFn = useServerFn(unlockAccount);
+
+  async function handleDirectReset() {
+    if (resetPw.length < 12) return toast.error("New password must be at least 12 characters");
+    setResetBusy(true);
+    try {
+      await resetFn({ data: { targetUserId: row.id, newPassword: resetPw } });
+      toast.success("Password reset successfully");
+      setResetPw("");
+      onInvalidate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Reset failed");
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  async function handleUnlock() {
+    try {
+      await unlockFn({ data: { targetUserId: row.id } });
+      toast.success("Account unlocked");
+      onInvalidate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unlock failed");
+    }
+  }
 
   const departmentId = dept === "none" ? null : dept;
   const dirtyProfile =
@@ -313,6 +347,9 @@ function StaffRowCard({
           <p className="text-xs text-muted-foreground">{row.user_id}</p>
         </div>
         <div className="flex items-center gap-2">
+          {row.account_locked && (
+            <Badge variant="destructive">Locked</Badge>
+          )}
           {row.approved ? (
             <Badge variant="secondary">Approved</Badge>
           ) : (
@@ -401,7 +438,36 @@ function StaffRowCard({
             Approve
           </Button>
         )}
+        {row.account_locked && row.role !== "admin" && (
+          <Button size="sm" variant="outline" onClick={handleUnlock}>
+            Unlock account
+          </Button>
+        )}
       </div>
+
+      {/* Direct password reset — admin only, not for other admins */}
+      {row.role !== "admin" && (
+        <div className="mt-3 flex items-end gap-2">
+          <div className="flex-1 space-y-1">
+            <Label className="text-xs text-muted-foreground">Reset password (min 12 chars)</Label>
+            <Input
+              type="password"
+              placeholder="New password…"
+              value={resetPw}
+              onChange={(e) => setResetPw(e.target.value)}
+              className="h-8 text-sm"
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={resetBusy || resetPw.length < 12}
+            onClick={handleDirectReset}
+          >
+            {resetBusy ? "Resetting…" : "Reset"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

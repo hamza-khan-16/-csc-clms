@@ -11,6 +11,35 @@ import { SectionCard, StatCard, StatusBadge, Empty } from "@/components/ui-bits"
 import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL, MEDICAL_PAID_QUOTA, type LeaveStatus, type LeaveType, type LeaveSession } from "@/lib/leave";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
+import { AlertTriangle } from "lucide-react";
+
+/** Password expiry constants */
+const PW_EXPIRY_DAYS = 90;
+const PW_REMINDER_DAYS = 7;
+
+/** Returns days until password expires, or null if not applicable (admin). */
+function usePasswordExpiryDays(passwordChangedAt: string | null | undefined, role: string | null): number | null {
+  if (!role || role === "admin" || !passwordChangedAt) return null;
+  const changedAt = new Date(passwordChangedAt).getTime();
+  const expiresAt = changedAt + PW_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  return Math.ceil((expiresAt - now) / (24 * 60 * 60 * 1000));
+}
+
+function PasswordExpiryBanner({ daysLeft }: { daysLeft: number }) {
+  const isExpired = daysLeft <= 0;
+  return (
+    <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${isExpired ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-warning/40 bg-warning/10 text-warning-foreground"}`}>
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+      <div className="flex-1 text-sm">
+        {isExpired
+          ? <><span className="font-semibold">Your password has expired.</span> Please change it immediately from your <Link to="/profile" className="underline font-medium">Profile</Link> page.</>
+          : <><span className="font-semibold">Password expires in {daysLeft} day{daysLeft !== 1 ? "s" : ""}.</span> Please change it soon from your <Link to="/profile" className="underline font-medium">Profile</Link> page.</>
+        }
+      </div>
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -51,6 +80,7 @@ function DashboardPage() {
 function TeacherDashboard() {
   const { profile, role } = useAuth();
   const { data: balances = [] } = useBalances(profile?.id);
+  const daysLeft = usePasswordExpiryDays(profile?.password_changed_at, role);
 
   const { data: leaves = [] } = useQuery({
     queryKey: ["my-leaves-recent", profile?.id],
@@ -169,6 +199,11 @@ function TeacherDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Password expiry reminder — shown 7 days before expiry, every day, non-admin only */}
+      {daysLeft !== null && daysLeft <= PW_REMINDER_DAYS && (
+        <PasswordExpiryBanner daysLeft={daysLeft} />
+      )}
+
       {role === "hod" && (
         <div className="surface flex flex-wrap items-center justify-between gap-3 p-4">
           <div>
@@ -396,6 +431,9 @@ function TeacherDashboard() {
 }
 
 function PrincipalDashboard() {
+  const { profile, role } = useAuth();
+  const daysLeft = usePasswordExpiryDays(profile?.password_changed_at, role);
+
   const { data: stats } = useQuery({
     queryKey: ["principal-stats"],
     queryFn: async () => {
@@ -463,6 +501,11 @@ function PrincipalDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Password expiry reminder — shown 7 days before expiry, every day, principal only */}
+      {daysLeft !== null && daysLeft <= PW_REMINDER_DAYS && (
+        <PasswordExpiryBanner daysLeft={daysLeft} />
+      )}
+
       {/* College identity banner */}
       <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-4 flex items-center gap-4">
         <div>

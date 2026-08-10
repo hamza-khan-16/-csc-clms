@@ -39,8 +39,10 @@ import {
   type LeaveType,
   type DocStatus,
 } from "@/lib/leave";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, LockKeyhole } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
+import { useServerFn } from "@tanstack/react-start";
+import { unlockAccount } from "@/lib/admin.functions";
 
 export const Route = createFileRoute("/requests")({
   head: () => ({
@@ -370,6 +372,118 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
   );
 }
 
+// ── Locked Accounts Panel ─────────────────────────────────────────────────────
+// HOD: sees locked teachers in their department
+// Principal: sees locked HODs across all departments
+function LockedAccountsPanel({ role, deptId }: { role: "hod" | "principal"; deptId: string | null }) {
+  const qc = useQueryClient();
+  const unlockFn = useServerFn(unlockAccount);
+  const [resetPasswords, setResetPasswords] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Fetch locked accounts visible to this role
+  const { data: locked = [], isLoading } = useQuery({
+    queryKey: ["locked-accounts", role, deptId],
+    queryFn: async () => {
+      // Roles to look for: HOD sees locked teachers, Principal sees locked HODs
+      const targetRole = role === "hod" ? "teacher" : "hod";
+
+      // Get all users with the target role
+      let roleQuery = supabase.from("user_roles").select("user_id, department_id").eq("role", targetRole);
+      if (role === "hod" && deptId) roleQuery = roleQuery.eq("department_id", deptId);
+      const { data: roleRows } = await roleQuery;
+      if (!roleRows || roleRows.length === 0) return [];
+
+      const userIds = roleRows.map((r) => r.user_id);
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, full_name, user_id, designation, department_id, failed_login_attempts, account_locked")
+        .in("id", userIds)
+        .eq("account_locked", true);
+
+      const deptIds = [...new Set((profiles ?? []).map((p: any) => p.department_id).filter(Boolean))];
+      let deptMap: Record<string, string> = {};
+      if (deptIds.length > 0) {
+        const { data: depts } = await supabase.from("departments").select("id, name").in("id", deptIds);
+        deptMap = Object.fromEntries((depts ?? []).map((d) => [d.id, d.name]));
+      }
+
+      return (profiles ?? []).map((p: any) => ({
+        ...p,
+        department_name: deptMap[p.department_id] ?? null,
+        role: targetRole,
+      }));
+    },
+  });
+
+  async function handleUnlock(userId: string) {
+    const newPw = resetPasswords[userId] ?? "";
+    if (newPw && newPw.length < 12) return toast.error("New password must be at least 12 characters");
+    setBusyId(userId);
+    try {
+      await unlockFn({ data: { targetUserId: userId, newPassword: newPw || undefined } });
+      toast.success(newPw ? "Account unlocked and password reset" : "Account unlocked");
+      setResetPasswords((p) => { const next = { ...p }; delete next[userId]; return next; });
+      qc.invalidateQueries();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Unlock failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (isLoading) return null;
+  if (locked.length === 0) return null;
+
+  return (
+    <SectionCard
+      title="Locked Accounts"
+      subtitle={`${locked.length} account${locked.length !== 1 ? "s" : ""} locked due to failed login attempts`}
+    >
+      <div className="space-y-3">
+        {locked.map((person: any) => (
+          <div key={person.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 items-center justify-center rounded-full bg-destructive/15">
+                <LockKeyhole className="size-4 text-destructive" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">{person.full_name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {person.user_id} · {person.department_name ?? "—"} · {person.failed_login_attempts} failed attempt{person.failed_login_attempts !== 1 ? "s" : ""}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-end gap-2 flex-wrap">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">New password (optional)</label>
+                <Input
+                  type="password"
+                  placeholder="Leave blank to just unlock…"
+                  className="h-8 text-sm w-56"
+                  value={resetPasswords[person.id] ?? ""}
+                  onChange={(e) => setResetPasswords((p) => ({ ...p, [person.id]: e.target.value }))}
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busyId === person.id}
+                onClick={() => handleUnlock(person.id)}
+              >
+                {busyId === person.id ? "Unlocking…" : "Unlock"}
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">
+        You can unlock without setting a new password — the staff member will need to contact you to reset their password separately. Or set a temporary password here.
+      </p>
+    </SectionCard>
+  );
+}
+
 // ── Requests page ─────────────────────────────────────────────────────────────
 function RequestsPage() {
   const { profile, role } = useAuth();
@@ -421,6 +535,14 @@ function RequestsPage() {
           <SectionCard title="Mark Leave" subtitle="Mark leave for a teacher on their behalf">
             <HodMarkLeavePanel deptId={profile.department_id} />
           </SectionCard>
+        )}
+
+        {/* Locked accounts — HOD sees locked teachers in dept, Principal sees locked HODs */}
+        {(isHod || role === "principal") && (
+          <LockedAccountsPanel
+            role={isHod ? "hod" : "principal"}
+            deptId={profile?.department_id ?? null}
+          />
         )}
 
         <SectionCard title="Needs your action" subtitle={`${actionable.length} request(s)`}>

@@ -1,8 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { signInWithIdentifier, registerStaff } from "@/lib/login.functions";
+import { signInWithIdentifier, registerStaff, resolvePreviewUserId } from "@/lib/login.functions";
 import { Eye, EyeOff, Loader2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,10 +31,49 @@ export const Route = createFileRoute("/")({
   component: SignInPage,
 });
 
-const SALUTATIONS = ["Dr.", "Prof.", "Mr.", "Mrs.", "Ms.", "Shri", "Smt.", "Er.", "Adv."];
+const SALUTATIONS = [
+  "Mr.",
+  "Mrs.",
+  "Ms.",
+  "Miss",
+  "Master",
+  "Shri",
+  "Smt.",
+  "Kumari",
+  "Sushri",
+  "M/S",
+  "Dr.",
+  "Prof.",
+  "Er.",
+  "Adv.",
+  "CA",
+  "Ar.",
+  "CS",
+  "Hon'ble",
+  "Justice",
+  "Excellency",
+  "Gen.",
+  "Lt. Gen.",
+  "Maj. Gen.",
+  "Brig.",
+  "Col.",
+  "Lt. Col.",
+  "Maj.",
+  "Capt.",
+  "Lt.",
+  "Adm.",
+  "Cdr.",
+  "ACM",
+  "Air Mshl",
+  "Wg. Cdr.",
+  "Sqn. Ldr.",
+  
+];
+const GENDERS = ["Male", "Female", "Other", "Prefer not to say"];
 
+// 12-char minimum + all complexity rules
 const PW_RULES = [
-  { re: /.{8,}/, label: "At least 8 characters" },
+  { re: /.{12,}/, label: "At least 12 characters" },
   { re: /[A-Z]/, label: "At least 1 uppercase letter" },
   { re: /[a-z]/, label: "At least 1 lowercase letter" },
   { re: /[0-9]/, label: "At least 1 number" },
@@ -83,7 +122,7 @@ function SignInPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           {mode === "signin" ? "Sign in to continue" : "Register your staff account"}
         </p>
-        <div className="mt-8">{mode === "signin" ? <SignInForm /> : <RegisterForm />}</div>
+        <div className="mt-8">{mode === "signin" ? <SignInForm /> : <RegisterForm onBackToSignIn={() => setMode("signin")} />}</div>
         <button
           className="mt-6 text-sm font-medium text-primary hover:underline"
           onClick={() => setMode(mode === "signin" ? "register" : "signin")}
@@ -142,7 +181,7 @@ function SignInForm() {
             id="userid"
             type="text"
             required
-            placeholder="Firstname.CSC.COM or email"
+            placeholder="firstname@CSC.COM or email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="pr-10"
@@ -174,19 +213,42 @@ function SignInForm() {
   );
 }
 
-function RegisterForm() {
+function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
   const { refresh } = useAuth();
   const register = useServerFn(registerStaff);
 
-  const [salutation, setSalutation] = useState("Dr.");
+  const [salutation, setSalutation] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [gender, setGender] = useState("");
+  const [dob, setDob] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [designation, setDesignation] = useState("Assistant Professor");
   const [departmentId, setDepartmentId] = useState("");
   const [pending, setPending] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // Live uniqueness check: preview the actual ID that will be assigned (server-side, bypasses RLS)
+  const [previewUserId, setPreviewUserId] = useState("");
+  const [idChecking, setIdChecking] = useState(false);
+  const resolveId = useServerFn(resolvePreviewUserId);
+  useEffect(() => {
+    const clean = firstName.trim();
+    if (!clean) { setPreviewUserId(""); return; }
+    setIdChecking(true);
+    const t = setTimeout(async () => {
+      try {
+        const result = await resolveId({ data: { firstName: clean } });
+        setPreviewUserId(result.userId);
+      } catch {
+        setPreviewUserId(`${clean.replace(/\s+/g, "").toLowerCase()}@CSC.COM`);
+      } finally {
+        setIdChecking(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [firstName]);
 
   const { data: departments = [] } = useQuery({
     queryKey: ["departments-public"],
@@ -197,25 +259,21 @@ function RegisterForm() {
     },
   });
 
-  // Auto-generate User ID from first name
-  const userId = useMemo(() => {
-    const clean = firstName.trim().replace(/\s+/g, "").toLowerCase();
-    return clean ? `${clean}.CSC.COM` : "";
-  }, [firstName]);
-
   // Derived full name
   const fullName = [salutation, firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
 
-  // Password validation
+  // Password validation — 12-char minimum
   const pwValid = PW_RULES.every((r) => r.re.test(password));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!salutation) return toast.error("Please select a salutation");
     if (!firstName.trim()) return toast.error("Please enter your first name");
+    if (!gender) return toast.error("Please select a gender");
     if (!departmentId) return toast.error("Please select a department");
     if (!pwValid) return toast.error("Password does not meet the requirements");
 
-    // The email for auth is derived from userId (we use it as the auth email)
+    // The email for auth is derived from first name
     const email = `${firstName.trim().toLowerCase()}.csc@csc.edu`;
 
     setBusy(true);
@@ -228,6 +286,8 @@ function RegisterForm() {
           designation,
           departmentId,
           role: "teacher",
+          gender,
+          dob: dob || null,
         },
       });
       if ("error" in result && result.error) return toast.error(result.error);
@@ -242,46 +302,80 @@ function RegisterForm() {
 
   if (pending) {
     return (
-      <div className="rounded-lg border border-border p-4">
-        <p className="text-sm font-semibold">Registration submitted</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Your department's HOD will review your account. You can sign in once it has been approved.
-        </p>
+      <div className="rounded-lg border border-border p-4 space-y-4">
+        <div>
+          <p className="text-sm font-semibold">Registration submitted — awaiting approval</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Your department's HOD will review your account. You can sign in once it has been approved.
+          </p>
+          {previewUserId && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Your college ID will be: <span className="font-mono font-medium text-foreground">{previewUserId}</span>
+            </p>
+          )}
+        </div>
+        <Button variant="outline" className="w-full" onClick={onBackToSignIn}>
+          ← Back to Sign In
+        </Button>
       </div>
     );
   }
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      {/* Salutation + First name + Last name */}
+      {/* Salutation + First name + Last name — no separate Name label */}
+      <div className="grid grid-cols-[130px_1fr_1fr] gap-2">
+        <Select value={salutation} onValueChange={setSalutation}>
+          <SelectTrigger>
+            <SelectValue placeholder="Salutation" />
+          </SelectTrigger>
+          <SelectContent>
+            {SALUTATIONS.map((s) => (
+              <SelectItem key={s} value={s}>{s}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input
+          required
+          placeholder="First name"
+          value={firstName}
+          onChange={(e) => setFirstName(e.target.value)}
+        />
+        <Input
+          placeholder="Last name"
+          value={lastName}
+          onChange={(e) => setLastName(e.target.value)}
+        />
+      </div>
+      {fullName && (
+        <p className="text-xs text-muted-foreground">Full name: <span className="font-medium text-foreground">{fullName}</span></p>
+      )}
+
+      {/* Gender */}
       <div className="space-y-2">
-        <Label>Name</Label>
-        <div className="grid grid-cols-[120px_1fr_1fr] gap-2">
-          <Select value={salutation} onValueChange={setSalutation}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SALUTATIONS.map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input
-            required
-            placeholder="First name"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-          />
-          <Input
-            placeholder="Last name"
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-          />
-        </div>
-        {fullName && (
-          <p className="text-xs text-muted-foreground">Full name: <span className="font-medium text-foreground">{fullName}</span></p>
-        )}
+        <Label>Gender</Label>
+        <Select value={gender} onValueChange={setGender}>
+          <SelectTrigger>
+            <SelectValue placeholder="Select gender" />
+          </SelectTrigger>
+          <SelectContent>
+            {GENDERS.map((g) => (
+              <SelectItem key={g} value={g}>{g}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Date of Birth (optional) */}
+      <div className="space-y-2">
+        <Label htmlFor="dob">Date of Birth <span className="text-muted-foreground text-xs">(optional)</span></Label>
+        <Input
+          id="dob"
+          type="date"
+          value={dob}
+          onChange={(e) => setDob(e.target.value)}
+          max={new Date().toISOString().split("T")[0]}
+        />
       </div>
 
       {/* Auto-generated User ID */}
@@ -290,14 +384,15 @@ function RegisterForm() {
         <div className="flex items-center gap-2">
           <Input
             id="userid-preview"
-            value={userId}
+            value={idChecking ? "Checking…" : previewUserId}
             readOnly
             className="bg-muted text-muted-foreground cursor-not-allowed font-mono text-sm"
             placeholder="Enter first name above…"
           />
+          {idChecking && <Loader2 className="size-4 animate-spin text-muted-foreground shrink-0" />}
         </div>
         <p className="text-xs text-muted-foreground">
-          Use this ID to sign in. Format: <span className="font-mono">firstname.CSC.COM</span>
+          This is the exact ID you will use to sign in. A number is appended automatically if the name is already taken (e.g. <span className="font-mono">firstname2@CSC.COM</span>).
         </p>
       </div>
 
@@ -309,7 +404,7 @@ function RegisterForm() {
             id="reg-pass"
             type={showPw ? "text" : "password"}
             required
-            placeholder="Create a strong password"
+            placeholder="Create a strong password (min 12 characters)"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="pr-10"
