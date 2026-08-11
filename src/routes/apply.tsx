@@ -87,6 +87,14 @@ function ApplyPage() {
   const isDutyHodFinal = isHodFinalLeave(leaveType) && !isMedical;
   const requiredDoc = docLabel(leaveType);
 
+  // Gate maternity leave — only female teachers can see/apply it.
+  // profile.gender comes from the auth context (already fetched at login), so
+  // there is no loading delay and no false "not female" flash.
+  const isFemale = profile?.gender === "Female";
+  const availableLeaveTypes = LEAVE_TYPES.filter((t) =>
+    t.value !== "maternity" || isFemale
+  );
+
   const { data: holidays = [] } = useQuery({
     queryKey: ["holidays-all"],
     staleTime: 1000 * 60 * 60, // 1 hour — holidays don't change mid-session
@@ -122,15 +130,15 @@ function ApplyPage() {
   const preview = useMemo(() => {
     if (!fromDate || !toDate || toDate < fromDate) return null;
     const holidaySet = new Set(holidays.map((h) => h.holiday_date));
-    const { total, skipped } = countWorkingDays(fromDate, toDate, session, holidaySet);
+    const { total, skipped, purelyNonWorking } = countWorkingDays(fromDate, toDate, session, holidaySet);
 
     if (isMedical) {
       const flow = getMedicalFlow(total);
-      return { total, skipped, paid: 0, unpaid: 0, medicalFlow: flow };
+      return { total, skipped, purelyNonWorking, paid: 0, unpaid: 0, medicalFlow: flow };
     }
 
     if (isDutyHodFinal || leaveType !== "casual") {
-      return { total, skipped, paid: 0, unpaid: 0, hodDecides: true, hodFinal: isDutyHodFinal };
+      return { total, skipped, purelyNonWorking, paid: 0, unpaid: 0, hodDecides: true, hodFinal: isDutyHodFinal };
     }
 
     const bal = balances.find((b) => b.type === leaveType);
@@ -139,7 +147,7 @@ function ApplyPage() {
       remaining = Math.min(remaining, Math.max(bal.monthlyCap - bal.usedMonth, 0));
     }
     const paid = Math.min(total, remaining);
-    return { total, skipped, paid, unpaid: total - paid };
+    return { total, skipped, purelyNonWorking, paid, unpaid: total - paid };
   }, [fromDate, toDate, session, holidays, balances, leaveType, isMedical, isDutyHodFinal]);
 
   /** Remaining balance label shown inline in the dropdown */
@@ -181,8 +189,8 @@ function ApplyPage() {
       const reasonCheck = validateMeaningfulText(reason, "Reason");
       if (!reasonCheck.valid) return toast.error(reasonCheck.error!);
     }
-    if (preview && preview.total === 0)
-      return toast.error("The selected dates are all Sundays or holidays");
+    if (preview && preview.purelyNonWorking)
+      return toast.error("You cannot apply leave for a date that is only a Sunday or public holiday. Please select at least one working day.");
     if (overlappingLeave)
       return toast.error(
         `You already have an active leave from ${fmtDate(overlappingLeave.from_date)} to ${fmtDate(overlappingLeave.to_date)}. Cancel or wait for it to be resolved first.`
@@ -279,7 +287,7 @@ function ApplyPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {LEAVE_TYPES.map((t) => {
+                {availableLeaveTypes.map((t) => {
                   const bal = balanceLabel(t.value);
                   return (
                     <SelectItem key={t.value} value={t.value}>
@@ -351,19 +359,59 @@ function ApplyPage() {
             </div>
           </div>
 
+          {/* Inline warning: purely non-working dates selected */}
+          {preview?.purelyNonWorking && (
+            <div className="rounded-lg border border-destructive/40 bg-destructive/8 px-4 py-3 flex items-start gap-3">
+              <span className="text-destructive text-lg leading-none mt-0.5">⛔</span>
+              <div>
+                <p className="text-sm font-semibold text-destructive">Cannot apply leave on this date</p>
+                <p className="text-xs text-destructive/80 mt-0.5">
+                  The selected date{preview.skipped > 1 ? "s are" : " is"} a Sunday or public holiday.
+                  Leave cannot be applied for a day that is not a working day.
+                  Please select at least one working day.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Preview strip */}
-          {preview && preview.total > 0 && (
-            <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm flex flex-wrap gap-x-6 gap-y-1">
-              <span><span className="text-muted-foreground">Working days: </span><strong>{preview.total}</strong></span>
-              {preview.skipped > 0 && (
-                <span><span className="text-muted-foreground">Skipped (Sun/holiday): </span><strong>{preview.skipped}</strong></span>
-              )}
-              {"paid" in preview && !("medicalFlow" in preview) && !("hodDecides" in preview) && (
-                <>
-                  {(preview.paid ?? 0) > 0 && <span className="text-success font-semibold">{preview.paid} paid</span>}
-                  {(preview.unpaid ?? 0) > 0 && <span className="text-destructive font-semibold">{preview.unpaid} unpaid</span>}
-                </>
-              )}
+          {preview && !preview.purelyNonWorking && preview.total > 0 && (
+            <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm space-y-1.5">
+              <div className="flex flex-wrap gap-x-6 gap-y-1">
+                <span><span className="text-muted-foreground">Leave days: </span><strong>{preview.total}</strong></span>
+                {preview.skipped > 0 && (
+                  <span className="text-muted-foreground">
+                    + {preview.skipped} leading/trailing Sun/holiday{preview.skipped > 1 ? "s" : ""} (not counted)
+                  </span>
+                )}
+                {"paid" in preview && !("medicalFlow" in preview) && !("hodDecides" in preview) && (
+                  <>
+                    {(preview.paid ?? 0) > 0 && <span className="text-success font-semibold">{preview.paid} paid</span>}
+                    {(preview.unpaid ?? 0) > 0 && <span className="text-destructive font-semibold">{preview.unpaid} unpaid (pay cut)</span>}
+                  </>
+                )}
+              </div>
+              {/* Sandwich hint when non-working days are sandwiched inside */}
+              {preview.skipped === 0 && preview.total > 1 && (() => {
+                const holidaySet = new Set(holidays.map((h) => h.holiday_date));
+                const allDates = fromDate && toDate ? (() => {
+                  const ds: string[] = [];
+                  let d = new Date(fromDate + "T00:00:00");
+                  const end = new Date(toDate + "T00:00:00");
+                  while (d <= end) { ds.push(d.toISOString().slice(0, 10)); d.setDate(d.getDate() + 1); }
+                  return ds;
+                })() : [];
+                const sandwichedCount = allDates.filter(d =>
+                  new Date(d + "T00:00:00").getDay() === 0 || holidaySet.has(d)
+                ).length;
+                if (sandwichedCount === 0) return null;
+                return (
+                  <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1">
+                    ⚠️ {sandwichedCount} Sunday/holiday{sandwichedCount > 1 ? "s are" : " is"} sandwiched inside your leave and counted as leave day{sandwichedCount > 1 ? "s" : ""}.
+                    {" "}If this leave is unpaid, pay cut applies to all {preview.total} days.
+                  </p>
+                );
+              })()}
             </div>
           )}
 
@@ -385,7 +433,7 @@ function ApplyPage() {
             )}
           </div>
 
-          <Button type="submit" className="w-full" disabled={busy || !!overlappingLeave}>
+          <Button type="submit" className="w-full" disabled={busy || !!overlappingLeave || !!preview?.purelyNonWorking}>
             Submit Request
           </Button>
         </form>

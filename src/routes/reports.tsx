@@ -244,14 +244,21 @@ function buildTeacherSummary(teacherId: string, teacherName: string, teacherRole
 }
 
 // ── Excel export ──────────────────────────────────────────────────────────────
+// ── Format a date as "10 August 2026 — Monday" ───────────────────────────────
+function fmtDateFull(d: Date): string {
+  return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()} — ${DAY_FULL[d.getDay()]}`;
+}
+
+// ── Apply header row styles in XLSX ──────────────────────────────────────────
+
 function exportExcel(month: number, year: number, label: string, summaries: ReturnType<typeof buildTeacherSummary>[], workingDays: Date[], fixedLectures: any[], datedLectures: any[], proxies: any[], compensations: any[]) {
   const wb = XLSX.utils.book_new();
   const weeks = getWeeksInMonth(workingDays);
 
-  // Sheet 1: Schedule grid
-  const dayHeaders = workingDays.map((d) => `${d.getDate()} ${DAY_NAMES[d.getDay()]}`);
-  const weekHeaders = weeks.map((_, i) => `Wk${i+1} Lectures`);
-  const headers = ["Teacher", "Role", ...dayHeaders, ...weekHeaders, "Total Lectures", "Leave Days", "Proxy Duties"];
+  // Sheet 1: Schedule grid — full date + day in headers
+  const dayHeaders = workingDays.map((d) => `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${year}\n${DAY_FULL[d.getDay()]}`);
+  const weekHeaders = weeks.map((_, i) => `Week ${i+1}\nLectures`);
+  const headers = ["Teacher Name", "Role", ...dayHeaders, ...weekHeaders, "Total\nLectures", "Leave\nDays", "Proxy\nDuties"];
 
   const body = summaries.map((s) => [
     s.name,
@@ -269,41 +276,53 @@ function exportExcel(month: number, year: number, label: string, summaries: Retu
   ]);
 
   const ws1 = XLSX.utils.aoa_to_sheet([headers, ...body]);
-  ws1["!cols"] = [{ wch: 26 }, { wch: 10 }, ...workingDays.map(() => ({ wch: 28 })), ...weeks.map(() => ({ wch: 14 })), { wch: 16 }, { wch: 12 }, { wch: 14 }];
+  ws1["!cols"] = [{ wch: 30 }, { wch: 10 }, ...workingDays.map(() => ({ wch: 32 })), ...weeks.map(() => ({ wch: 14 })), { wch: 12 }, { wch: 10 }, { wch: 10 }];
+  // Enable wrap for all data cells
+  const ws1Range = XLSX.utils.decode_range(ws1["!ref"] ?? "A1");
+  for (let r = 0; r <= ws1Range.e.r; r++) {
+    for (let c = 0; c <= ws1Range.e.c; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      if (ws1[addr]) ws1[addr].s = { alignment: { wrapText: true, vertical: "top" } };
+    }
+  }
   XLSX.utils.book_append_sheet(wb, ws1, `${MONTH_NAMES[month].slice(0,8)} ${year}`);
 
   // Sheet 2: Weekly timetable (fixed lectures)
-  const timingHeaders = ["Teacher", "Role", "Day", "Subject", "Class", "Start", "End"];
+  const timingHeaders = ["Teacher Name", "Role", "Day", "Subject", "Class / Section", "Start Time", "End Time"];
   const timingBody: any[][] = [];
   for (const s of summaries) {
     const fixed = fixedLectures.filter((l) => l.teacher_id === s.id).sort((a, b) => a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time));
     for (const l of fixed) timingBody.push([s.name, s.role === "hod" ? "HOD" : "Teacher", DAY_FULL[l.day_of_week], l.subject, l.class_name, fmtTime(l.start_time), fmtTime(l.end_time)]);
   }
   const ws2 = XLSX.utils.aoa_to_sheet([timingHeaders, ...timingBody]);
-  ws2["!cols"] = [{ wch: 26 }, { wch: 10 }, { wch: 12 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 12 }];
+  ws2["!cols"] = [{ wch: 30 }, { wch: 10 }, { wch: 14 }, { wch: 24 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, ws2, "Timetable");
 
   // Sheet 3: Proxy duties
   if (proxies.length) {
-    const ph = ["Proxy Teacher", "Date", "Day", "Subject", "Class", "Start", "End", "Status"];
+    const ph = ["Proxy Teacher", "Full Date", "Day", "Subject", "Class / Section", "Start Time", "End Time", "Status"];
     const pb = proxies.sort((a, b) => a.proxy_date.localeCompare(b.proxy_date)).map((p) => {
       const t = summaries.find((s) => s.id === p.proxy_teacher_id);
       const d = new Date(p.proxy_date + "T00:00:00");
-      return [t?.name ?? p.proxy_teacher_id, p.proxy_date, DAY_FULL[d.getDay()], p.subject, p.class_name, fmtTime(p.start_time), fmtTime(p.end_time), p.status];
+      return [t?.name ?? p.proxy_teacher_id, fmtDateFull(d), DAY_FULL[d.getDay()], p.subject, p.class_name, fmtTime(p.start_time), fmtTime(p.end_time), p.status];
     });
     const ws3 = XLSX.utils.aoa_to_sheet([ph, ...pb]);
-    ws3["!cols"] = [{ wch: 26 }, { wch: 14 }, { wch: 12 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+    ws3["!cols"] = [{ wch: 30 }, { wch: 30 }, { wch: 14 }, { wch: 24 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, ws3, "Proxy Duties");
   }
 
   // Sheet 4: Leave log
-  const lh = ["Teacher", "Leave Type", "From", "To", "Days", "Session"];
+  const lh = ["Teacher Name", "Leave Type", "From Date", "To Date", "Days", "Session"];
   const lb: any[][] = [];
   for (const s of summaries) {
-    for (const l of s.myLeaves) lb.push([s.name, leaveTypeLabel(l.leave_type as LeaveType), l.from_date, l.to_date, l.total_days, l.session ?? "full_day"]);
+    for (const l of s.myLeaves) {
+      const fromD = new Date(l.from_date + "T00:00:00");
+      const toD   = new Date(l.to_date   + "T00:00:00");
+      lb.push([s.name, leaveTypeLabel(l.leave_type as LeaveType), fmtDateFull(fromD), fmtDateFull(toD), l.total_days, l.session ?? "Full Day"]);
+    }
   }
   const ws4 = XLSX.utils.aoa_to_sheet([lh, ...lb]);
-  ws4["!cols"] = [{ wch: 26 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 8 }, { wch: 12 }];
+  ws4["!cols"] = [{ wch: 30 }, { wch: 20 }, { wch: 32 }, { wch: 32 }, { wch: 8 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(wb, ws4, "Leave Log");
 
   // Sheet 5: Compensation assignments
@@ -316,71 +335,338 @@ function exportExcel(month: number, year: number, label: string, summaries: Retu
       return [
         from?.name ?? c.from_teacher_id,
         to?.name   ?? c.to_teacher_id,
-        c.compensation_date,
+        fmtDateFull(d),
         DAY_FULL[d.getDay()],
         c.status,
         c.note ?? "",
       ];
     });
     const ws5 = XLSX.utils.aoa_to_sheet([ch, ...cb]);
-    ws5["!cols"] = [{ wch: 26 }, { wch: 26 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 30 }];
+    ws5["!cols"] = [{ wch: 30 }, { wch: 30 }, { wch: 32 }, { wch: 14 }, { wch: 14 }, { wch: 32 }];
     XLSX.utils.book_append_sheet(wb, ws5, "Compensations");
   }
 
   XLSX.writeFile(wb, `${label.replace(/[^a-zA-Z0-9 _-]/g,"_")}_${MONTH_NAMES[month]}_${year}.xlsx`);
 }
 
-// ── PDF export ────────────────────────────────────────────────────────────────
+// ── Principal Excel export (leave-based, not schedule-based) ─────────────────
+function exportPrincipalExcel(
+  year: number,
+  deptTabLabel: string,
+  leaves: any[],
+  people: Record<string, any>,
+) {
+  const wb = XLSX.utils.book_new();
+  const generatedOn = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" });
+
+  // ── Sheet 1: Full leave log ────────────────────────────────────────────────
+  const headers = [
+    "Teacher Name", "Department", "Leave Type",
+    "From Date", "From Day", "To Date", "To Day",
+    "Session", "Total Days", "Paid Days", "Pay-Cut Days", "Status",
+  ];
+  const body = leaves.map((l) => {
+    const person  = people[l.teacher_id] ?? {};
+    const fromD   = new Date(l.from_date + "T00:00:00");
+    const toD     = new Date(l.to_date   + "T00:00:00");
+    return [
+      person.full_name   ?? "Unknown",
+      person.department_name ?? "—",
+      leaveTypeLabel(l.leave_type as LeaveType),
+      `${fromD.getDate()} ${MONTH_NAMES[fromD.getMonth()]} ${fromD.getFullYear()}`,
+      DAY_FULL[fromD.getDay()],
+      `${toD.getDate()} ${MONTH_NAMES[toD.getMonth()]} ${toD.getFullYear()}`,
+      DAY_FULL[toD.getDay()],
+      l.session === "half_day" ? "Half Day" : "Full Day",
+      l.total_days  ?? 0,
+      l.paid_days   ?? 0,
+      l.unpaid_days ?? 0,
+      l.status,
+    ];
+  });
+
+  const ws1 = XLSX.utils.aoa_to_sheet([headers, ...body]);
+  ws1["!cols"] = [
+    { wch: 30 }, { wch: 24 }, { wch: 20 },
+    { wch: 24 }, { wch: 14 }, { wch: 24 }, { wch: 14 },
+    { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 },
+  ];
+  ws1["!rows"] = [{ hpt: 36 }];
+  // Enable wrap on all cells
+  const range1 = XLSX.utils.decode_range(ws1["!ref"] ?? "A1");
+  for (let r = 0; r <= range1.e.r; r++) {
+    for (let c = 0; c <= range1.e.c; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      if (ws1[addr]) ws1[addr].s = { alignment: { wrapText: true, vertical: "top" } };
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, ws1, "Leave Log");
+
+  // ── Sheet 2: Summary by teacher ───────────────────────────────────────────
+  const byTeacher: Record<string, { name: string; dept: string; counts: Record<string, number>; total: number; unpaid: number }> = {};
+  for (const l of leaves) {
+    const person = people[l.teacher_id] ?? {};
+    if (!byTeacher[l.teacher_id]) byTeacher[l.teacher_id] = { name: person.full_name ?? "Unknown", dept: person.department_name ?? "—", counts: {}, total: 0, unpaid: 0 };
+    const entry = byTeacher[l.teacher_id];
+    entry.counts[l.leave_type] = (entry.counts[l.leave_type] ?? 0) + Number(l.total_days);
+    entry.total  += Number(l.total_days);
+    entry.unpaid += Number(l.unpaid_days ?? 0);
+  }
+  const summHeaders = ["Teacher Name", "Department", ...LEAVE_TYPES.map((t) => t.label), "Total Days", "Pay-Cut Days"];
+  const summBody    = Object.values(byTeacher)
+    .sort((a, b) => a.dept.localeCompare(b.dept) || a.name.localeCompare(b.name))
+    .map((e) => [e.name, e.dept, ...LEAVE_TYPES.map((t) => e.counts[t.value] ?? 0), e.total, e.unpaid]);
+  const ws2 = XLSX.utils.aoa_to_sheet([summHeaders, ...summBody]);
+  ws2["!cols"] = [{ wch: 30 }, { wch: 24 }, ...LEAVE_TYPES.map(() => ({ wch: 16 })), { wch: 14 }, { wch: 14 }];
+  ws2["!rows"] = [{ hpt: 36 }];
+  XLSX.utils.book_append_sheet(wb, ws2, "Teacher Summary");
+
+  // ── Sheet 3: Summary by department ────────────────────────────────────────
+  const byDept: Record<string, { counts: Record<string, number>; total: number; unpaid: number }> = {};
+  for (const l of leaves) {
+    const dept = (people[l.teacher_id] ?? {}).department_name ?? "Unknown";
+    if (!byDept[dept]) byDept[dept] = { counts: {}, total: 0, unpaid: 0 };
+    byDept[dept].counts[l.leave_type] = (byDept[dept].counts[l.leave_type] ?? 0) + Number(l.total_days);
+    byDept[dept].total  += Number(l.total_days);
+    byDept[dept].unpaid += Number(l.unpaid_days ?? 0);
+  }
+  const deptHeaders = ["Department", ...LEAVE_TYPES.map((t) => t.label), "Total Days", "Pay-Cut Days"];
+  const deptBody    = Object.entries(byDept)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([dept, e]) => [dept, ...LEAVE_TYPES.map((t) => e.counts[t.value] ?? 0), e.total, e.unpaid]);
+  const ws3 = XLSX.utils.aoa_to_sheet([deptHeaders, ...deptBody]);
+  ws3["!cols"] = [{ wch: 28 }, ...LEAVE_TYPES.map(() => ({ wch: 16 })), { wch: 14 }, { wch: 14 }];
+  ws3["!rows"] = [{ hpt: 36 }];
+  XLSX.utils.book_append_sheet(wb, ws3, "Dept Summary");
+
+  // ── Sheet 4: Meta info ────────────────────────────────────────────────────
+  const ws4 = XLSX.utils.aoa_to_sheet([
+    ["CSC Leave Management System — Principal Report"],
+    [`Department Group: ${deptTabLabel}`],
+    [`Year: ${year}`],
+    [`Generated: ${generatedOn}`],
+    [`Total Records: ${leaves.length}`],
+  ]);
+  ws4["!cols"] = [{ wch: 50 }];
+  XLSX.utils.book_append_sheet(wb, ws4, "Report Info");
+
+  XLSX.writeFile(wb, `Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.xlsx`);
+}
+
+// ── Principal PDF export ──────────────────────────────────────────────────────
+function exportPrincipalPDF(
+  year: number,
+  deptTabLabel: string,
+  leaves: any[],
+  people: Record<string, any>,
+) {
+  const doc    = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
+  const pageW  = doc.internal.pageSize.getWidth();
+  const generatedOn = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" });
+
+  // Header bar
+  doc.setFillColor(55, 48, 163);
+  doc.rect(0, 0, pageW, 28, "F");
+  doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(255, 255, 255);
+  doc.text("Principal Leave Report", 14, 11);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+  doc.text(`${deptTabLabel}  ·  Year ${year}  ·  ${leaves.length} records`, 14, 18);
+  doc.setFontSize(7.5);
+  doc.text(`Generated: ${generatedOn}`, 14, 24);
+  doc.setTextColor(0, 0, 0);
+
+  // Table
+  const headers = [
+    "Teacher Name", "Department", "Leave Type",
+    "From Date", "To Date", "Days", "Pay-Cut",
+  ];
+  const body = leaves.map((l) => {
+    const person = people[l.teacher_id] ?? {};
+    const fromD  = new Date(l.from_date + "T00:00:00");
+    const toD    = new Date(l.to_date   + "T00:00:00");
+    return [
+      person.full_name      ?? "Unknown",
+      person.department_name ?? "—",
+      leaveTypeLabel(l.leave_type as LeaveType),
+      `${fromD.getDate()} ${MONTH_NAMES[fromD.getMonth()]} ${fromD.getFullYear()}\n${DAY_FULL[fromD.getDay()]}`,
+      `${toD.getDate()} ${MONTH_NAMES[toD.getMonth()]} ${toD.getFullYear()}\n${DAY_FULL[toD.getDay()]}`,
+      l.total_days  ?? 0,
+      l.unpaid_days ?? 0,
+    ];
+  });
+
+  autoTable(doc, {
+    head: [headers],
+    body,
+    startY: 32,
+    margin: { left: 14, right: 14 },
+    styles: {
+      fontSize: 8,
+      cellPadding: { top: 2, right: 2.5, bottom: 2, left: 2.5 },
+      valign: "middle",
+      lineColor: [210, 215, 225],
+      lineWidth: 0.2,
+      overflow: "linebreak",
+    },
+    headStyles: {
+      fillColor: [55, 48, 163],
+      textColor: [255, 255, 255],
+      fontSize: 8.5,
+      fontStyle: "bold",
+      halign: "left",
+      minCellHeight: 10,
+    },
+    alternateRowStyles: { fillColor: [248, 249, 255] },
+    columnStyles: {
+      0: { cellWidth: 44, fontStyle: "bold", halign: "left" },
+      1: { cellWidth: 40, halign: "left" },
+      2: { cellWidth: 36, halign: "left" },
+      3: { cellWidth: 44, halign: "left" },
+      4: { cellWidth: 44, halign: "left" },
+      5: { cellWidth: 16, halign: "center" },
+      6: { cellWidth: 18, halign: "center" },
+    },
+    didParseCell: (data) => {
+      if (data.section === "body") {
+        const v = String(data.cell.raw ?? "");
+        if (data.column.index === 6 && v !== "0" && v !== "—") {
+          data.cell.styles.textColor = [185, 28, 28];
+          data.cell.styles.fontStyle = "bold";
+        }
+        if (data.column.index === 2) {
+          const lt = leaves[data.row.index]?.leave_type;
+          if (lt === "maternity") { data.cell.styles.fillColor = [252, 231, 243]; data.cell.styles.textColor = [157, 23, 77]; }
+          else if (lt === "medical") { data.cell.styles.fillColor = [254, 249, 195]; data.cell.styles.textColor = [133, 77, 14]; }
+          else if (lt === "casual") { data.cell.styles.fillColor = [240, 249, 255]; data.cell.styles.textColor = [14, 116, 144]; }
+        }
+      }
+    },
+    didDrawPage: (data) => {
+      const pg    = (doc as any).internal.getCurrentPageInfo().pageNumber;
+      const total = (doc as any).internal.getNumberOfPages();
+      doc.setFontSize(7); doc.setTextColor(150, 150, 150);
+      doc.text(`Principal Leave Report  ·  ${deptTabLabel}  ·  ${year}  ·  Page ${pg} of ${total}`, 14, doc.internal.pageSize.getHeight() - 6);
+      doc.setTextColor(0, 0, 0);
+    },
+  });
+
+  doc.save(`Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.pdf`);
+}
 function exportPDF(month: number, year: number, label: string, summaries: ReturnType<typeof buildTeacherSummary>[], workingDays: Date[]) {
-  const weeks = getWeeksInMonth(workingDays);
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
+  const weeks   = getWeeksInMonth(workingDays);
+  const doc     = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
+  const pageW   = doc.internal.pageSize.getWidth();
 
-  doc.setFontSize(15); doc.setFont("helvetica", "bold");
-  doc.text(`${label}`, 14, 15);
-  doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(100,100,100);
-  doc.text(`Monthly Schedule · ${MONTH_NAMES[month]} ${year}  |  L = On Leave  ·  P = Proxy duty  ·  Numbers = lectures taken`, 14, 22);
-  doc.setTextColor(0,0,0);
+  // ── Cover header bar ──────────────────────────────────────────────────────
+  doc.setFillColor(30, 64, 175);
+  doc.rect(0, 0, pageW, 28, "F");
+  doc.setFontSize(16); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
+  doc.text(label, 14, 11);
+  doc.setFontSize(9);  doc.setFont("helvetica", "normal");
+  doc.text(`Monthly Schedule  ·  ${MONTH_NAMES[month]} ${year}`, 14, 18);
+  doc.setFontSize(7.5);
+  doc.text("LEAVE = On Leave   ·   P: = Proxy Duty   ·   Subject codes = lectures taken", 14, 24);
+  doc.setTextColor(0, 0, 0);
 
-  const head = [["Teacher", "Role", ...workingDays.map((d) => `${d.getDate()}\n${DAY_NAMES[d.getDay()]}`), ...weeks.map((_, i) => `Wk${i+1}`), "Total", "Leave", "Proxy"]];
+  // ── Table head: full "DD Mon\nFullDay" for each working day ──────────────
+  const head = [[
+    "Teacher Name", "Role",
+    ...workingDays.map((d) =>
+      `${d.getDate()} ${MONTH_NAMES[d.getMonth()].slice(0, 3)}\n${DAY_FULL[d.getDay()]}`
+    ),
+    ...weeks.map((_, i) => `Wk ${i + 1}\nLects`),
+    "Total\nLects", "Leave\nDays", "Proxy\nDuties",
+  ]];
+
   const body = summaries.map((s) => [
     s.name,
-    s.role === "hod" ? "HOD" : "Tchr",
+    s.role === "hod" ? "HOD" : "Teacher",
     ...s.days.map((d) => {
-      if (d.isLeave) return "L";
+      if (d.isLeave) return "LEAVE";
       const n = d.ownLectures.length;
       const p = d.proxyLectures.length;
-      if (!n && !p) return "—";
-      const parts = [];
-      if (n) parts.push(d.ownLectures.map((l) => l.subject.slice(0, 5)).join("\n"));
-      if (p) parts.push(d.proxyLectures.map((l) => `P:${l.subject.slice(0,4)}`).join("\n"));
+      if (!n && !p) return "\u2014";
+      const parts: string[] = [];
+      if (n) parts.push(d.ownLectures.map((l) => l.subject.slice(0, 6)).join("\n"));
+      if (p) parts.push(d.proxyLectures.map((l) => `P:${l.subject.slice(0, 5)}`).join("\n"));
       return parts.join("\n");
     }),
     ...s.weeklyOwn,
     s.totalOwn,
-    s.totalLeave || "—",
-    s.totalProxy || "—",
+    s.totalLeave || "\u2014",
+    s.totalProxy || "\u2014",
   ]);
+
+  // Compute dynamic column widths
+  const tailCols  = weeks.length + 3; // week totals + Total/Leave/Proxy
+  const tailWidth = tailCols * 9;
+  const remaining = pageW - 28 - 34 - 12 - tailWidth;
+  const dateColW  = workingDays.length > 0 ? Math.max(remaining / workingDays.length, 10) : 12;
+
+  const colStyles: Record<number, object> = {
+    0: { halign: "left", cellWidth: 34, fontStyle: "bold" },
+    1: { cellWidth: 12, halign: "center" },
+  };
+  workingDays.forEach((_, i) => {
+    colStyles[2 + i] = { cellWidth: dateColW, halign: "center" };
+  });
+  const tailStart = 2 + workingDays.length;
+  for (let i = 0; i < tailCols; i++) colStyles[tailStart + i] = { cellWidth: 9, halign: "center" };
 
   autoTable(doc, {
     head, body,
-    startY: 27,
-    styles: { fontSize: 5.5, cellPadding: 1.2, halign: "center", valign: "middle", lineColor: [220,220,220], lineWidth: 0.2 },
-    headStyles: { fillColor: [30,64,175], textColor: 255, fontSize: 6.5, fontStyle: "bold" },
-    columnStyles: {
-      0: { halign: "left", cellWidth: 30, fontStyle: "bold" },
-      1: { cellWidth: 10 },
+    startY: 32,
+    margin: { left: 14, right: 14 },
+    tableWidth: "auto",
+    styles: {
+      fontSize: 6,
+      cellPadding: { top: 1.5, right: 1, bottom: 1.5, left: 1 },
+      valign: "middle",
+      lineColor: [210, 210, 220],
+      lineWidth: 0.18,
+      overflow: "linebreak",
     },
-    didParseCell: (d) => {
-      const v = String(d.cell.raw ?? "");
-      if (d.section === "body" && d.column.index >= 2) {
-        if (v === "L") { d.cell.styles.fillColor = [254,226,226]; d.cell.styles.textColor = [185,28,28]; d.cell.styles.fontStyle = "bold"; }
-        else if (v.startsWith("P:") || v.includes("\nP:")) { d.cell.styles.fillColor = [254,243,199]; d.cell.styles.textColor = [120,53,15]; }
-        else if (v !== "—") { d.cell.styles.fillColor = [240,249,255]; d.cell.styles.textColor = [30,64,175]; }
+    headStyles: {
+      fillColor: [30, 64, 175],
+      textColor: [255, 255, 255],
+      fontSize: 6.5,
+      fontStyle: "bold",
+      halign: "center",
+      valign: "middle",
+      minCellHeight: 12,
+    },
+    alternateRowStyles: { fillColor: [248, 249, 255] },
+    columnStyles: colStyles,
+    didParseCell: (data) => {
+      const v = String(data.cell.raw ?? "");
+      if (data.section === "body" && data.column.index >= 2) {
+        if (v === "LEAVE") {
+          data.cell.styles.fillColor = [254, 226, 226];
+          data.cell.styles.textColor = [185, 28, 28];
+          data.cell.styles.fontStyle = "bold";
+        } else if (v.startsWith("P:") || v.includes("\nP:")) {
+          data.cell.styles.fillColor = [254, 243, 199];
+          data.cell.styles.textColor = [120, 53, 15];
+        } else if (v !== "\u2014" && v !== "") {
+          data.cell.styles.fillColor = [240, 249, 255];
+          data.cell.styles.textColor = [30, 64, 175];
+        }
       }
+    },
+    didDrawPage: (data) => {
+      const pg    = (doc as any).internal.getCurrentPageInfo().pageNumber;
+      const total = (doc as any).internal.getNumberOfPages();
+      doc.setFontSize(7); doc.setTextColor(140, 140, 140);
+      doc.text(
+        `${label}  ·  ${MONTH_NAMES[month]} ${year}  ·  Page ${pg} of ${total}`,
+        14,
+        doc.internal.pageSize.getHeight() - 6,
+      );
+      doc.setTextColor(0, 0, 0);
     },
   });
 
-  doc.save(`${label.replace(/[^a-zA-Z0-9 _-]/g,"_")}_${MONTH_NAMES[month]}_${year}.pdf`);
+  doc.save(`${label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${MONTH_NAMES[month]}_${year}.pdf`);
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -393,8 +679,23 @@ function ReportsPage() {
   const [selectedTeacher, setSelectedTeacher] = useState<string>("all");
   const [expandedTeacher, setExpandedTeacher] = useState<string | null>(null);
 
-  const isHod = role === "hod";
-  const deptName = profile?.department_name ?? "Department";
+  const isHod       = role === "hod";
+  const isPrincipal = role === "principal";
+  const deptName    = profile?.department_name ?? "Department";
+
+  // ── Principal department tab ("commerce_arts" | "science_tech") ───────────
+  const [principalDeptTab, setPrincipalDeptTab] = useState<"commerce_arts" | "science_tech">("commerce_arts");
+
+  // Department name keywords for grouping — adjust to match your actual dept names
+  const COMMERCE_ARTS_KEYWORDS   = ["commerce", "arts", "economics", "history", "english", "sociology", "philosophy", "political", "geography", "hindi", "marathi"];
+  const SCIENCE_TECH_KEYWORDS    = ["science", "technology", "physics", "chemistry", "biology", "maths", "mathematics", "computer", "it", "information", "botany", "zoology", "microbiology"];
+
+  function getDeptGroup(deptName: string): "commerce_arts" | "science_tech" | "other" {
+    const n = (deptName ?? "").toLowerCase();
+    if (SCIENCE_TECH_KEYWORDS.some((k) => n.includes(k))) return "science_tech";
+    if (COMMERCE_ARTS_KEYWORDS.some((k) => n.includes(k))) return "commerce_arts";
+    return "other";
+  }
 
   // ── Yearly leave data (all roles) ─────────────────────────────────────────
   const { data } = useQuery({
@@ -448,13 +749,28 @@ function ReportsPage() {
 
   // ── Leave stats (filtered) ────────────────────────────────────────────────
   const allLeaves = data?.leaves ?? [];
-  const filteredLeaves = useMemo(() => allLeaves.filter((l) => {
-    const inPeriod = isHod ? (l.from_date <= downloadRange.to && l.to_date >= downloadRange.from) : true;
-    const byTeacher = isHod && selectedTeacher !== "all" ? l.teacher_id === selectedTeacher : true;
-    return inPeriod && byTeacher;
-  }), [allLeaves, isHod, downloadRange, selectedTeacher]);
+  const filteredLeaves = useMemo(() => {
+    let rows = allLeaves;
+    // HOD: filter by period + teacher
+    if (isHod) {
+      rows = rows.filter((l) => {
+        const inPeriod  = l.from_date <= downloadRange.to && l.to_date >= downloadRange.from;
+        const byTeacher = selectedTeacher !== "all" ? l.teacher_id === selectedTeacher : true;
+        return inPeriod && byTeacher;
+      });
+    }
+    // Principal: filter by selected department tab
+    if (isPrincipal) {
+      rows = rows.filter((l) => {
+        const personDept = (data?.people[l.teacher_id] as any)?.department_name ?? "";
+        const grp = getDeptGroup(personDept);
+        return grp === principalDeptTab || grp === "other";
+      });
+    }
+    return rows;
+  }, [allLeaves, isHod, isPrincipal, downloadRange, selectedTeacher, principalDeptTab, data?.people]);
 
-  const leaves = isHod ? filteredLeaves : allLeaves;
+  const leaves = (isHod || isPrincipal) ? filteredLeaves : allLeaves;
   const totalDays  = leaves.reduce((s, l) => s + Number(l.total_days), 0);
   const unpaidDays = leaves.reduce((s, l) => s + Number(l.unpaid_days), 0);
   const byType     = LEAVE_TYPES.map((t) => ({ ...t, days: leaves.filter((l) => l.leave_type === t.value).reduce((s, l) => s + Number(l.total_days), 0) }));
@@ -463,15 +779,27 @@ function ReportsPage() {
   // ── Download handlers ─────────────────────────────────────────────────────
   const handleDownloadExcel = useCallback(() => {
     setDownloading("excel");
-    try { exportExcel(selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, monthlyData?.fixedLectures??[], monthlyData?.datedLectures??[], monthlyData?.proxies??[], monthlyData?.compensations??[]); }
-    finally { setDownloading(null); }
-  }, [selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, monthlyData]);
+    try {
+      if (isPrincipal) {
+        const deptTabLabel = principalDeptTab === "commerce_arts" ? "Commerce & Arts" : "Science & Technology";
+        exportPrincipalExcel(year, deptTabLabel, filteredLeaves, data?.people ?? {});
+      } else {
+        exportExcel(selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, monthlyData?.fixedLectures??[], monthlyData?.datedLectures??[], monthlyData?.proxies??[], monthlyData?.compensations??[]);
+      }
+    } finally { setDownloading(null); }
+  }, [selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, monthlyData, isPrincipal, principalDeptTab, filteredLeaves, data?.people]);
 
   const handleDownloadPDF = useCallback(() => {
     setDownloading("pdf");
-    try { exportPDF(selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays); }
-    finally { setDownloading(null); }
-  }, [selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays]);
+    try {
+      if (isPrincipal) {
+        const deptTabLabel = principalDeptTab === "commerce_arts" ? "Commerce & Arts" : "Science & Technology";
+        exportPrincipalPDF(year, deptTabLabel, filteredLeaves, data?.people ?? {});
+      } else {
+        exportPDF(selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays);
+      }
+    } finally { setDownloading(null); }
+  }, [selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, isPrincipal, principalDeptTab, filteredLeaves, data?.people]);
 
   return (
     <AppShell
@@ -544,6 +872,38 @@ function ReportsPage() {
                   <span className="hidden xs:inline">{downloading === "pdf" ? "…" : "PDF"}</span>
                 </Button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Principal: Department tabs ────────────────────────────────────── */}
+        {isPrincipal && (
+          <div className="rounded-xl border border-border overflow-hidden">
+            <div className="flex">
+              {([
+                { id: "commerce_arts",  label: "Commerce & Arts",      icon: BookOpen },
+                { id: "science_tech",   label: "Science & Technology",  icon: TrendingDown },
+              ] as const).map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setPrincipalDeptTab(id)}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-colors ${
+                    principalDeptTab === id
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-transparent bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="size-4 shrink-0" />
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="px-4 py-2 bg-muted/20 border-t border-border">
+              <p className="text-xs text-muted-foreground">
+                Showing leave data for <strong className="text-foreground">
+                  {principalDeptTab === "commerce_arts" ? "Commerce & Arts" : "Science & Technology"}
+                </strong> departments
+              </p>
             </div>
           </div>
         )}

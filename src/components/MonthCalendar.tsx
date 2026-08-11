@@ -25,7 +25,7 @@ interface DayCell {
 }
 
 const KIND_CLASS: Record<DayKind, string> = {
-  sunday:        "bg-muted text-muted-foreground",
+  sunday:        "bg-destructive/10 text-destructive border-destructive/20",
   holiday:       "bg-info/12 text-info border-info/30",
   leave_paid:    "bg-warning/20 text-warning-foreground border-warning/40",
   leave_unpaid:  "bg-destructive/12 text-destructive border-destructive/30",
@@ -251,7 +251,7 @@ export function MonthCalendar({
       {/* Day-of-week headers */}
       <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-          <span key={d} className="py-1">{d}</span>
+          <span key={d} className={`py-1 ${d === "Sun" ? "text-destructive" : ""}`}>{d}</span>
         ))}
       </div>
 

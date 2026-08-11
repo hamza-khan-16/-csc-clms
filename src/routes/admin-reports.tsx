@@ -2,7 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import { autoTable } from "jspdf-autotable";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, Empty } from "@/components/ui-bits";
@@ -248,6 +252,9 @@ const REPORT_MODULES: {
 ];
 
 function AdminReportsPage() {
+  const { role } = useAuth();
+  const isPrincipal = role === "principal";
+
   const [activeModule, setActiveModule] = useState("teacher");
   const [filterYear,   setFilterYear]   = useState(String(CURRENT_YEAR));
   const [filterDept,   setFilterDept]   = useState("all");
@@ -256,6 +263,19 @@ function AdminReportsPage() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [exporting,    setExporting]    = useState(false);
   const [moduleOpen,   setModuleOpen]   = useState(false);
+
+  // Principal: which department group tab is active
+  const [principalDeptTab, setPrincipalDeptTab] = useState<"commerce_arts" | "science_tech">("commerce_arts");
+
+  const COMMERCE_ARTS_KEYWORDS = ["commerce", "arts", "economics", "history", "english", "sociology", "philosophy", "political", "geography", "hindi", "marathi"];
+  const SCIENCE_TECH_KEYWORDS  = ["science", "technology", "physics", "chemistry", "biology", "maths", "mathematics", "computer", "it", "information", "botany", "zoology", "microbiology"];
+
+  function getDeptGroup(deptName: string): "commerce_arts" | "science_tech" | "other" {
+    const n = (deptName ?? "").toLowerCase();
+    if (SCIENCE_TECH_KEYWORDS.some((k) => n.includes(k))) return "science_tech";
+    if (COMMERCE_ARTS_KEYWORDS.some((k) => n.includes(k))) return "commerce_arts";
+    return "other";
+  }
 
   // Departments
   const { data: departments = [] } = useQuery({
@@ -319,6 +339,18 @@ function AdminReportsPage() {
     return true;
   }), [allLeaves, people, filterDept, filterMonth, filterType, filterStatus, filterYear]);
 
+  // For principal: further filter by dept group tab
+  const principalFilteredLeaves = useMemo(() => {
+    if (!isPrincipal) return filteredLeaves;
+    return filteredLeaves.filter((l) => {
+      const deptName = people[l.teacher_id]?.department_name ?? "";
+      const grp = getDeptGroup(deptName);
+      return grp === principalDeptTab || grp === "other";
+    });
+  }, [filteredLeaves, isPrincipal, principalDeptTab, people]);
+
+  const effectiveLeaves = isPrincipal ? principalFilteredLeaves : filteredLeaves;
+
   // Filter people by department too (for payroll/salary modules)
   const filteredPeople = useMemo(() => {
     if (filterDept === "all") return people;
@@ -333,12 +365,11 @@ function AdminReportsPage() {
   const rows = useMemo(() => {
     const mod = REPORT_MODULES.find((m) => m.key === activeModule);
     if (!mod) return [];
-    // Payroll and salary need filteredPeople for the full staff list
     const peopleForMod = (activeModule === "payroll" || activeModule === "salary")
       ? filteredPeople
       : people;
-    return mod.build(filteredLeaves, peopleForMod);
-  }, [activeModule, filteredLeaves, people, filteredPeople]);
+    return mod.build(effectiveLeaves, peopleForMod);
+  }, [activeModule, effectiveLeaves, people, filteredPeople]);
 
   // Leave type breakdown bar chart
   const byType = LEAVE_TYPES.map((t) => ({
@@ -353,67 +384,149 @@ function AdminReportsPage() {
   const deptLabel  = filterDept  !== "all" ? (departments.find((d) => d.id === filterDept)?.name ?? "") : "All Depts";
   const monthLabel = filterMonth !== "all" ? MONTH_NAMES[Number(filterMonth) - 1] : "All Months";
 
-  // ── CSV export ──────────────────────────────────────────────────────────────
-  function exportCSV() {
+  // ── Excel export ─────────────────────────────────────────────────────────────
+  function exportExcel() {
     if (rows.length === 0) return toast.error("No data to export");
-    const headers = Object.keys(rows[0]);
-    const csv = [
-      headers.join(","),
-      ...rows.map((r) =>
-        headers.map((h) => `"${String(r[h] ?? "").replace(/"/g, '""')}"`).join(",")
+    const mod      = activeModInfo;
+    const subtitle = `${deptLabel} · ${monthLabel} · ${filterYear}`;
+    const headers  = Object.keys(rows[0]);
+    const body     = rows.map((r) => headers.map((h) => r[h] ?? ""));
+    const wb = XLSX.utils.book_new();
+    // Meta sheet
+    const metaWs = XLSX.utils.aoa_to_sheet([
+      [`${mod.label} — CSC Leave Management`],
+      [subtitle],
+      [`Generated: ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })}`],
+      [`Total records: ${rows.length}`],
+    ]);
+    metaWs["!cols"] = [{ wch: 60 }];
+    XLSX.utils.book_append_sheet(wb, metaWs, "Info");
+    // Data sheet
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...body]);
+    // Auto column width: max of header length and data length
+    ws["!cols"] = headers.map((h, i) => ({
+      wch: Math.min(
+        55,
+        Math.max(h.length + 2, ...rows.map((r) => String(r[h] ?? "").length)),
       ),
-    ].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = `${activeModule}-${filterYear}${filterDept !== "all" ? `-${deptLabel}` : ""}${filterMonth !== "all" ? `-${monthLabel}` : ""}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`Exported ${rows.length} rows`);
+    }));
+    // Freeze header row
+    ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+    XLSX.utils.book_append_sheet(wb, ws, mod.label.slice(0, 31));
+    const filename = `${mod.label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${filterYear}${filterDept !== "all" ? `_${deptLabel}` : ""}${filterMonth !== "all" ? `_${monthLabel}` : ""}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    toast.success(`Excel exported — ${rows.length} rows`);
   }
 
-  // ── PDF export ──────────────────────────────────────────────────────────────
-  async function exportPDF() {
+  // ── PDF export ── uses jsPDF autoTable for professional output ───────────────
+  function exportPDF() {
     if (rows.length === 0) return toast.error("No data to export");
     setExporting(true);
     try {
       const mod      = activeModInfo;
+      const subtitle = `${deptLabel}  ·  ${monthLabel}  ·  ${filterYear}`;
       const headers  = Object.keys(rows[0]);
-      const subtitle = `${deptLabel} · ${monthLabel} · ${filterYear}`;
-      const tableRows = rows.map((r) =>
-        `<tr>${headers.map((h) => `<td>${r[h] ?? ""}</td>`).join("")}</tr>`
-      ).join("");
-      const html = `<html><head><title>${mod.label}</title>
-        <style>
-          body{font-family:sans-serif;margin:20px;color:#111;font-size:12px}
-          h1{font-size:16px;margin:0 0 2px}
-          .sub{color:#666;font-size:11px;margin:0 0 14px}
-          table{border-collapse:collapse;width:100%}
-          th{background:#3730a3;color:#fff;padding:5px 8px;text-align:left;font-size:11px;white-space:nowrap}
-          td{border:1px solid #e5e7eb;padding:4px 8px;font-size:11px}
-          tr:nth-child(even) td{background:#f9fafb}
-          .foot{font-size:10px;color:#999;margin-top:10px}
-          @media print{.no-print{display:none}}
-        </style></head><body>
-        <h1>${mod.label} — Chandrabhan Sharma College</h1>
-        <p class="sub">${subtitle} · ${rows.length} records</p>
-        <table>
-          <thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
-          <tbody>${tableRows}</tbody>
-        </table>
-        <p class="foot">Generated ${new Date().toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" })}</p>
-        <br class="no-print"/>
-        <button class="no-print" onclick="window.print()" style="margin-top:10px;padding:6px 16px;background:#3730a3;color:#fff;border:none;border-radius:4px;cursor:pointer">Print / Save as PDF</button>
-        </body></html>`;
-      const w = window.open("", "_blank");
-      if (w) { w.document.write(html); w.document.close(); }
+      const body     = rows.map((r) => headers.map((h) => String(r[h] ?? "—")));
+      const isWide   = headers.length > 6;
+      const doc      = new jsPDF({ orientation: isWide ? "landscape" : "portrait", unit: "mm", format: "a4" });
+      const pageW    = doc.internal.pageSize.getWidth();
+
+      // Header bar
+      doc.setFillColor(55, 48, 163);
+      doc.rect(0, 0, pageW, 26, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(255, 255, 255);
+      doc.text(`${mod.label}`, 14, 10);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5);
+      doc.text(`CSC Leave Management  ·  ${subtitle}`, 14, 17);
+      doc.setFontSize(7.5);
+      doc.text(`${rows.length} record(s)  ·  Generated ${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })}`, 14, 23);
+      doc.setTextColor(0, 0, 0);
+
+      autoTable(doc, {
+        head: [headers],
+        body,
+        startY: 30,
+        margin: { left: 12, right: 12 },
+        styles: {
+          fontSize: 8,
+          cellPadding: { top: 2.5, right: 3, bottom: 2.5, left: 3 },
+          valign: "middle",
+          lineColor: [210, 215, 225],
+          lineWidth: 0.2,
+          overflow: "linebreak",
+        },
+        headStyles: {
+          fillColor: [55, 48, 163],
+          textColor: [255, 255, 255],
+          fontSize: 8.5,
+          fontStyle: "bold",
+          halign: "left",
+          minCellHeight: 10,
+        },
+        alternateRowStyles: { fillColor: [248, 249, 255] },
+        didParseCell: (data) => {
+          // Highlight pay-cut / unpaid cells in red
+          if (data.section === "body") {
+            const h = headers[data.column.index] ?? "";
+            const v = String(data.cell.raw ?? "");
+            if ((h.toLowerCase().includes("unpaid") || h.toLowerCase().includes("pay-cut")) && v !== "0" && v !== "—") {
+              data.cell.styles.textColor = [185, 28, 28];
+              data.cell.styles.fontStyle = "bold";
+            }
+          }
+        },
+        didDrawPage: (data) => {
+          const pg    = (doc as any).internal.getCurrentPageInfo().pageNumber;
+          const total = (doc as any).internal.getNumberOfPages();
+          doc.setFontSize(7); doc.setTextColor(150, 150, 150);
+          doc.text(
+            `${mod.label}  ·  ${subtitle}  ·  Page ${pg} of ${total}`,
+            12,
+            doc.internal.pageSize.getHeight() - 6,
+          );
+          doc.setTextColor(0, 0, 0);
+        },
+      });
+
+      const filename = `${mod.label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${filterYear}${filterDept !== "all" ? `_${deptLabel}` : ""}${filterMonth !== "all" ? `_${monthLabel}` : ""}.pdf`;
+      doc.save(filename);
+      toast.success(`PDF exported — ${rows.length} rows`);
     } finally { setExporting(false); }
   }
 
   return (
     <AppShell title="Reports" subtitle="College-wide leave analytics and exports">
       <div className="space-y-4">
+
+        {/* ── Principal: Department group tabs (above everything) ─────────── */}
+        {isPrincipal && (
+          <div className="rounded-xl border border-border overflow-hidden">
+            <div className="flex">
+              {([
+                { id: "commerce_arts" as const,  label: "Commerce & Arts",     emoji: "📚" },
+                { id: "science_tech"  as const,  label: "Science & Technology", emoji: "🔬" },
+              ]).map(({ id, label, emoji }) => (
+                <button
+                  key={id}
+                  onClick={() => setPrincipalDeptTab(id)}
+                  className={`flex-1 flex items-center justify-center gap-2.5 px-5 py-3.5 text-sm font-semibold border-b-2 transition-all ${
+                    principalDeptTab === id
+                      ? "border-primary bg-primary/8 text-primary"
+                      : "border-transparent bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  }`}
+                >
+                  <span className="text-base leading-none">{emoji}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="px-4 py-2 bg-muted/20 text-xs text-muted-foreground">
+              Showing reports for <strong className="text-foreground">
+                {principalDeptTab === "commerce_arts" ? "Commerce & Arts" : "Science & Technology"}
+              </strong> departments
+            </div>
+          </div>
+        )}
 
         {/* ── Mobile: horizontal tab strip ───────────────────────────────── */}
         <div className="lg:hidden">
@@ -681,9 +794,9 @@ function AdminReportsPage() {
                   <FileText className="size-4 text-red-600 shrink-0" />
                   {exporting ? "Preparing…" : "Download PDF"}
                 </Button>
-                <Button className="gap-2 flex-1" onClick={exportCSV} disabled={rows.length === 0}>
-                  <BarChart2 className="size-4 shrink-0" />
-                  Download CSV
+                <Button variant="outline" className="gap-2 flex-1" onClick={exportExcel} disabled={rows.length === 0}>
+                  <BarChart2 className="size-4 text-emerald-600 shrink-0" />
+                  Download Excel
                 </Button>
               </div>
             </SectionCard>

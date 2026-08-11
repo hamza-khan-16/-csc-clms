@@ -190,9 +190,9 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
     // 1. Count working days
     const { data: holidays = [] } = await supabase.from("holidays").select("holiday_date");
     const holidaySet = new Set((holidays ?? []).map((h: any) => h.holiday_date));
-    const { total: totalDays, workingDates } = countWorkingDays(fromDate, toDate, session, holidaySet);
+    const { total: totalDays, workingDates, purelyNonWorking } = countWorkingDays(fromDate, toDate, session, holidaySet);
 
-    if (totalDays === 0) { setBusy(false); return toast.error("No working days in selected range"); }
+    if (purelyNonWorking) { setBusy(false); return toast.error("Cannot mark leave for a date that is only a Sunday or public holiday. Please select at least one working day."); }
 
     // 2. Insert the leave request on behalf of the teacher
     const { data: lr, error: lrErr } = await supabase
@@ -373,25 +373,25 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
 }
 
 // ── Locked Accounts Panel ─────────────────────────────────────────────────────
-// HOD: sees locked teachers in their department
-// Principal: sees locked HODs across all departments
+// Principal: sees locked teachers AND locked HODs (not principals)
+// Admin: sees everyone — handled in admin.tsx
+// HOD: does NOT get a locked accounts panel (their locks go to Principal/Admin)
 function LockedAccountsPanel({ role, deptId }: { role: "hod" | "principal"; deptId: string | null }) {
   const qc = useQueryClient();
   const unlockFn = useServerFn(unlockAccount);
   const [resetPasswords, setResetPasswords] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  // Fetch locked accounts visible to this role
+  // All hooks must run before any conditional return (React rules of hooks)
   const { data: locked = [], isLoading } = useQuery({
     queryKey: ["locked-accounts", role, deptId],
+    enabled: role === "principal", // HODs never manage locked accounts
     queryFn: async () => {
-      // Roles to look for: HOD sees locked teachers, Principal sees locked HODs
-      const targetRole = role === "hod" ? "teacher" : "hod";
-
-      // Get all users with the target role
-      let roleQuery = supabase.from("user_roles").select("user_id, department_id").eq("role", targetRole);
-      if (role === "hod" && deptId) roleQuery = roleQuery.eq("department_id", deptId);
-      const { data: roleRows } = await roleQuery;
+      const targetRoles = ["teacher", "hod"]; // principal can unlock teachers & HODs
+      const { data: roleRows } = await supabase
+        .from("user_roles")
+        .select("user_id, department_id, role")
+        .in("role", targetRoles);
       if (!roleRows || roleRows.length === 0) return [];
 
       const userIds = roleRows.map((r) => r.user_id);
@@ -407,14 +407,17 @@ function LockedAccountsPanel({ role, deptId }: { role: "hod" | "principal"; dept
         const { data: depts } = await supabase.from("departments").select("id, name").in("id", deptIds);
         deptMap = Object.fromEntries((depts ?? []).map((d) => [d.id, d.name]));
       }
-
+      const roleByUser = Object.fromEntries(roleRows.map((r) => [r.user_id, r.role]));
       return (profiles ?? []).map((p: any) => ({
         ...p,
         department_name: deptMap[p.department_id] ?? null,
-        role: targetRole,
+        role: roleByUser[p.id] ?? "teacher",
       }));
     },
   });
+
+  // HODs do not manage locked accounts — only Principal/Admin do
+  if (role === "hod") return null;
 
   async function handleUnlock(userId: string) {
     const newPw = resetPasswords[userId] ?? "";
@@ -450,7 +453,7 @@ function LockedAccountsPanel({ role, deptId }: { role: "hod" | "principal"; dept
               <div>
                 <p className="text-sm font-semibold">{person.full_name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {person.user_id} · {person.department_name ?? "—"} · {person.failed_login_attempts} failed attempt{person.failed_login_attempts !== 1 ? "s" : ""}
+                  {person.user_id} · {person.department_name ?? "—"} · <span className="capitalize font-medium">{person.role}</span> · {person.failed_login_attempts} failed attempt{person.failed_login_attempts !== 1 ? "s" : ""}
                 </p>
               </div>
             </div>
@@ -537,7 +540,7 @@ function RequestsPage() {
           </SectionCard>
         )}
 
-        {/* Locked accounts — HOD sees locked teachers in dept, Principal sees locked HODs */}
+        {/* Locked accounts — Principal sees locked teachers + HODs; HOD sees nothing (admin/principal handles it) */}
         {(isHod || role === "principal") && (
           <LockedAccountsPanel
             role={isHod ? "hod" : "principal"}

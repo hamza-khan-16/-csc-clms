@@ -67,7 +67,7 @@ function TeachersPage() {
 
       let q = supabase
         .from("profiles")
-        .select("id, full_name, designation, department_id, date_of_joining, experience_years, subjects_taught, departments(name)")
+        .select("id, full_name, designation, department_id, date_of_joining, date_of_birth, gender, experience_years, subjects_taught, departments(name)")
         .order("full_name");
       if (role === "hod") q = q.eq("department_id", profile!.department_id ?? "");
       const { data, error } = await q;
@@ -238,8 +238,31 @@ function TeacherDetailPanel({
   const [editing, setEditing] = useState(false);
   const [expYears, setExpYears] = useState<string>(teacher.experience_years != null ? String(teacher.experience_years) : "");
   const [doj, setDoj] = useState<string>(teacher.date_of_joining ?? "");
+  const [gender, setGender] = useState<string>((teacher as any).gender ?? "");
   const [subjects, setSubjects] = useState<string>(teacher.subjects_taught ?? "");
   const [saving, setSaving] = useState(false);
+
+  // DOB: stored as "DD-MM" or "DD-MM-YYYY"; split into 3 fields
+  function parseDob(raw: string | null | undefined): { day: string; month: string; year: string } {
+    if (!raw) return { day: "", month: "", year: "" };
+    const parts = raw.split("-");
+    if (parts.length === 2) return { day: parts[0], month: parts[1], year: "" };
+    if (parts.length === 3) return { day: parts[0], month: parts[1], year: parts[2] };
+    return { day: "", month: "", year: "" };
+  }
+  const initDob = parseDob((teacher as any).date_of_birth);
+  const [dobDay,   setDobDay]   = useState<string>(initDob.day);
+  const [dobMonth, setDobMonth] = useState<string>(initDob.month);
+  const [dobYear,  setDobYear]  = useState<string>(initDob.year);
+
+  /** Combine the 3 parts into the stored string, or null if day+month blank */
+  function buildDobValue(): string | null {
+    const d = dobDay.trim().padStart(2, "0");
+    const m = dobMonth.trim().padStart(2, "0");
+    const y = dobYear.trim();
+    if (!dobDay.trim() || !dobMonth.trim()) return null;
+    return y ? `${d}-${m}-${y}` : `${d}-${m}`;
+  }
 
   async function saveDetails() {
     setSaving(true);
@@ -248,6 +271,8 @@ function TeacherDetailPanel({
       .update({
         experience_years: expYears ? parseInt(expYears, 10) : null,
         date_of_joining: doj || null,
+        date_of_birth: buildDobValue(),
+        gender: gender || null,
         subjects_taught: subjects.trim() || null,
       })
       .eq("id", teacher.id);
@@ -348,6 +373,78 @@ function TeacherDetailPanel({
               <Input type="date" value={doj} onChange={(e) => setDoj(e.target.value)} className="h-8 text-sm" />
             </div>
             <div className="space-y-1.5">
+              <Label className="text-xs">Date of Birth <span className="text-muted-foreground font-normal">(Year optional)</span></Label>
+              <div className="grid grid-cols-3 gap-2">
+                {/* Day */}
+                <div className="space-y-1">
+                  <p className="text-[10px] text-muted-foreground">Day</p>
+                  <select
+                    className="w-full h-8 rounded-md border border-input bg-background px-2 text-sm"
+                    value={dobDay}
+                    onChange={(e) => setDobDay(e.target.value)}
+                  >
+                    <option value="">—</option>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                      <option key={d} value={String(d).padStart(2, "0")}>
+                        {String(d).padStart(2, "0")}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {/* Month */}
+                <div className="space-y-1">
+                  <p className="text-[10px] text-muted-foreground">Month</p>
+                  <select
+                    className="w-full h-8 rounded-md border border-input bg-background px-2 text-sm"
+                    value={dobMonth}
+                    onChange={(e) => setDobMonth(e.target.value)}
+                  >
+                    <option value="">—</option>
+                    {["January","February","March","April","May","June","July","August","September","October","November","December"].map((mn, i) => (
+                      <option key={mn} value={String(i + 1).padStart(2, "0")}>{mn}</option>
+                    ))}
+                  </select>
+                </div>
+                {/* Year — optional */}
+                <div className="space-y-1">
+                  <p className="text-[10px] text-muted-foreground">Year <span className="italic">(optional)</span></p>
+                  <Input
+                    type="number"
+                    min={1900}
+                    max={new Date().getFullYear()}
+                    placeholder="YYYY"
+                    value={dobYear}
+                    onChange={(e) => setDobYear(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+              {/* Live preview */}
+              {(dobDay || dobMonth) && (
+                <p className="text-[11px] text-muted-foreground pt-0.5">
+                  Preview:{" "}
+                  <span className="font-medium text-foreground">
+                    {dobDay && dobMonth
+                      ? `${dobDay} ${["January","February","March","April","May","June","July","August","September","October","November","December"][parseInt(dobMonth,10)-1]}${dobYear ? ` ${dobYear}` : ""}`
+                      : "—"}
+                  </span>
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Gender</Label>
+              <select
+                className="w-full h-8 rounded-md border border-input bg-background px-3 text-sm"
+                value={gender}
+                onChange={(e) => setGender(e.target.value)}
+              >
+                <option value="">Not set</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+                <option value="other">Other / Prefer not to say</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
               <Label className="text-xs">Experience (years)</Label>
               <Input type="number" min={0} max={50} value={expYears} onChange={(e) => setExpYears(e.target.value)} className="h-8 text-sm" placeholder="e.g. 8" />
             </div>
@@ -376,6 +473,36 @@ function TeacherDetailPanel({
               <div>
                 <p className="text-xs text-muted-foreground">Date of joining</p>
                 <p className="text-sm font-medium">{teacher.date_of_joining ? fmtDate(teacher.date_of_joining) : "Not set"}</p>
+              </div>
+            </div>
+            {/* Date of Birth — visible to HOD and Principal only */}
+            <div className="flex items-center gap-3 rounded-lg border border-border p-3 bg-muted/20">
+              <UserCircle2 className="size-4 shrink-0 text-muted-foreground" />
+              <div>
+                <p className="text-xs text-muted-foreground">Date of Birth</p>
+                <p className="text-sm font-medium">
+                  {(() => {
+                    const raw: string | undefined = (teacher as any).date_of_birth;
+                    if (!raw) return "Not set";
+                    const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+                    const parts = raw.split("-");
+                    if (parts.length >= 2) {
+                      const day   = parts[0];
+                      const month = MONTHS[parseInt(parts[1], 10) - 1] ?? parts[1];
+                      const year  = parts[2] ?? null;
+                      return year ? `${day} ${month} ${year}` : `${day} ${month}`;
+                    }
+                    return raw;
+                  })()}
+                </p>
+              </div>
+            </div>
+            {/* Gender */}
+            <div className="flex items-center gap-3 rounded-lg border border-border p-3 bg-muted/20">
+              <UserCircle2 className="size-4 shrink-0 text-muted-foreground" />
+              <div>
+                <p className="text-xs text-muted-foreground">Gender</p>
+                <p className="text-sm font-medium capitalize">{(teacher as any).gender ?? "Not set"}</p>
               </div>
             </div>
             {/* Experience */}

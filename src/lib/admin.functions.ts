@@ -12,6 +12,7 @@ export const adminCreateStaff = createServerFn({ method: "POST" })
       departmentId: string | null;
       role: "teacher" | "hod" | "principal";
       monthlySalary: number;
+      gender?: "female" | "male" | "other" | null;
     }) => input,
   )
   .handler(async ({ data, context }) => {
@@ -81,6 +82,7 @@ export const adminCreateStaff = createServerFn({ method: "POST" })
       designation: data.designation,
       department_id: dept,
       monthly_salary: data.monthlySalary,
+      gender: data.gender ?? null,
       approved: true,
       password_changed_at: new Date().toISOString(),
     });

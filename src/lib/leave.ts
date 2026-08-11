@@ -198,24 +198,54 @@ export function money(amount: number) {
 }
 
 /**
- * Compute working days for a leave request, correctly handling:
- * - Inclusive date range (both from and to are counted)
- * - Sundays excluded
- * - Holidays excluded
- * - Half-day sessions counted as 0.5
+ * Compute leave days applying the SANDWICH RULE.
+ *
+ * Sundays and public holidays sandwiched between two working leave days are
+ * counted as leave days (they cannot be used to "extend" leave for free).
+ *
+ * Leading / trailing non-working days that have no working day on the other
+ * side are trimmed and reported in `skipped`.
+ *
+ * Examples (W = working, S = Sunday, H = holiday):
+ *   Sat W W S W W  → sandwich S → 5 days, 0 skipped
+ *   S W W S W W    → leading S trimmed → 4 days, 1 skipped
+ *   W W S          → trailing S trimmed → 2 days, 1 skipped
+ *   W H W          → sandwich H → 3 days, 0 skipped
+ *   S only         → purelyNonWorking = true → 0 days (cannot apply)
+ *
+ * Pay-cut note: when a leave is marked unpaid, `total` is the number of days
+ * deducted from salary — including any sandwiched Sundays / holidays.
  */
 export function countWorkingDays(
   from: string,
   to: string,
   session: LeaveSession,
   holidaySet: Set<string>,
-): { total: number; skipped: number; workingDates: string[] } {
+): { total: number; skipped: number; workingDates: string[]; purelyNonWorking: boolean } {
   const allDates = eachDate(from, to);
-  const workingDates = allDates.filter(
-    (d) => new Date(d + "T00:00:00").getDay() !== 0 && !holidaySet.has(d),
-  );
-  const skipped = allDates.length - workingDates.length;
-  let total = workingDates.length;
+  if (allDates.length === 0) return { total: 0, skipped: 0, workingDates: [], purelyNonWorking: true };
+
+  const isNonWorking = (d: string) =>
+    new Date(d + "T00:00:00").getDay() === 0 || holidaySet.has(d);
+
+  // Entire range is Sundays/holidays — cannot apply for this
+  if (allDates.every(isNonWorking)) {
+    return { total: 0, skipped: allDates.length, workingDates: [], purelyNonWorking: true };
+  }
+
+  // Find the first and last working day in the range
+  const firstWorking = allDates.findIndex((d) => !isNonWorking(d));
+  const lastWorking  = allDates.length - 1 - [...allDates].reverse().findIndex((d) => !isNonWorking(d));
+
+  // Everything between first and last working day is counted (sandwich rule)
+  const sandwichedDates = allDates.slice(firstWorking, lastWorking + 1);
+  const skipped = allDates.length - sandwichedDates.length;
+
+  // workingDates = only actual working days (used for proxy assignments)
+  const workingDates = sandwichedDates.filter((d) => !isNonWorking(d));
+
+  let total = sandwichedDates.length;
   if (session !== "full_day") total = Math.min(total, 1) * 0.5;
-  return { total, skipped, workingDates };
+
+  return { total, skipped, workingDates, purelyNonWorking: false };
 }

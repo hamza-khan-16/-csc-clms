@@ -10,7 +10,16 @@ import { SectionCard } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { KeyRound, Eye, EyeOff, CheckCircle2 } from "lucide-react";
+
+const GENDERS = ["Male", "Female", "Other", "Prefer not to say"];
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -32,6 +41,8 @@ function ProfilePage() {
   const { profile, role, session } = useAuth();
   const qc = useQueryClient();
   const [name, setName] = useState(profile?.full_name ?? "");
+  const [gender, setGender] = useState(profile?.gender ?? "");
+  const [dob, setDob] = useState(profile?.date_of_birth ?? "");
   const [busy, setBusy] = useState(false);
 
   // Password change state
@@ -52,7 +63,11 @@ function ProfilePage() {
     setBusy(true);
     const { error } = await supabase
       .from("profiles")
-      .update({ full_name: name.trim() })
+      .update({
+        full_name: name.trim(),
+        gender: gender || null,
+        date_of_birth: dob || null,
+      })
       .eq("id", profile!.id);
     setBusy(false);
     if (error) return toast.error(error.message);
@@ -148,18 +163,31 @@ function ProfilePage() {
                 <Input value={profile?.designation ?? ""} disabled className="capitalize" />
               </div>
             </div>
-            {profile?.gender && (
+            {profile?.gender !== undefined && (
               <div className="space-y-2">
-                <Label>Gender</Label>
-                <Input value={profile.gender} disabled />
+                <Label htmlFor="gender">Gender</Label>
+                <Select value={gender} onValueChange={setGender}>
+                  <SelectTrigger id="gender">
+                    <SelectValue placeholder="Select gender…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {GENDERS.map((g) => (
+                      <SelectItem key={g} value={g}>{g}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
-            {profile?.date_of_birth && (
-              <div className="space-y-2">
-                <Label>Date of Birth</Label>
-                <Input value={profile.date_of_birth} disabled />
-              </div>
-            )}
+            <div className="space-y-2">
+              <Label htmlFor="dob">Date of Birth <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input
+                id="dob"
+                type="date"
+                value={dob}
+                onChange={(e) => setDob(e.target.value)}
+                max={new Date().toISOString().split("T")[0]}
+              />
+            </div>
             {role !== "admin" && profile?.password_changed_at && (
               <div className="space-y-1">
                 <Label>Password expiry</Label>

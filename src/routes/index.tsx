@@ -67,7 +67,6 @@ const SALUTATIONS = [
   "Air Mshl",
   "Wg. Cdr.",
   "Sqn. Ldr.",
-  
 ];
 const GENDERS = ["Male", "Female", "Other", "Prefer not to say"];
 

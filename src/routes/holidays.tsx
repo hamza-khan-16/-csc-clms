@@ -358,13 +358,7 @@ function HolidaysPage() {
     invalidateAll();
   }
 
-  // ── Group by month ─────────────────────────────────────────────────────────
-  const byMonth: Record<number, typeof holidays> = {};
-  for (const h of holidays) {
-    const m = new Date(h.holiday_date + "T00:00:00").getMonth();
-    if (!byMonth[m]) byMonth[m] = [];
-    byMonth[m].push(h);
-  }
+  // holidays are already sorted by holiday_date from the query
 
   const upcoming  = holidays.filter((h) => h.holiday_date >= today && h.holiday_date.startsWith(String(currentYear)));
   const hasUpload = holidays.some((h) => (h as any).source === "upload");
@@ -553,7 +547,7 @@ function HolidaysPage() {
           </div>
         )}
 
-        {/* ── Month grid ────────────────────────────────────────────────────── */}
+        {/* ── Year-wise flat list ───────────────────────────────────────────── */}
         {isLoading ? (
           <div className="rounded-xl border border-border p-12 text-center">
             <p className="text-sm text-muted-foreground animate-pulse">Loading…</p>
@@ -563,61 +557,64 @@ function HolidaysPage() {
             <Empty>No holidays for {viewYear}.</Empty>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Object.entries(byMonth)
-              .sort(([a], [b]) => Number(a) - Number(b))
-              .map(([monthIdx, monthHolidays]) => (
-                <div key={monthIdx} className="rounded-xl border border-border overflow-hidden">
-                  <div className="bg-muted/60 px-4 py-2 flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {MONTH_NAMES[Number(monthIdx)]}
-                    </p>
-                    <span className="text-xs text-muted-foreground">
-                      {monthHolidays.length} holiday{monthHolidays.length !== 1 ? "s" : ""}
-                    </span>
-                  </div>
-                  <ul className="divide-y divide-border">
-                    {monthHolidays.map((h) => {
-                      const d    = new Date(h.holiday_date + "T00:00:00");
-                      const dow  = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
-                      const isPast   = h.holiday_date < today;
-                      const src      = (h as any).source ?? "system";
-                      const isUpload = src === "upload";
-                      const isManual = src === "manual";
-                      return (
-                        <li key={h.id} className={`flex items-center gap-3 px-4 py-2.5 group ${isPast ? "opacity-45" : ""}`}>
-                          <div className="flex size-10 shrink-0 flex-col items-center justify-center rounded-lg bg-muted">
-                            <span className="text-[10px] text-muted-foreground leading-none">{dow}</span>
-                            <span className="text-sm font-bold leading-none mt-0.5">{d.getDate()}</span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium leading-snug truncate">{h.occasion}</p>
-                            <Badge
-                              variant="secondary"
-                              className={`text-[10px] px-1.5 py-0 leading-4 mt-0.5 ${
-                                isUpload ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-300" :
-                                isManual ? "bg-info/12 text-info border-info/20" :
-                                "bg-success/12 text-success border-success/20"
-                              }`}
-                            >
-                              {isUpload ? "Uploaded" : isManual ? (h.kind ?? "Custom") : "National"}
-                            </Badge>
-                          </div>
-                          {isPrincipalOrAdmin && (
-                            <button
-                              onClick={() => remove(h.id, src)}
-                              className="shrink-0 rounded p-1.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/8 transition-all"
-                              title="Remove"
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              ))}
+          <div className="rounded-xl border border-border overflow-hidden">
+            {/* Year heading */}
+            <div className="bg-muted/60 px-5 py-3 border-b border-border flex items-center justify-between">
+              <p className="text-sm font-bold text-foreground">{viewYear} Holidays</p>
+              <span className="text-xs text-muted-foreground">{holidays.length} total</span>
+            </div>
+            <ul className="divide-y divide-border">
+              {holidays.map((h) => {
+                const d       = new Date(h.holiday_date + "T00:00:00");
+                const day     = d.getDate();
+                const month   = MONTH_NAMES[d.getMonth()];
+                const year    = d.getFullYear();
+                const dayFull = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][d.getDay()];
+                const isPast  = h.holiday_date < today;
+                const src     = (h as any).source ?? "system";
+                const isUpload = src === "upload";
+                const isManual = src === "manual";
+                return (
+                  <li key={h.id} className={`flex items-center gap-4 px-5 py-3 group transition-colors hover:bg-muted/20 ${isPast ? "opacity-50" : ""}`}>
+                    {/* Date block */}
+                    <div className="shrink-0 w-44 flex items-baseline gap-1.5">
+                      <span className="text-sm font-bold tabular-nums">
+                        {String(day).padStart(2, "0")} {month} {year}
+                      </span>
+                    </div>
+                    {/* Day name */}
+                    <div className="shrink-0 w-28">
+                      <span className="text-sm text-muted-foreground">{dayFull}</span>
+                    </div>
+                    {/* Separator */}
+                    <span className="text-muted-foreground/40 shrink-0">—</span>
+                    {/* Occasion */}
+                    <div className="flex-1 min-w-0 flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">{h.occasion}</p>
+                      <Badge
+                        variant="secondary"
+                        className={`text-[10px] px-1.5 py-0 leading-4 shrink-0 ${
+                          isUpload ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-300" :
+                          isManual ? "bg-info/12 text-info border-info/20" :
+                          "bg-success/12 text-success border-success/20"
+                        }`}
+                      >
+                        {isUpload ? "Uploaded" : isManual ? (h.kind ?? "Custom") : (h.kind ?? "National")}
+                      </Badge>
+                    </div>
+                    {isPrincipalOrAdmin && (
+                      <button
+                        onClick={() => remove(h.id, src)}
+                        className="shrink-0 rounded p-1.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive hover:bg-destructive/8 transition-all"
+                        title="Remove"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
 

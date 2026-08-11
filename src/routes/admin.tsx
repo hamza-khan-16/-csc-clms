@@ -488,6 +488,7 @@ function AddStaffCard({
     departmentId: "",
     role: "teacher" as "teacher" | "hod" | "principal",
     monthlySalary: "60000",
+    gender: "" as "female" | "male" | "other" | "",
   });
 
   const create = useMutation({
@@ -501,11 +502,12 @@ function AddStaffCard({
           departmentId: form.role === "principal" ? null : form.departmentId || null,
           role: form.role,
           monthlySalary: Number(form.monthlySalary) || 0,
+          gender: (form.gender as "female" | "male" | "other") || null,
         },
       }),
     onSuccess: () => {
       toast.success("Staff account created");
-      setForm({ ...form, email: "", password: "", fullName: "" });
+      setForm({ ...form, email: "", password: "", fullName: "", gender: "" });
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -609,6 +611,18 @@ function AddStaffCard({
           />
         </div>
         )}
+        <div className="space-y-1.5">
+          <Label>Gender</Label>
+          <Select value={form.gender} onValueChange={(v) => setForm({ ...form, gender: v as typeof form.gender })}>
+            <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="female">Female</SelectItem>
+              <SelectItem value="male">Male</SelectItem>
+              <SelectItem value="other">Other / Prefer not to say</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">Required to enable maternity leave for eligible staff.</p>
+        </div>
         <div className="flex items-end">
           <Button type="submit" disabled={create.isPending}>
             {create.isPending && <Loader2 className="size-4 animate-spin" />}
