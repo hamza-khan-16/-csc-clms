@@ -25,6 +25,7 @@ import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { NoticeBell } from "@/components/NoticeBell";
+import { LeaveBot } from "@/components/LeaveBot";
 
 type NavItem = {
   to: string;
@@ -174,6 +175,7 @@ export function AppShell({
         </header>
         <main className="flex-1 px-4 py-6 sm:px-6">{children}</main>
       </div>
+      <LeaveBot />
     </div>
   );
 }

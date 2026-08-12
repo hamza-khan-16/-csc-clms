@@ -12,7 +12,6 @@ import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL, MEDICAL_PAID
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { AlertTriangle } from "lucide-react";
-import { LeaveBot } from "@/components/LeaveBot";
 
 /** Password expiry constants */
 const PW_EXPIRY_DAYS = 90;
@@ -74,7 +73,6 @@ function DashboardPage() {
       }
     >
       {role === "principal" ? <PrincipalDashboard /> : <TeacherDashboard />}
-      <LeaveBot />
     </AppShell>
   );
 }
