@@ -21,6 +21,7 @@ import {
   type DocStatus,
 } from "@/lib/leave";
 import { useRef, useState } from "react";
+import { CheckCircle2, FileText, Upload } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -215,8 +216,8 @@ function MyLeavesPage() {
                   />
                 )}
               {isHodFinalLeave(l.leave_type as LeaveType) && l.doc_status === "verified" && (
-                <div className="mt-3 rounded-lg border border-success/30 bg-success/8 p-3 text-sm text-success">
-                  ✅ {docLabel(l.leave_type as LeaveType)} verified by principal.
+                <div className="mt-3 rounded-lg border border-success/30 bg-success/8 p-3 text-sm text-success flex items-center gap-2">
+                  <CheckCircle2 className="size-4 shrink-0" /> {docLabel(l.leave_type as LeaveType)} verified by principal.
                 </div>
               )}
 
@@ -351,8 +352,10 @@ function DocUploadSection({
     <div className="mt-3 rounded-lg border border-info/30 bg-info/8 p-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold">
-            {docStatus === "uploaded" ? `✅ ${requiredDoc} uploaded` : `📄 Upload ${requiredDoc}`}
+          <p className="text-sm font-semibold flex items-center gap-1.5">
+            {docStatus === "uploaded"
+              ? <><CheckCircle2 className="size-4 text-info shrink-0" /> {requiredDoc} uploaded</>
+              : <><Upload className="size-4 shrink-0" /> Upload {requiredDoc}</>}
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {docStatus === "uploaded"

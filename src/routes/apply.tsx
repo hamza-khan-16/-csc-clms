@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { GuardedTextarea } from "@/components/GuardedField";
+import { AlertTriangle } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -407,8 +408,8 @@ function ApplyPage() {
                 ).length;
                 if (sandwichedCount === 0) return null;
                 return (
-                  <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1">
-                    ⚠️ {sandwichedCount} Sunday/holiday{sandwichedCount > 1 ? "s are" : " is"} sandwiched inside your leave and counted as leave day{sandwichedCount > 1 ? "s" : ""}.
+                  <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1 flex items-center gap-1.5">
+                    <AlertTriangle className="size-3 shrink-0" /> {sandwichedCount} Sunday/holiday{sandwichedCount > 1 ? "s are" : " is"} sandwiched inside your leave and counted as leave day{sandwichedCount > 1 ? "s" : ""}.
                     {" "}If this leave is unpaid, pay cut applies to all {preview.total} days.
                   </p>
                 );

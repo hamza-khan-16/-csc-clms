@@ -1,6 +1,10 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, X, Star } from "lucide-react";
+import {
+  ChevronLeft, ChevronRight, X, Star,
+  Sunset, PartyPopper, PalmtreeIcon, ClipboardList,
+  Clock, CheckCircle2, CalendarDays,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -43,14 +47,14 @@ const KIND_LABEL: Record<DayKind, string> = {
   future:        "—",
 };
 
-const KIND_ICON: Record<DayKind, string> = {
-  sunday:        "🌅",
-  holiday:       "🎉",
-  leave_paid:    "🌴",
-  leave_unpaid:  "📋",
-  leave_pending: "⏳",
-  present:       "✅",
-  future:        "📅",
+const KIND_ICON: Record<DayKind, React.ReactNode> = {
+  sunday:        <Sunset       className="size-3" />,
+  holiday:       <PartyPopper  className="size-3" />,
+  leave_paid:    <PalmtreeIcon className="size-3" />,
+  leave_unpaid:  <ClipboardList className="size-3" />,
+  leave_pending: <Clock        className="size-3" />,
+  present:       <CheckCircle2 className="size-3" />,
+  future:        <CalendarDays className="size-3" />,
 };
 
 const LEGEND: { kind: DayKind; label: string }[] = [
@@ -430,8 +434,8 @@ export function MonthCalendar({
 
       {/* Swipe hint on mobile */}
       {isMobile && (
-        <p className="mt-1.5 text-[10px] text-muted-foreground/60 text-center select-none">
-          ← swipe to change month →
+        <p className="mt-1.5 text-[10px] text-muted-foreground/60 text-center select-none flex items-center justify-center gap-1">
+          <ChevronLeft className="size-3" /> swipe to change month <ChevronRight className="size-3" />
         </p>
       )}
 

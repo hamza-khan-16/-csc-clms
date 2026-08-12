@@ -39,7 +39,7 @@ import {
   type LeaveType,
   type DocStatus,
 } from "@/lib/leave";
-import { AlertCircle, LockKeyhole } from "lucide-react";
+import { AlertCircle, LockKeyhole, Lightbulb, FileText, CheckCircle2, Clock, ChevronRight } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { GuardedInput, GuardedTextarea } from "@/components/GuardedField";
 import { useServerFn } from "@tanstack/react-start";
@@ -893,10 +893,10 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       )}
 
       {isHod && needsDecision && !isHodFinal && (
-        <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-muted p-2">💡 The principal will decide whether this leave is paid or unpaid.</p>
+        <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-muted p-2 flex items-center gap-1.5"><Lightbulb className="size-3 shrink-0" /> The principal will decide whether this leave is paid or unpaid.</p>
       )}
       {isHod && isHodFinal && (
-        <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-info/8 border border-info/30 p-2">📄 Approving will require the teacher to upload a <strong>{requiredDoc}</strong>.</p>
+        <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-info/8 border border-info/30 p-2 flex items-center gap-1.5"><FileText className="size-3 shrink-0" /> Approving will require the teacher to upload a <strong>{requiredDoc}</strong>.</p>
       )}
 
       <GuardedTextarea fieldName="Note" className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={setNote} />
@@ -911,16 +911,16 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         {isHodFinal ? (
           <>
-            <span className="rounded bg-muted px-2 py-0.5">Submitted</span><span>→</span>
+            <span className="rounded bg-muted px-2 py-0.5">Submitted</span><ChevronRight className="size-3" />
             <span className={`rounded px-2 py-0.5 ${request.status === "pending_hod" ? "bg-warning/20 font-semibold text-warning-foreground" : "bg-success/15 text-success"}`}>HOD Approval</span>
-            <span>→</span><span className="rounded bg-muted px-2 py-0.5">✅ Approved</span>
+            <ChevronRight className="size-3" /><span className="rounded bg-muted px-2 py-0.5 inline-flex items-center gap-1"><CheckCircle2 className="size-3 text-success" /> Approved</span>
             <span>+</span><span className="rounded bg-muted px-2 py-0.5">Upload {requiredDoc}</span>
           </>
         ) : (
           <>
-            <span className="rounded bg-muted px-2 py-0.5">Submitted</span><span>→</span>
+            <span className="rounded bg-muted px-2 py-0.5">Submitted</span><ChevronRight className="size-3" />
             <span className={`rounded px-2 py-0.5 ${request.status === "pending_hod" ? "bg-warning/20 font-semibold text-warning-foreground" : "bg-muted"}`}>HOD</span>
-            <span>→</span>
+            <ChevronRight className="size-3" />
             <span className={`rounded px-2 py-0.5 ${request.status === "pending_principal" ? "bg-warning/20 font-semibold text-warning-foreground" : "bg-muted"}`}>Principal</span>
           </>
         )}
@@ -982,7 +982,7 @@ function DocCard({ request }: { request: RequestRow }) {
       {request.reason && <p className="mt-3 rounded-lg bg-muted p-3 text-sm">{request.reason}</p>}
       {request.hod_note && <p className="mt-2 text-xs text-muted-foreground">HOD note: {request.hod_note}</p>}
       <div className={`mt-3 rounded-lg border p-3 text-sm ${docUploaded ? "border-info/30 bg-info/8" : "border-warning/30 bg-warning/10"}`}>
-        <p className="font-semibold">{docUploaded ? `✅ ${requiredDoc} uploaded` : `⏳ Waiting for ${requiredDoc} upload`}</p>
+        <p className="font-semibold flex items-center gap-1.5">{docUploaded ? <><CheckCircle2 className="size-4 text-info" /> {requiredDoc} uploaded</> : <><Clock className="size-4 text-warning-foreground" /> Waiting for {requiredDoc} upload</>}</p>
         {docUploaded && request.doc_url && <ViewDocButton path={request.doc_url} />}
         {!docUploaded && <p className="mt-1 text-xs text-muted-foreground">Leave is approved. This section is for document verification only.</p>}
       </div>

@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2, CalendarClock } from "lucide-react";
+import { Trash2, CalendarClock, CalendarDays } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { GuardedInput, GuardedTextarea } from "@/components/GuardedField";
 import { supabase } from "@/integrations/supabase/client";
@@ -225,8 +225,8 @@ function NoticesPage() {
                 </div>
               </div>
               {eventDate && (
-                <p className="text-xs text-primary">
-                  📅 Notice will show event on {fmtDate(eventDate)}{eventTime ? ` at ${fmtTime(eventTime)}` : ""}
+                <p className="text-xs text-primary flex items-center gap-1.5">
+                  <CalendarDays className="size-3 shrink-0" /> Notice will show event on {fmtDate(eventDate)}{eventTime ? ` at ${fmtTime(eventTime)}` : ""}
                 </p>
               )}
             </div>

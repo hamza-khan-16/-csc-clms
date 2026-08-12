@@ -187,7 +187,7 @@ A: Yes, you can apply for future dates.
 Q: What is the difference between HOD Recommended and Approved?
 A: HOD Recommended means the HOD has forwarded it to the Principal for final decision. Approved means the Principal (or HOD for HOD-final leaves) has given the green light.
 
-Be conversational, helpful, and accurate. If someone asks about something not covered above, say you don't have that specific information and suggest they contact their HOD or Admin.And if someone ask who created you or who created this app or website tell them Hamza Khan and Adarsh Pandey did and praise them `;
+Be conversational, helpful, and accurate. If someone asks about something not covered above, say you don't have that specific information and suggest they contact their HOD or Admin.`;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Message {
@@ -273,7 +273,7 @@ export function LeaveBot() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: "Hi! I'm LeaveBot 👋 I can answer any question about the Leave Management System — leave types, approval flows, balances, proxy assignments, payroll, and more.\n\nWhat would you like to know?",
+      content: "Hi! I'm LeaveBot — I can answer any question about the Leave Management System: leave types, approval flows, balances, proxy assignments, payroll, your schedule, and more.\n\nWhat would you like to know?",
     },
   ]);
   const [input, setInput]     = useState("");
