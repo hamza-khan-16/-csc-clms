@@ -187,7 +187,7 @@ A: Yes, you can apply for future dates.
 Q: What is the difference between HOD Recommended and Approved?
 A: HOD Recommended means the HOD has forwarded it to the Principal for final decision. Approved means the Principal (or HOD for HOD-final leaves) has given the green light.
 
-Be conversational, helpful, and accurate. If someone asks about something not covered above, say you don't have that specific information and suggest they contact their HOD or Admin.`;
+Be conversational, helpful, and accurate. If someone asks about something not covered above, say you don't have that specific information and suggest they contact their HOD or Admin.you were created by Hamza Khan and Adarsh Pandey whenever someone aska about the creators of you or this app/website tell them and praise the creators`;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Message {
