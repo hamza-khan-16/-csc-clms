@@ -9,7 +9,7 @@ import { adminCreateStaff, adminDeleteStaff, directPasswordReset, unlockAccount 
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
-import { money, LEAVE_TYPES, fmtDate, type LeaveType } from "@/lib/leave";
+import { money, LEAVE_TYPES, leaveTypeLabel, fmtDate, type LeaveType } from "@/lib/leave";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -636,42 +636,48 @@ function AddStaffCard({
 
 // ─── Analytics & Exports ─────────────────────────────────────────────────────
 
+const perDay = (monthly: number) => monthly / 30;
+const fmtINR = (n: number) =>
+  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Math.round(n));
+
 const REPORT_MODULES = [
   {
     key: "teacher",
     label: "Teacher Report",
-    description: "Faculty attendance & subject allocation",
+    description: "All leave records per teacher",
     filter: (leaves: ReportLeave[], people: PeopleMap) =>
       leaves.map((l) => ({
-        Teacher: people[l.teacher_id]?.full_name ?? "—",
-        Department: people[l.teacher_id]?.department_name ?? "—",
-        "Leave Type": l.leave_type,
-        "From Date": l.from_date,
-        "To Date": l.to_date,
-        "Total Days": l.total_days,
-        "Paid Days": l.paid_days,
+        Teacher:        people[l.teacher_id]?.full_name ?? "—",
+        Department:     people[l.teacher_id]?.department_name ?? "—",
+        "Leave Type":   leaveTypeLabel(l.leave_type as LeaveType),
+        From:           fmtDate(l.from_date),
+        To:             fmtDate(l.to_date),
+        Session:        l.session,
+        "Total Days":   l.total_days,
+        "Paid Days":    l.paid_days,
         "Pay Cut Days": l.unpaid_days,
-        Status: l.status,
+        Status:         l.status.replace(/_/g, " "),
+        Reason:         l.reason ?? "",
       })),
   },
   {
     key: "department",
     label: "Department Report",
-    description: "Department-level metrics and leaves",
+    description: "Department-level leave summary",
     filter: (leaves: ReportLeave[], people: PeopleMap) => {
       const map: Record<string, { total: number; unpaid: number; count: number }> = {};
       for (const l of leaves) {
         const dept = people[l.teacher_id]?.department_name ?? "Unknown";
         if (!map[dept]) map[dept] = { total: 0, unpaid: 0, count: 0 };
-        map[dept].total += Number(l.total_days);
+        map[dept].total  += Number(l.total_days);
         map[dept].unpaid += Number(l.unpaid_days);
-        map[dept].count += 1;
+        map[dept].count  += 1;
       }
       return Object.entries(map).map(([dept, v]) => ({
-        Department: dept,
+        Department:       dept,
         "Leave Requests": v.count,
-        "Total Days": v.total,
-        "Pay Cut Days": v.unpaid,
+        "Total Days":     v.total,
+        "Pay Cut Days":   v.unpaid,
       }));
     },
   },
@@ -681,37 +687,38 @@ const REPORT_MODULES = [
     description: "Audit trail of all leave requests",
     filter: (leaves: ReportLeave[], people: PeopleMap) =>
       leaves.map((l) => ({
-        Teacher: people[l.teacher_id]?.full_name ?? "—",
-        "Leave Type": l.leave_type,
-        "From Date": l.from_date,
-        "To Date": l.to_date,
-        Session: l.session,
-        "Total Days": l.total_days,
-        "Paid Days": l.paid_days,
+        Teacher:        people[l.teacher_id]?.full_name ?? "—",
+        Department:     people[l.teacher_id]?.department_name ?? "—",
+        "Leave Type":   leaveTypeLabel(l.leave_type as LeaveType),
+        From:           fmtDate(l.from_date),
+        To:             fmtDate(l.to_date),
+        Session:        l.session,
+        "Total Days":   l.total_days,
+        "Paid Days":    l.paid_days,
         "Pay Cut Days": l.unpaid_days,
-        Status: l.status,
-        Reason: l.reason,
+        Status:         l.status.replace(/_/g, " "),
+        Reason:         l.reason ?? "",
       })),
   },
   {
     key: "attendance",
     label: "Attendance Report",
-    description: "Monthly attendance percentages",
+    description: "Monthly leave days per teacher",
     filter: (leaves: ReportLeave[], people: PeopleMap) => {
       const map: Record<string, Record<string, number>> = {};
       for (const l of leaves) {
-        const name = people[l.teacher_id]?.full_name ?? "—";
+        const name  = people[l.teacher_id]?.full_name ?? "—";
         const month = l.from_date.slice(0, 7);
         if (!map[name]) map[name] = {};
         map[name][month] = (map[name][month] ?? 0) + Number(l.total_days);
       }
       return Object.entries(map).flatMap(([name, months]) =>
         Object.entries(months).map(([month, days]) => ({
-          Teacher: name,
-          Month: month,
-          "Leave Days": days,
-          "Working Days (approx)": 26,
-          "Attendance %": (((26 - days) / 26) * 100).toFixed(1) + "%",
+          Teacher:             name,
+          Month:               month,
+          "Leave Days":        days,
+          "Working Days":      26,
+          "Attendance %":      (((26 - days) / 26) * 100).toFixed(1) + "%",
         })),
       );
     },
@@ -719,19 +726,31 @@ const REPORT_MODULES = [
   {
     key: "payroll",
     label: "Payroll Report",
-    description: "Salary impact based on unexcused leaves",
-    filter: (leaves: ReportLeave[], people: PeopleMap) =>
-      leaves
-        .filter((l) => Number(l.unpaid_days) > 0)
-        .map((l) => ({
-          Teacher: people[l.teacher_id]?.full_name ?? "—",
-          Department: people[l.teacher_id]?.department_name ?? "—",
-          "Leave Type": l.leave_type,
-          "From Date": l.from_date,
-          "To Date": l.to_date,
-          "Pay Cut Days": l.unpaid_days,
-          Status: l.status,
-        })),
+    description: "Salary deductions for all teaching staff",
+    filter: (leaves: ReportLeave[], people: PeopleMap) => {
+      const approved = leaves.filter((l) => ["approved", "hod_approved"].includes(l.status));
+      return Object.entries(people)
+        .filter(([, p]) => p !== undefined)
+        .map(([id, p]) => {
+          const myLeaves   = approved.filter((l) => l.teacher_id === id);
+          const totalDays  = myLeaves.reduce((s, l) => s + Number(l.total_days),  0);
+          const paidDays   = myLeaves.reduce((s, l) => s + Number(l.paid_days),   0);
+          const unpaidDays = myLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0);
+          const monthlySal = p!.monthly_salary ?? 0;
+          const deduction  = perDay(monthlySal) * unpaidDays;
+          return {
+            Teacher:              p!.full_name,
+            Department:           p!.department_name ?? "—",
+            "Monthly Salary":     fmtINR(monthlySal),
+            "Leave Days":         totalDays,
+            "Paid Leave Days":    paidDays,
+            "Unpaid Leave Days":  unpaidDays,
+            "Deduction":          fmtINR(deduction),
+            "Net Payable":        fmtINR(monthlySal - deduction),
+          };
+        })
+        .sort((a, b) => String(a.Teacher).localeCompare(String(b.Teacher)));
+    },
   },
 ] as const;
 
@@ -749,7 +768,7 @@ type ReportLeave = {
   reason: string;
 };
 
-type PeopleMap = Record<string, { full_name: string; department_name: string | null } | undefined>;
+type PeopleMap = Record<string, { full_name: string; department_name: string | null; monthly_salary?: number } | undefined>;
 
 function ExportsCard() {
   const year = new Date().getFullYear();
@@ -759,29 +778,44 @@ function ExportsCard() {
   const { data: reportData } = useQuery({
     queryKey: ["admin-report-data", year],
     queryFn: async () => {
-      const { data: leaves, error } = await supabase
-        .from("leave_requests")
-        .select("id, teacher_id, leave_type, from_date, to_date, session, total_days, paid_days, unpaid_days, status, reason")
-        .gte("from_date", `${year}-01-01`)
-        .lte("from_date", `${year}-12-31`)
-        .order("from_date");
+      const [{ data: leaves, error }, { data: profiles }, { data: roles }, { data: depts }] = await Promise.all([
+        supabase
+          .from("leave_requests")
+          .select("id, teacher_id, leave_type, from_date, to_date, session, total_days, paid_days, unpaid_days, status, reason")
+          .gte("from_date", `${year}-01-01`)
+          .lte("from_date", `${year}-12-31`)
+          .order("from_date"),
+        supabase
+          .from("profiles")
+          .select("id, full_name, department_id, monthly_salary, approved")
+          .eq("approved", true),
+        supabase.from("user_roles").select("user_id, role"),
+        supabase.from("departments").select("id, name"),
+      ]);
       if (error) throw error;
 
-      // Fetch people
-      const ids = [...new Set((leaves ?? []).map((l) => l.teacher_id))];
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, full_name, department_id, departments(name)")
-        .in("id", ids);
+      const roleMap: Record<string, string> = {};
+      for (const r of roles ?? []) roleMap[r.user_id] = r.role;
+
+      const deptMap: Record<string, string> = {};
+      for (const d of depts ?? []) deptMap[d.id] = d.name;
 
       const people: PeopleMap = {};
       for (const p of profiles ?? []) {
+        const role = roleMap[p.id];
+        if (role === "admin" || role === "principal") continue;
         people[p.id] = {
           full_name: p.full_name,
-          department_name: (p.departments as { name: string } | null)?.name ?? null,
+          department_name: p.department_id ? (deptMap[p.department_id] ?? null) : null,
+          monthly_salary: Number((p as any).monthly_salary ?? 0),
         };
       }
-      return { leaves: (leaves ?? []) as ReportLeave[], people };
+
+      const staffIds = new Set(Object.keys(people));
+      return {
+        leaves: (leaves ?? []).filter((l) => staffIds.has(l.teacher_id)) as ReportLeave[],
+        people,
+      };
     },
   });
 

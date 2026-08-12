@@ -10,6 +10,7 @@ import { Guarded } from "@/components/Guard";
 import { Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { GuardedInput } from "@/components/GuardedField";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { fmtDate } from "@/lib/leave";
@@ -638,7 +639,7 @@ function HolidaysPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs">Occasion</Label>
-                    <Input className="h-9 text-sm" placeholder="e.g. College Foundation Day" value={form.occasion} onChange={(e) => setForm({ ...form, occasion: e.target.value })} />
+                    <GuardedInput fieldName="Occasion" className="h-9 text-sm" placeholder="e.g. College Foundation Day" value={form.occasion} onChange={(v) => setForm({ ...form, occasion: v })} />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs">Type</Label>

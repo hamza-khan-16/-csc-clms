@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
+import { GuardedTextarea } from "@/components/GuardedField";
 import {
   Select,
   SelectContent,
@@ -90,7 +91,7 @@ function ApplyPage() {
   // Gate maternity leave — only female teachers can see/apply it.
   // profile.gender comes from the auth context (already fetched at login), so
   // there is no loading delay and no false "not female" flash.
-  const isFemale = profile?.gender === "Female";
+  const isFemale = profile?.gender === "female";
   const availableLeaveTypes = LEAVE_TYPES.filter((t) =>
     t.value !== "maternity" || isFemale
   );
@@ -420,17 +421,15 @@ function ApplyPage() {
             <Label htmlFor="reason">
               Reason <span className="text-xs text-muted-foreground">(optional)</span>
             </Label>
-            <Textarea
+            <GuardedTextarea
               id="reason"
+              fieldName="Reason"
               rows={4}
               maxLength={500}
               placeholder="Enter reason for leave (optional)..."
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={setReason}
             />
-            {liveTextHint(reason) && (
-              <p className="text-xs text-destructive">{liveTextHint(reason)}</p>
-            )}
           </div>
 
           <Button type="submit" className="w-full" disabled={busy || !!overlappingLeave || !!preview?.purelyNonWorking}>

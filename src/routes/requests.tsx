@@ -41,6 +41,7 @@ import {
 } from "@/lib/leave";
 import { AlertCircle, LockKeyhole } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
+import { GuardedInput, GuardedTextarea } from "@/components/GuardedField";
 import { useServerFn } from "@tanstack/react-start";
 import { unlockAccount } from "@/lib/admin.functions";
 
@@ -306,7 +307,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
         </div>
         <div className="space-y-1 sm:col-span-2">
           <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
-          <Input className="h-9 text-sm" placeholder="Reason for leave…" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <GuardedInput fieldName="Reason" className="h-9 text-sm" placeholder="Reason for leave…" value={reason} onChange={setReason} />
         </div>
       </div>
 
@@ -898,8 +899,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-info/8 border border-info/30 p-2">📄 Approving will require the teacher to upload a <strong>{requiredDoc}</strong>.</p>
       )}
 
-      <Textarea className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
-      {liveTextHint(note) && <p className="mt-1 text-xs text-destructive">{liveTextHint(note)}</p>}
+      <GuardedTextarea fieldName="Note" className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={setNote} />
 
       <div className="mt-3 flex flex-wrap gap-2">
         {isHod && isHodFinal && <Button onClick={hodDirectApprove} disabled={busy}>Approve Leave</Button>}
@@ -995,7 +995,7 @@ function DocCard({ request }: { request: RequestRow }) {
           </div>
         </div>
       )}
-      <Textarea className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+      <GuardedTextarea fieldName="Note" className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={setNote} />
       <div className="mt-3 flex flex-wrap gap-2">
         {docUploaded && <Button onClick={verifyAndApprove} disabled={busy}>Verify Document</Button>}
         <Button variant="outline" onClick={rejectDoc} disabled={busy || !docUploaded}>Reject Document</Button>

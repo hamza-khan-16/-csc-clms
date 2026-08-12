@@ -706,7 +706,37 @@ function ReportsPage() {
       if (isHod) q = q.eq("department_id", profile!.department_id ?? "");
       const { data: leaves, error } = await q;
       if (error) throw error;
-      const people = await fetchPeople((leaves ?? []).map((l) => l.teacher_id));
+
+      // For principal: always fetch ALL approved teaching staff so the people map
+      // is complete even when there are no leaves in the selected period.
+      let people: Record<string, any>;
+      if (isPrincipal) {
+        const { data: adminRoleRows } = await supabase
+          .from("user_roles").select("user_id").in("role", ["admin", "principal"]);
+        const excludedIds = new Set((adminRoleRows ?? []).map((r: any) => r.user_id));
+
+        const { data: allProfiles } = await supabase
+          .from("profiles")
+          .select("id, full_name, designation, department_id, departments(name)")
+          .eq("approved", true);
+
+        people = {};
+        for (const p of allProfiles ?? []) {
+          if (!excludedIds.has(p.id)) {
+            people[p.id] = {
+              id: p.id,
+              full_name: p.full_name,
+              designation: p.designation,
+              department_id: p.department_id,
+              department_name: (p.departments as { name: string } | null)?.name ?? null,
+            };
+          }
+        }
+      } else {
+        // HOD: fetch only people in the leaves (existing behaviour)
+        people = await fetchPeople((leaves ?? []).map((l: any) => l.teacher_id));
+      }
+
       return { leaves: leaves ?? [], people };
     },
   });

@@ -409,12 +409,15 @@ function TeacherDetailPanel({
                 <div className="space-y-1">
                   <p className="text-[10px] text-muted-foreground">Year <span className="italic">(optional)</span></p>
                   <Input
-                    type="number"
-                    min={1900}
-                    max={new Date().getFullYear()}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={4}
                     placeholder="YYYY"
                     value={dobYear}
-                    onChange={(e) => setDobYear(e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+                      setDobYear(v);
+                    }}
                     className="h-8 text-sm"
                   />
                 </div>

@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { GuardedInput } from "@/components/GuardedField";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -30,7 +31,6 @@ export const Route = createFileRoute("/")({
   }),
   component: SignInPage,
 });
-
 const SALUTATIONS = [
   "Mr.",
   "Mrs.",
@@ -68,7 +68,89 @@ const SALUTATIONS = [
   "Wg. Cdr.",
   "Sqn. Ldr.",
 ];
-const GENDERS = ["Male", "Female", "Other", "Prefer not to say"];
+const GENDERS: { value: string; label: string }[] = [
+  { value: "male",   label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "other",  label: "Other" },
+];
+
+// ── DOB helpers ───────────────────────────────────────────────────────────────
+const MONTHS = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
+const DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"));
+
+/** Parses stored "DD-MM" or "DD-MM-YYYY" back into parts */
+function parseDob(val: string): { day: string; month: string; year: string } {
+  if (!val) return { day: "", month: "", year: "" };
+  const parts = val.split("-");
+  return {
+    day:   parts[0] ?? "",
+    month: parts[1] ?? "",
+    year:  parts[2] ?? "",
+  };
+}
+
+/** Builds "DD-MM" or "DD-MM-YYYY" from parts */
+function buildDob(day: string, month: string, year: string): string {
+  if (!day || !month) return "";
+  return year ? `${day}-${month}-${year}` : `${day}-${month}`;
+}
+
+/** Day/Month picker with optional year for DOB entry */
+function DobPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const parsed = parseDob(value);
+  const [day,   setDay]   = useState(parsed.day);
+  const [month, setMonth] = useState(parsed.month);
+  const [year,  setYear]  = useState(parsed.year);
+
+  function update(d: string, m: string, y: string) {
+    setDay(d); setMonth(m); setYear(y);
+    onChange(buildDob(d, m, y));
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label>Date of Birth <span className="text-muted-foreground text-xs">(optional — year is optional)</span></Label>
+      <div className="grid grid-cols-[80px_1fr_100px] gap-2">
+        {/* Day */}
+        <Select value={day} onValueChange={(v) => update(v, month, year)}>
+          <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
+          <SelectContent>
+            {DAYS.map((d) => <SelectItem key={d} value={d}>{parseInt(d)}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        {/* Month */}
+        <Select value={month} onValueChange={(v) => update(day, v, year)}>
+          <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
+          <SelectContent>
+            {MONTHS.map((m, i) => (
+              <SelectItem key={m} value={String(i + 1).padStart(2, "0")}>{m}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {/* Year — optional free text */}
+        <Input
+          placeholder="Year (opt.)"
+          value={year}
+          maxLength={4}
+          inputMode="numeric"
+          onChange={(e) => {
+            const y = e.target.value.replace(/\D/g, "");
+            update(day, month, y);
+          }}
+        />
+      </div>
+      {day && month && (
+        <p className="text-xs text-muted-foreground">
+          Saved as: <span className="font-mono font-medium text-foreground">{buildDob(day, month, year) || "—"}</span>
+          {!year && " (no year)"}
+        </p>
+      )}
+    </div>
+  );
+}
 
 // 12-char minimum + all complexity rules
 const PW_RULES = [
@@ -334,16 +416,18 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
             ))}
           </SelectContent>
         </Select>
-        <Input
+        <GuardedInput
           required
+          fieldName="First name"
           placeholder="First name"
           value={firstName}
-          onChange={(e) => setFirstName(e.target.value)}
+          onChange={setFirstName}
         />
-        <Input
+        <GuardedInput
+          fieldName="Last name"
           placeholder="Last name"
           value={lastName}
-          onChange={(e) => setLastName(e.target.value)}
+          onChange={setLastName}
         />
       </div>
       {fullName && (
@@ -359,23 +443,14 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
           </SelectTrigger>
           <SelectContent>
             {GENDERS.map((g) => (
-              <SelectItem key={g} value={g}>{g}</SelectItem>
+              <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
 
-      {/* Date of Birth (optional) */}
-      <div className="space-y-2">
-        <Label htmlFor="dob">Date of Birth <span className="text-muted-foreground text-xs">(optional)</span></Label>
-        <Input
-          id="dob"
-          type="date"
-          value={dob}
-          onChange={(e) => setDob(e.target.value)}
-          max={new Date().toISOString().split("T")[0]}
-        />
-      </div>
+      {/* Date of Birth (optional) — day & month required, year optional */}
+      <DobPicker value={dob} onChange={setDob} />
 
       {/* Auto-generated User ID */}
       <div className="space-y-2">

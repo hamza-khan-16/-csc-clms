@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Trash2, CalendarClock } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
+import { GuardedInput, GuardedTextarea } from "@/components/GuardedField";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
@@ -175,30 +176,26 @@ function NoticesPage() {
           <form onSubmit={post} className="space-y-3">
             <div className="space-y-2">
               <Label htmlFor="notice-title">Title</Label>
-              <Input
+              <GuardedInput
                 id="notice-title"
+                fieldName="Title"
                 maxLength={120}
                 placeholder="Staff meeting on Friday"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={setTitle}
               />
-              {liveTextHint(title) && (
-                <p className="text-xs text-destructive">{liveTextHint(title)}</p>
-              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="notice-body">Details <span className="text-xs text-muted-foreground">(optional)</span></Label>
-              <Textarea
+              <GuardedTextarea
                 id="notice-body"
+                fieldName="Details"
                 rows={4}
                 maxLength={600}
                 placeholder="Add the details teachers should see..."
                 value={body}
-                onChange={(e) => setBody(e.target.value)}
+                onChange={setBody}
               />
-              {liveTextHint(body) && (
-                <p className="text-xs text-destructive">{liveTextHint(body)}</p>
-              )}
             </div>
 
             {/* Event date / time — optional */}

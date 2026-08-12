@@ -12,6 +12,7 @@ import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL, MEDICAL_PAID
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { AlertTriangle } from "lucide-react";
+import { LeaveBot } from "@/components/LeaveBot";
 
 /** Password expiry constants */
 const PW_EXPIRY_DAYS = 90;
@@ -73,6 +74,7 @@ function DashboardPage() {
       }
     >
       {role === "principal" ? <PrincipalDashboard /> : <TeacherDashboard />}
+      <LeaveBot />
     </AppShell>
   );
 }
@@ -147,21 +149,48 @@ function TeacherDashboard() {
     enabled: !!profile,
     queryFn: async () => {
       const now = new Date();
-      const first = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-      const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const first = `${year}-${String(month).padStart(2, "0")}-01`;
+      const last  = new Date(year, month, 0);
       const lastISO = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
+
       const { data, error } = await supabase
         .from("leave_requests")
-        .select("paid_days, unpaid_days")
+        .select("from_date, to_date, paid_days, unpaid_days, total_days")
         .eq("teacher_id", profile!.id)
-        .neq("status", "rejected")
-        // Overlap: leave intersects the month if it starts before month end AND ends after month start
+        // Only fully approved leaves affect payroll
+        .in("status", ["approved", "hod_approved"])
+        // Overlap: leave intersects the month
         .lte("from_date", lastISO)
         .gte("to_date", first);
       if (error) throw error;
-      const paidDays = (data ?? []).reduce((s, r) => s + Number(r.paid_days), 0);
-      const unpaidDays = (data ?? []).reduce((s, r) => s + Number(r.unpaid_days), 0);
-      return { paidDays, unpaidDays, deduction: 0, net: 0 };
+
+      // Prorate days that actually fall within this month
+      let paidDays = 0;
+      let unpaidDays = 0;
+      for (const r of data ?? []) {
+        const totalDays = Number(r.total_days);
+        if (totalDays === 0) continue;
+        // Clamp leave range to the current month
+        const clampedFrom = r.from_date < first   ? first   : r.from_date;
+        const clampedTo   = r.to_date   > lastISO ? lastISO : r.to_date;
+        // Count days in the clamped range
+        const fromD = new Date(clampedFrom + "T00:00:00");
+        const toD   = new Date(clampedTo   + "T00:00:00");
+        const daysInMonth = Math.round((toD.getTime() - fromD.getTime()) / 86400000) + 1;
+        // Prorate paid/unpaid proportionally to how many days fall in this month
+        const ratio = Math.min(daysInMonth / totalDays, 1);
+        paidDays   += Number(r.paid_days)   * ratio;
+        unpaidDays += Number(r.unpaid_days) * ratio;
+      }
+
+      return {
+        paidDays:   Math.round(paidDays * 2) / 2, // round to nearest 0.5
+        unpaidDays: Math.round(unpaidDays * 2) / 2,
+        deduction: 0,
+        net: 0,
+      };
     },
   });
 
@@ -222,28 +251,27 @@ function TeacherDashboard() {
         {balances
           .filter((b) => b.type === "casual")
           .map((b) => {
-          const remainingYear = Math.max(b.yearlyCap - b.usedYear, 0);
-          const remainingMonth =
-            b.monthlyCap !== undefined
+            const remainingYear  = Math.max(b.yearlyCap - b.usedYear, 0);
+            const remainingMonth = b.monthlyCap !== undefined
               ? Math.min(Math.max(b.monthlyCap - b.usedMonth, 0), remainingYear)
               : undefined;
-          return (
-            <StatCard
-              key={b.type}
-              label={b.label}
-              value={
-                remainingMonth !== undefined
-                  ? `${remainingMonth} / ${b.monthlyCap}`
-                  : `${remainingYear} / ${b.yearlyCap}`
-              }
-              hint={
-                remainingMonth !== undefined
-                  ? `this month · ${remainingYear} of ${b.yearlyCap} left this year`
-                  : `days left this year`
-              }
-              tone={remainingYear === 0 ? "destructive" : "default"}
-            />
-          );
+            return (
+              <StatCard
+                key={b.type}
+                label={b.label}
+                value={
+                  remainingMonth !== undefined
+                    ? `${remainingMonth} / ${b.monthlyCap}`
+                    : `${remainingYear} / ${b.yearlyCap}`
+                }
+                hint={
+                  remainingMonth !== undefined
+                    ? `this month · ${remainingYear} of ${b.yearlyCap} left this year`
+                    : `days left this year · ${b.usedYear} used`
+                }
+                tone={remainingYear === 0 ? "destructive" : "default"}
+              />
+            );
           })}
 
         {/* Medical leave paid quota card */}

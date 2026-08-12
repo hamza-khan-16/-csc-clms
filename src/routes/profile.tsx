@@ -19,7 +19,84 @@ import {
 } from "@/components/ui/select";
 import { KeyRound, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 
-const GENDERS = ["Male", "Female", "Other", "Prefer not to say"];
+const GENDERS: { value: string; label: string }[] = [
+  { value: "male",   label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "other",  label: "Other" },
+];
+
+// ── DOB helpers ───────────────────────────────────────────────────────────────
+const MONTHS = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
+const DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"));
+
+function parseDob(val: string): { day: string; month: string; year: string } {
+  if (!val) return { day: "", month: "", year: "" };
+  // Handle legacy YYYY-MM-DD (from old HTML date input)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+    const [y, m, d] = val.split("-");
+    return { day: d, month: m, year: y };
+  }
+  const parts = val.split("-");
+  return { day: parts[0] ?? "", month: parts[1] ?? "", year: parts[2] ?? "" };
+}
+
+function buildDob(day: string, month: string, year: string): string {
+  if (!day || !month) return "";
+  return year ? `${day}-${month}-${year}` : `${day}-${month}`;
+}
+
+function DobPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const parsed = parseDob(value);
+  const [day,   setDay]   = useState(parsed.day);
+  const [month, setMonth] = useState(parsed.month);
+  const [year,  setYear]  = useState(parsed.year);
+
+  function update(d: string, m: string, y: string) {
+    setDay(d); setMonth(m); setYear(y);
+    onChange(buildDob(d, m, y));
+  }
+
+  return (
+    <div className="space-y-2">
+      <Label>Date of Birth <span className="text-muted-foreground text-xs">(optional — year is optional)</span></Label>
+      <div className="grid grid-cols-[80px_1fr_100px] gap-2">
+        <Select value={day} onValueChange={(v) => update(v, month, year)}>
+          <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
+          <SelectContent>
+            {DAYS.map((d) => <SelectItem key={d} value={d}>{parseInt(d)}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={month} onValueChange={(v) => update(day, v, year)}>
+          <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
+          <SelectContent>
+            {MONTHS.map((m, i) => (
+              <SelectItem key={m} value={String(i + 1).padStart(2, "0")}>{m}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input
+          placeholder="Year (opt.)"
+          value={year}
+          maxLength={4}
+          inputMode="numeric"
+          onChange={(e) => {
+            const y = e.target.value.replace(/\D/g, "");
+            update(day, month, y);
+          }}
+        />
+      </div>
+      {day && month && (
+        <p className="text-xs text-muted-foreground">
+          Saved as: <span className="font-mono font-medium text-foreground">{buildDob(day, month, year) || "—"}</span>
+          {!year && " (no year)"}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -172,22 +249,13 @@ function ProfilePage() {
                   </SelectTrigger>
                   <SelectContent>
                     {GENDERS.map((g) => (
-                      <SelectItem key={g} value={g}>{g}</SelectItem>
+                      <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
             )}
-            <div className="space-y-2">
-              <Label htmlFor="dob">Date of Birth <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input
-                id="dob"
-                type="date"
-                value={dob}
-                onChange={(e) => setDob(e.target.value)}
-                max={new Date().toISOString().split("T")[0]}
-              />
-            </div>
+            <DobPicker value={dob} onChange={setDob} />
             {role !== "admin" && profile?.password_changed_at && (
               <div className="space-y-1">
                 <Label>Password expiry</Label>

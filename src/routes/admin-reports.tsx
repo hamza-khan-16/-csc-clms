@@ -386,10 +386,10 @@ function AdminReportsPage() {
 
   // ── Excel export ─────────────────────────────────────────────────────────────
   function exportExcel() {
-    if (rows.length === 0) return toast.error("No data to export");
     const mod      = activeModInfo;
     const subtitle = `${deptLabel} · ${monthLabel} · ${filterYear}`;
-    const headers  = Object.keys(rows[0]);
+    // Use rows if available; fallback to headers-only sheet
+    const headers  = rows.length > 0 ? Object.keys(rows[0]) : ["No data found for selected filters"];
     const body     = rows.map((r) => headers.map((h) => r[h] ?? ""));
     const wb = XLSX.utils.book_new();
     // Meta sheet
@@ -420,12 +420,11 @@ function AdminReportsPage() {
 
   // ── PDF export ── uses jsPDF autoTable for professional output ───────────────
   function exportPDF() {
-    if (rows.length === 0) return toast.error("No data to export");
     setExporting(true);
     try {
       const mod      = activeModInfo;
       const subtitle = `${deptLabel}  ·  ${monthLabel}  ·  ${filterYear}`;
-      const headers  = Object.keys(rows[0]);
+      const headers  = rows.length > 0 ? Object.keys(rows[0]) : ["No data found for selected filters"];
       const body     = rows.map((r) => headers.map((h) => String(r[h] ?? "—")));
       const isWide   = headers.length > 6;
       const doc      = new jsPDF({ orientation: isWide ? "landscape" : "portrait", unit: "mm", format: "a4" });
@@ -790,11 +789,11 @@ function AdminReportsPage() {
 
               {/* Export buttons */}
               <div className="flex flex-col sm:flex-row gap-3 mt-4 pt-4 border-t border-border">
-                <Button variant="outline" className="gap-2 flex-1" onClick={exportPDF} disabled={exporting || rows.length === 0}>
+                <Button variant="outline" className="gap-2 flex-1" onClick={exportPDF} disabled={exporting}>
                   <FileText className="size-4 text-red-600 shrink-0" />
                   {exporting ? "Preparing…" : "Download PDF"}
                 </Button>
-                <Button variant="outline" className="gap-2 flex-1" onClick={exportExcel} disabled={rows.length === 0}>
+                <Button variant="outline" className="gap-2 flex-1" onClick={exportExcel}>
                   <BarChart2 className="size-4 text-emerald-600 shrink-0" />
                   Download Excel
                 </Button>
