@@ -105,7 +105,7 @@ function DocCard({
         .upload(path, file, { upsert: true });
       if (uploadErr) throw uploadErr;
 
-      // Upsert document record
+      // Upsert document record (reset to pending on re-upload)
       const { error: dbErr } = await supabase.from("teacher_documents").upsert(
         {
           teacher_id: teacherId,
@@ -118,6 +118,13 @@ function DocCard({
         { onConflict: "teacher_id,doc_type" },
       );
       if (dbErr) throw dbErr;
+
+      // Reset teacher's hr_approved back to null (pending) so HR reviews again
+      const { error: profileErr } = await supabase
+        .from("profiles")
+        .update({ hr_approved: null, hr_rejection_reason: null })
+        .eq("id", teacherId);
+      if (profileErr) throw profileErr;
 
       toast.success(`${doc.label} uploaded successfully`);
       onUploaded();

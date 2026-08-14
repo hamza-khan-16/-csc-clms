@@ -215,14 +215,52 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
   async function approveDoc(id: string) {
     setBusy(true);
     const { error } = await supabase.from("teacher_documents").update({ status: "approved", hr_note: null }).eq("id", id);
-    if (error) toast.error(error.message); else { toast.success("Approved"); onRefresh(); }
+    if (error) { toast.error(error.message); setBusy(false); return; }
+
+    // Re-fetch docs to check if all required docs are now approved
+    const { data: updatedDocs } = await supabase
+      .from("teacher_documents")
+      .select("doc_type, status")
+      .eq("teacher_id", teacher.id);
+
+    const allRequiredApproved = REQUIRED_DOCS.every((t) =>
+      updatedDocs?.some((d) => d.doc_type === t && d.status === "approved")
+    );
+
+    if (allRequiredApproved && teacher.hr_approved !== true) {
+      // Auto-approve the teacher profile when all required docs are approved
+      const { error: profileErr } = await supabase
+        .from("profiles")
+        .update({ hr_approved: true, hr_rejection_reason: null })
+        .eq("id", teacher.id);
+      if (profileErr) toast.error("Doc approved but profile unlock failed: " + profileErr.message);
+      else toast.success("Document approved — teacher panel unlocked!");
+    } else {
+      toast.success("Document approved");
+    }
+
+    onRefresh();
     setBusy(false);
   }
   async function rejectDoc(id: string, n: string) {
     if (!n.trim()) { toast.error("Add a rejection note"); return; }
     setBusy(true);
     const { error } = await supabase.from("teacher_documents").update({ status: "rejected", hr_note: n }).eq("id", id);
-    if (error) toast.error(error.message); else { toast.success("Rejected"); onRefresh(); }
+    if (error) { toast.error(error.message); setBusy(false); return; }
+
+    // Mark teacher profile as rejected so they are locked out and notified
+    if (teacher.hr_approved !== false) {
+      const { error: profileErr } = await supabase
+        .from("profiles")
+        .update({ hr_approved: false, hr_rejection_reason: n })
+        .eq("id", teacher.id);
+      if (profileErr) toast.error("Doc rejected but profile status not updated: " + profileErr.message);
+      else toast.success("Document rejected — teacher notified");
+    } else {
+      toast.success("Document rejected");
+    }
+
+    onRefresh();
     setBusy(false);
   }
   async function approveTeacher() {
