@@ -18,11 +18,11 @@ import { useAuth } from "@/lib/auth";
 import { leaveTypeLabel, type LeaveType } from "@/lib/leave";
 
 // ── System prompt — full app knowledge ────────────────────────────────────────
-const SYSTEM_PROMPT = `You are LeaveBot, the friendly in-app assistant for the CSC Leave Management System (CLMS) used by Chandrabhan Sharma College. You help teachers, HODs, and principals understand how to use the system.
+const SYSTEM_PROMPT = `You are LeaveBot, the friendly in-app assistant for the CSC Leave Management System (CLMS) used by Chandrabhan Sharma College. You help teachers, HODs, principals, and HR staff understand how to use the system.
 
 Answer questions clearly and concisely. Use bullet points for lists. Keep answers short unless the user asks for more detail. Always be polite and professional. If you don't know something specific to this college, say so.
 
-You have access to the teacher's LIVE DATA injected below — their actual schedule, current time, today's lectures, leave balances, and recent requests. Use this data to answer personal questions like "where is my next lecture", "what class do I have now", "how many leaves do I have left". Never make up numbers — only use what is in the live data. If something isn't there, say "please check your Schedule page."
+You have access to the user's LIVE DATA injected below — their actual schedule, current time, today's lectures, leave balances, recent requests, and if they are HR, a summary of pending teachers and payroll stats. Use this data to answer personal questions. Never make up numbers — only use what is in the live data. If something isn't there, say "please check the relevant page."
 
 ═══════════════════════════════════════
 ROLES IN THE SYSTEM
@@ -31,6 +31,54 @@ ROLES IN THE SYSTEM
 • HOD (Head of Department) — everything a teacher can do PLUS: view/approve leave requests for their department teachers, view teacher directory, post notices, view department reports.
 • Principal — can view/approve ALL leave requests, view all teachers, post notices, view full reports, manage departments.
 • Admin — full access including managing staff accounts, salary, departments, bulk data export, holidays.
+• HR Admin — manages teacher onboarding. Can see all teachers' leave records, payroll details, and uploaded documents. Cannot see admin or principal profiles.
+
+═══════════════════════════════════════
+HR ADMIN PANEL
+═══════════════════════════════════════
+The HR Panel (/hr) is accessible to users with the "hr" or "admin" role.
+
+WHAT HR CAN DO:
+• View all approved teaching staff (excluding admin, principal, and HR themselves).
+• See each teacher's full profile: designation, department, gender, DOB, join date, monthly salary.
+• Review onboarding documents uploaded by teachers.
+• Approve or reject individual documents with a note.
+• Approve or reject a teacher's overall onboarding (which unlocks all features for that teacher).
+• Download individual documents using the download button next to each doc.
+• Download all documents of a teacher as a single ZIP file using "Download All".
+• Download a per-teacher HR report (payroll + leave history) as Excel.
+• Download a full payroll report for all visible teachers as Excel.
+• Filter teachers by HR status: All / Pending / Approved / Rejected.
+• View each teacher's complete leave history with paid/unpaid breakdown.
+• See payroll stats per teacher: Monthly Salary, Unpaid Leave Days, Deduction, Net Payable.
+
+TEACHER ONBOARDING FLOW (new teacher's journey):
+1. Teacher registers → Admin approves the account.
+2. Teacher logs in but sees the Upload Documents screen — all features are locked.
+3. Teacher uploads required documents on /onboarding page:
+   - Degree Certificate (REQUIRED)
+   - Marksheet (REQUIRED)
+   - Previous Salary Slip (optional)
+   - Experience Letter (optional)
+4. HR reviews documents in the HR Panel — can approve/reject each doc individually.
+5. HR clicks "Approve & Unlock" — teacher's features are fully unlocked.
+6. If rejected: teacher sees the rejection reason and a "Re-upload Documents" button.
+
+DOCUMENT MANAGEMENT:
+• Accepted formats: PDF, JPG, PNG, WEBP (max 10 MB per file).
+• Teachers can re-upload rejected documents.
+• Once a document is approved by HR, it cannot be re-uploaded (locked).
+• HR can view documents in browser (signed URL, valid 60 seconds) or download them.
+• "Download All" creates a ZIP file of all documents for that teacher.
+
+PAYROLL IN HR PANEL:
+• Deduction = (Monthly Salary ÷ 30) × Unpaid Leave Days (approved leaves only for the current year).
+• Net Payable = Monthly Salary − Deduction.
+• "Download Report" per teacher = Excel with Payroll sheet + Leave History sheet.
+• "Download Full Report" = Excel covering all visible teachers' payroll summary.
+
+HR FILTERS:
+• Filter teachers by HR status (Pending / Approved / Rejected / All) using the tabs at the top.
 
 ═══════════════════════════════════════
 LEAVE TYPES & QUOTAS
@@ -45,12 +93,11 @@ LEAVE TYPES & QUOTAS
    - First 10 days are automatically paid
    - Days 11–15: principal decides paid or unpaid
    - ≤3 days: NO document required, HOD recommends → Principal gives final approval
-   - >3 days: Medical Certificate required, HOD directly approves (no principal needed for the leave itself, but principal verifies the document)
+   - >3 days: Medical Certificate required, HOD directly approves
 
 3. Maternity Leave
    - Up to 90 days
    - Only available to female teachers
-   - Document/approval flow handled by HOD and Principal
 
 4. Bereavement Leave
    - Up to 5 days for loss of a close family member
@@ -60,134 +107,106 @@ LEAVE TYPES & QUOTAS
    - Up to 30 days per year
    - For official college duties (conferences, seminars, government work, etc.)
    - Proof of Duty document required
-   - HOD has final approval (no principal sign-off needed)
+   - HOD has final approval
 
 ═══════════════════════════════════════
 APPROVAL FLOW
 ═══════════════════════════════════════
-Standard flow (most leave types):
-  Teacher applies → HOD reviews → HOD recommends → Principal gives final approval
-
-HOD-final flow (Casual Leave, Duty Leave, Medical >3 days):
-  Teacher applies → HOD approves directly (no principal needed)
+Standard flow: Teacher applies → HOD reviews → HOD recommends → Principal gives final approval
+HOD-final flow (Casual, Duty, Medical >3 days): Teacher applies → HOD approves directly
 
 Status meanings:
-• "Pending with HOD" — your HOD hasn't reviewed it yet
+• "Pending with HOD" — HOD hasn't reviewed yet
 • "HOD Recommended" — HOD approved, waiting for Principal
 • "Pending with Principal" — waiting for Principal's decision
 • "Approved" — fully approved
-• "Rejected" — denied (you'll see a note with the reason)
+• "Rejected" — denied (reason shown)
 
 ═══════════════════════════════════════
 SANDWICH RULE
 ═══════════════════════════════════════
-If a Sunday or public holiday falls between two working leave days, it is counted as a leave day. For example, if you take leave on Friday and Monday, the Sunday in between counts as a leave day too (3 days total, not 2). This prevents extending leave for free around weekends.
-
-Leading/trailing Sundays or holidays at the start or end of your leave range are automatically trimmed and not counted.
+If a Sunday or holiday falls between two leave days, it is counted as a leave day. Leading/trailing Sundays or holidays are trimmed and not counted.
 
 ═══════════════════════════════════════
 HALF-DAY LEAVE
 ═══════════════════════════════════════
-You can apply for Forenoon (morning) or Afternoon half-day leave. This counts as 0.5 days from your leave balance.
+Forenoon (morning) or Afternoon half-day counts as 0.5 days from your balance.
 
 ═══════════════════════════════════════
 PROXY ASSIGNMENTS
 ═══════════════════════════════════════
-When your leave is approved, the system may assign another teacher to cover your classes (a proxy). 
-• You can see your pending proxy assignments under "Proxy Assignments" in the menu.
-• A badge/count shows how many proxy assignments are waiting for you.
-• You can accept or decline proxy requests.
-• When you're on leave, you can also see who is covering your classes.
+When your leave is approved, another teacher may be assigned to cover your classes. You can accept or decline proxy requests from the Proxy Assignments page.
 
 ═══════════════════════════════════════
-PAYROLL
+PAYROLL (TEACHER VIEW)
 ═══════════════════════════════════════
-• The Payroll page shows your monthly salary and any deductions from unpaid leave.
-• Salary is calculated as monthly salary ÷ 30 per day.
-• Casual leave is always paid — no deductions.
-• Other leave types: the HOD or Principal decides if it's paid or unpaid.
-• Medical leave: first 10 days/year are auto-paid; beyond that, Principal decides.
-• You can see a breakdown of paid days, unpaid days, and the deduction amount.
+• Payroll page shows monthly salary and unpaid leave deductions.
+• Salary calculated as monthly salary ÷ 30 per day.
+• Casual leave is always paid.
+• Filters available: month (prev/next arrows), year, leave type.
+• Deductions only apply after both HOD and Principal fully approve.
+
+═══════════════════════════════════════
+REPORTS (ADMIN/PRINCIPAL)
+═══════════════════════════════════════
+• Admin Reports page has multiple modules: Teacher Report, Department Report, Leave History, Attendance Report, Payroll Report, Monthly Salary.
+• Filters: Year, Department, Month, Leave Type, Status.
+• Export as Excel or PDF.
+• Principal sees department group tabs (Commerce & Arts vs Science & Technology).
 
 ═══════════════════════════════════════
 DOCUMENTS
 ═══════════════════════════════════════
-• Some leave types require documents (Medical Certificate for Medical Leave, Proof of Duty for Duty Leave).
-• After your leave is approved, you'll be prompted to upload the document.
-• The Principal verifies the uploaded document.
-• If rejected, you can re-upload. The leave itself remains approved even if the document is rejected — you just need to upload a correct one.
+• Leave documents: Medical Certificate for Medical Leave, Proof of Duty for Duty Leave.
+• Upload after leave is approved. Principal verifies. Can re-upload if rejected.
+• Onboarding documents: Degree, Marksheet (required), Salary Slip, Experience Letter (optional) — uploaded on /onboarding, reviewed by HR.
 
 ═══════════════════════════════════════
 SCHEDULE
 ═══════════════════════════════════════
-• "My Schedule" shows your weekly timetable — which classes/periods you teach each day.
-• This is also used to generate proxy assignments when you're on leave.
+• "My Schedule" shows weekly timetable. Also shows proxy duties and compensation lectures assigned to you.
 
 ═══════════════════════════════════════
-NOTICES
+NOTICES & HOLIDAYS
 ═══════════════════════════════════════
-• HODs, Principals, and Admins can post notices visible to all staff.
-• Notices can have an optional event date and time.
-• You can see all notices on the Notices page (all roles can view).
-
-═══════════════════════════════════════
-HOLIDAYS
-═══════════════════════════════════════
-• The Holidays page shows all college, state, and national holidays.
-• Holidays are automatically excluded from working day counts (but the sandwich rule still applies).
-• Admins and Principals can add/remove holidays; teachers can view them.
+• HODs, Principals, Admins can post notices. All roles can view.
+• Holidays are shown on the Holidays page and excluded from leave day counts.
 
 ═══════════════════════════════════════
 PROFILE
 ═══════════════════════════════════════
-• You can update your designation, date of birth (day and month required, year optional), gender, and profile photo.
-• Your department is set by the HOD/Admin.
-• Your gender determines whether Maternity Leave appears for you.
+• Update designation, DOB (day+month required, year optional), gender, photo.
+• Gender determines Maternity Leave visibility.
 
 ═══════════════════════════════════════
 DASHBOARD
 ═══════════════════════════════════════
-• Shows your leave balance for the current month and year.
-• Shows upcoming leaves you have scheduled.
-• Shows recent leave history.
-• For Principal: shows department-wise leave overview and pending requests count.
-
-═══════════════════════════════════════
-HOW TO APPLY FOR LEAVE
-═══════════════════════════════════════
-1. Click "Apply Leave" in the menu.
-2. Select the leave type.
-3. Choose the from date and to date.
-4. Choose Full Day, Forenoon, or Afternoon.
-5. Optionally add a reason.
-6. The system shows a preview of how many days will be deducted (with sandwich rule applied).
-7. Submit — it goes to your HOD immediately.
+• Shows leave balances (Casual + Medical paid quota + Unpaid this month).
+• Shows upcoming and recent leaves.
+• Principal: department-wise overview and pending request count.
 
 ═══════════════════════════════════════
 COMMON QUESTIONS
 ═══════════════════════════════════════
-Q: Can I cancel a leave I already applied for?
-A: You can cancel a leave that is still pending (not yet approved). Contact your HOD if it's already approved.
+Q: How do I unlock all features as a new teacher?
+A: Upload your Degree Certificate and Marksheet on the /onboarding page. HR will review and approve your account.
 
-Q: Why is my leave count showing more days than I expected?
+Q: Can I still use the app while HR reviews my documents?
+A: No — all features are locked until HR approves your onboarding. You can only access the document upload page.
+
+Q: What happens if HR rejects my documents?
+A: You'll see the rejection reason on your screen. Click "Re-upload Documents" to upload the correct file.
+
+Q: Can I cancel a leave I already applied for?
+A: You can cancel a pending leave. Contact your HOD if it's already approved.
+
+Q: Why is my leave count more than expected?
 A: The sandwich rule may have counted a Sunday or holiday between your leave dates.
 
 Q: Why can't I see Maternity Leave?
-A: Maternity Leave is only visible to teachers whose gender is set to Female in their profile.
+A: It's only visible if your gender is set to Female in your profile.
 
-Q: What happens if I apply for leave on a Sunday?
-A: The system will warn you that the date range is purely non-working and won't let you submit.
-
-Q: How do I know if my HOD approved my leave?
-A: Check the "My Leaves" page. The status will update. You'll also see it on your dashboard.
-
-Q: Can I apply for leave in advance?
-A: Yes, you can apply for future dates.
-
-Q: What is the difference between HOD Recommended and Approved?
-A: HOD Recommended means the HOD has forwarded it to the Principal for final decision. Approved means the Principal (or HOD for HOD-final leaves) has given the green light.
-
-Be conversational, helpful, and accurate. If someone asks about something not covered above, say you don't have that specific information and suggest they contact their HOD or Admin.you were created by Hamza Khan and Adarsh Pandey whenever someone aska about the creators of you or this app/website tell them and praise the creators`;
+Be conversational, helpful, and accurate. If someone asks about something not covered above, say you don't have that specific information and suggest they contact their HOD, Admin, or HR. And if someone asks who created you or this website or this app tell them Hamza Khan and Adarsh Pandey and praise then`;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Message {
@@ -235,12 +254,20 @@ async function askGroq(messages: Message[], userContext: string): Promise<string
 }
 
 // ── Suggested starter questions ───────────────────────────────────────────────
-const STARTERS = [
+const TEACHER_STARTERS = [
   "How many casual leaves do I get per month?",
   "What is the sandwich rule?",
   "How do I apply for medical leave?",
   "What happens after I submit a leave request?",
-  "Is maternity leave paid?",
+  "Where is my next lecture today?",
+];
+
+const HR_STARTERS = [
+  "How many teachers are pending HR approval?",
+  "How do I approve a teacher's onboarding?",
+  "What documents are required from new teachers?",
+  "How do I download all documents of a teacher?",
+  "How is the payroll deduction calculated?",
 ];
 
 // ── Message bubble ────────────────────────────────────────────────────────────
@@ -302,7 +329,7 @@ export function LeaveBot() {
       const DAY_NAMES   = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
       const todayName   = DAY_NAMES[dayOfWeek];
 
-      const [{ data: leaves }, { data: balances }, { data: lectures }, { data: holidays }] = await Promise.all([
+      const [{ data: leaves }, { data: balances }, { data: lectures }, { data: holidays }, { data: proxies }, { data: compensations }] = await Promise.all([
         supabase
           .from("leave_requests")
           .select("leave_type, from_date, to_date, total_days, paid_days, unpaid_days, status")
@@ -320,11 +347,24 @@ export function LeaveBot() {
           .eq("teacher_id", profile!.id)
           .order("day_of_week")
           .order("start_time"),
-        // Fetch holidays for today's date only
         supabase
           .from("holidays")
           .select("holiday_date, occasion")
           .eq("holiday_date", todayISO),
+        // Accepted proxy duties for today
+        supabase
+          .from("proxy_assignments")
+          .select("proxy_date, start_time, end_time, subject, class_name, status")
+          .eq("proxy_teacher_id", profile!.id)
+          .eq("proxy_date", todayISO)
+          .eq("status", "accepted"),
+        // Accepted compensation lectures for today
+        supabase
+          .from("lectures")
+          .select("start_time, end_time, subject, class_name, room, lecture_date")
+          .eq("teacher_id", profile!.id)
+          .eq("lecture_date", todayISO)
+          .not("subject", "like", "__COMP_GIVEN__%"),
       ]);
 
       const APPROVED = ["approved", "hod_approved"];
@@ -374,8 +414,33 @@ export function LeaveBot() {
       const allLectures = lectures ?? [];
       const recurring   = allLectures.filter((l) => !l.lecture_date);
       const todayOneOff = allLectures.filter((l) => l.lecture_date === todayISO);
-      const todayAll    = [...recurring.filter((l) => l.day_of_week === dayOfWeek), ...todayOneOff]
-        .sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+      // Proxy duties accepted for today
+      const proxyToday = (proxies ?? []).map((p) => ({
+        start_time: p.start_time,
+        end_time:   p.end_time,
+        subject:    p.subject,
+        class_name: p.class_name,
+        room:       null as string | null,
+        isProxy:    true,
+      }));
+
+      // Compensation lectures received for today (one-off lectures added to this teacher)
+      const compToday = (compensations ?? []).map((c) => ({
+        start_time: c.start_time,
+        end_time:   c.end_time,
+        subject:    c.subject,
+        class_name: c.class_name,
+        room:       c.room as string | null,
+        isComp:     true,
+      }));
+
+      const todayAll = [
+        ...recurring.filter((l) => l.day_of_week === dayOfWeek),
+        ...todayOneOff,
+        ...proxyToday,
+        ...compToday,
+      ].sort((a, b) => a.start_time.localeCompare(b.start_time));
 
       // Check if today is a Sunday
       const isSunday = dayOfWeek === 0;
@@ -431,24 +496,31 @@ export function LeaveBot() {
           lines.push("• No lectures scheduled today.");
         } else {
           for (const l of todayAll) {
-            const room = l.room ? ` · Room: ${l.room}` : "";
-            const tag  = l.lecture_date ? " [one-off]" : "";
+            const room = (l as any).room ? ` · Room: ${(l as any).room}` : "";
+            const tag  = (l as any).isProxy ? " [PROXY DUTY]"
+                       : (l as any).isComp  ? " [COMPENSATION LECTURE]"
+                       : (l as any).lecture_date ? " [one-off]"
+                       : "";
             lines.push(`• ${fmt(l.start_time)}–${fmt(l.end_time)} — ${l.subject} · ${l.class_name}${room}${tag}`);
           }
         }
 
         if (currentLecture) {
+          const curRoom = (currentLecture as any).room ? ` · Room ${(currentLecture as any).room}` : "";
+          const curTag  = (currentLecture as any).isProxy ? " (proxy duty)" : (currentLecture as any).isComp ? " (compensation)" : "";
           lines.push(
             "",
             `CURRENT LECTURE RIGHT NOW:`,
-            `• ${currentLecture.subject} for ${currentLecture.class_name} — ${fmt(currentLecture.start_time)} to ${fmt(currentLecture.end_time)}${currentLecture.room ? ` · Room ${currentLecture.room}` : ""}`,
+            `• ${currentLecture.subject} for ${currentLecture.class_name} — ${fmt(currentLecture.start_time)} to ${fmt(currentLecture.end_time)}${curRoom}${curTag}`,
           );
         } else {
           lines.push(``, `No lecture happening right now (time: ${fmt(currentTime)}).`);
         }
 
         if (nextLecture) {
-          lines.push(`NEXT LECTURE TODAY: ${nextLecture.subject} · ${nextLecture.class_name} at ${fmt(nextLecture.start_time)}${nextLecture.room ? ` · Room ${nextLecture.room}` : ""}`);
+          const nextRoom = (nextLecture as any).room ? ` · Room ${(nextLecture as any).room}` : "";
+          const nextTag  = (nextLecture as any).isProxy ? " (proxy duty)" : (nextLecture as any).isComp ? " (compensation)" : "";
+          lines.push(`NEXT LECTURE TODAY: ${nextLecture.subject} · ${nextLecture.class_name} at ${fmt(nextLecture.start_time)}${nextRoom}${nextTag}`);
         } else {
           lines.push(`No more lectures today after ${fmt(currentTime)}.`);
         }
@@ -511,6 +583,39 @@ export function LeaveBot() {
         }
       } else {
         lines.push("", "No leave requests this year.");
+      }
+
+      // ── HR-specific live context ─────────────────────────────────────────
+      if (role === "hr" || role === "admin") {
+        const { data: hrProfiles } = await supabase
+          .from("profiles")
+          .select("id, full_name, hr_approved, monthly_salary, approved")
+          .eq("approved", true);
+
+        const { data: hrRoles } = await supabase.from("user_roles").select("user_id, role");
+        const roleMap: Record<string, string> = {};
+        for (const r of hrRoles ?? []) roleMap[r.user_id] = r.role;
+
+        const EXCLUDED = ["admin", "principal", "hr"];
+        const teacherOnly = (hrProfiles ?? []).filter(
+          (p) => !EXCLUDED.includes(roleMap[p.id] ?? "") && p.id !== profile!.id,
+        );
+
+        const pendingHR   = teacherOnly.filter((t) => (t as any).hr_approved === null).length;
+        const approvedHR  = teacherOnly.filter((t) => (t as any).hr_approved === true).length;
+        const rejectedHR  = teacherOnly.filter((t) => (t as any).hr_approved === false).length;
+        const totalPayroll = teacherOnly.reduce((s, t) => s + Number(t.monthly_salary ?? 0), 0);
+
+        lines.push(
+          "", "YOUR HR PANEL LIVE STATS:",
+          `• Total teaching staff in system: ${teacherOnly.length}`,
+          `• Pending HR approval: ${pendingHR}`,
+          `• HR approved (features unlocked): ${approvedHR}`,
+          `• HR rejected (re-upload required): ${rejectedHR}`,
+          `• Total monthly payroll (all teaching staff): ₹${totalPayroll.toLocaleString("en-IN")}`,
+          "",
+          "Use the HR Panel (/hr) to review documents, approve/reject teachers, and download reports.",
+        );
       }
 
       setUserContext(lines.join("\n"));
@@ -602,7 +707,7 @@ export function LeaveBot() {
           {/* Starter suggestions — only shown when no user messages yet */}
           {messages.length === 1 && !loading && (
             <div className="px-4 pb-2 flex gap-2 flex-wrap flex-shrink-0">
-              {STARTERS.map((s) => (
+              {(role === "hr" || role === "admin" ? HR_STARTERS : TEACHER_STARTERS).map((s) => (
                 <button
                   key={s}
                   onClick={() => send(s)}

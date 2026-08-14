@@ -122,7 +122,7 @@ export const registerStaff = createServerFn({ method: "POST" })
       fullName: string;
       designation: string;
       departmentId: string | null;
-      role: "teacher" | "admin";
+      role: "teacher" | "admin" | "hod" | "hr";
       gender?: string;
       dob?: string | null;
     }) => {
@@ -152,11 +152,16 @@ export const registerStaff = createServerFn({ method: "POST" })
         return { error: "An administrator is already registered for this college" as const };
     }
 
-    const dept = data.role === "admin" ? null : data.departmentId;
-    const approved = data.role === "admin";
+    // HR and HOD don't need department assignment at register time (admin sets it)
+    const isNonTeaching = data.role === "admin" || data.role === "hr";
+    const dept    = isNonTeaching ? null : data.departmentId;
+    const approved = data.role === "admin"; // only admin auto-approves
 
-    // 2. Determine unique college ID first (before creating auth user)
-    //    so the auth email can carry the same suffix and stay unique.
+    // HR users skip the teacher onboarding doc gate — set hr_approved = true immediately
+    // HOD and Teacher leave hr_approved = null (HR reviews them if needed)
+    const hrApproved = data.role === "hr" ? true : null;
+
+    // 2. Determine unique college ID
     const firstWord = data.fullName
       .replace(/^(Dr\.|Prof\.|Mr\.|Mrs\.|Ms\.|Shri|Smt\.|Er\.|Adv\.)\s*/i, "")
       .split(" ")[0] ?? "";
@@ -183,11 +188,10 @@ export const registerStaff = createServerFn({ method: "POST" })
       collegeUserId = `${baseId}${n}@CSC.COM`;
     }
 
-    // Derive a unique auth email from the same suffix (e.g. priya2.csc@csc.edu)
     const uniqueLocalPart = collegeUserId.replace(/@CSC\.COM$/i, "").toLowerCase();
     const authEmail = `${uniqueLocalPart}.csc@csc.edu`;
 
-    // 3. Create auth user with the unique email
+    // 3. Create auth user
     const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email: authEmail,
       password: data.password,
@@ -206,6 +210,7 @@ export const registerStaff = createServerFn({ method: "POST" })
       designation: data.designation,
       department_id: dept,
       approved,
+      hr_approved: hrApproved,
       ...(data.gender ? { gender: data.gender } : {}),
       ...(data.dob ? { date_of_birth: data.dob } : {}),
       password_changed_at: new Date().toISOString(),
@@ -245,7 +250,7 @@ export const registerStaff = createServerFn({ method: "POST" })
       };
     }
 
-    return { role: "teacher" as const, collegeUserId };
+    return { role: data.role as "teacher" | "hod" | "hr", collegeUserId };
   });
 
 /**

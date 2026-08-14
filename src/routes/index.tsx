@@ -31,6 +31,7 @@ export const Route = createFileRoute("/")({
   }),
   component: SignInPage,
 });
+
 const SALUTATIONS = [
   "Mr.",
   "Mrs.",
@@ -294,10 +295,17 @@ function SignInForm() {
   );
 }
 
+const REGISTER_ROLES = [
+  { value: "teacher", label: "Teacher",   desc: "Apply for leaves, view schedule, payroll" },
+  { value: "hod",     label: "HOD",       desc: "Head of Department — approve department leaves" },
+  { value: "hr",      label: "HR Admin",  desc: "Manage teacher onboarding and documents" },
+] as const;
+
 function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
   const { refresh } = useAuth();
   const register = useServerFn(registerStaff);
 
+  const [registerRole, setRegisterRole] = useState<"teacher" | "hod" | "hr">("teacher");
   const [salutation, setSalutation] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -309,6 +317,9 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
   const [departmentId, setDepartmentId] = useState("");
   const [pending, setPending] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const isHR = registerRole === "hr";
+  const needsDept = registerRole === "teacher" || registerRole === "hod";
 
   // Live uniqueness check: preview the actual ID that will be assigned (server-side, bypasses RLS)
   const [previewUserId, setPreviewUserId] = useState("");
@@ -351,10 +362,9 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
     if (!salutation) return toast.error("Please select a salutation");
     if (!firstName.trim()) return toast.error("Please enter your first name");
     if (!gender) return toast.error("Please select a gender");
-    if (!departmentId) return toast.error("Please select a department");
+    if (needsDept && !departmentId) return toast.error("Please select a department");
     if (!pwValid) return toast.error("Password does not meet the requirements");
 
-    // The email for auth is derived from first name
     const email = `${firstName.trim().toLowerCase()}.csc@csc.edu`;
 
     setBusy(true);
@@ -365,15 +375,15 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
           password,
           fullName,
           designation,
-          departmentId,
-          role: "teacher",
+          departmentId: needsDept ? departmentId : null,
+          role: registerRole,
           gender,
           dob: dob || null,
         },
       });
       if ("error" in result && result.error) return toast.error(result.error);
       setPending(true);
-      toast.success("Registration submitted for approval");
+      toast.success("Registration submitted for admin approval");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Registration failed");
     } finally {
@@ -382,12 +392,13 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
   }
 
   if (pending) {
+    const roleLabel = REGISTER_ROLES.find((r) => r.value === registerRole)?.label ?? "Staff";
     return (
       <div className="rounded-lg border border-border p-4 space-y-4">
         <div>
-          <p className="text-sm font-semibold">Registration submitted — awaiting approval</p>
+          <p className="text-sm font-semibold">Registration submitted — awaiting admin approval</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Your department's HOD will review your account. You can sign in once it has been approved.
+            Your <strong>{roleLabel}</strong> account request has been received. The college administrator will review and approve it before you can sign in.
           </p>
           {previewUserId && (
             <p className="mt-2 text-xs text-muted-foreground">
@@ -404,7 +415,30 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      {/* Salutation + First name + Last name — no separate Name label */}
+
+      {/* Role selection */}
+      <div className="space-y-2">
+        <Label>Registering as</Label>
+        <div className="grid grid-cols-3 gap-2">
+          {REGISTER_ROLES.map((r) => (
+            <button
+              key={r.value}
+              type="button"
+              onClick={() => setRegisterRole(r.value)}
+              className={`rounded-lg border px-3 py-2.5 text-left transition-all ${
+                registerRole === r.value
+                  ? "border-primary bg-primary/8 text-primary ring-1 ring-primary"
+                  : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              }`}
+            >
+              <p className="text-xs font-semibold">{r.label}</p>
+              <p className="text-[10px] leading-tight mt-0.5 opacity-70">{r.desc}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Salutation + First name + Last name */}
       <div className="grid grid-cols-[130px_1fr_1fr] gap-2">
         <Select value={salutation} onValueChange={setSalutation}>
           <SelectTrigger>
@@ -449,7 +483,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         </Select>
       </div>
 
-      {/* Date of Birth (optional) — day & month required, year optional */}
+      {/* Date of Birth (optional) */}
       <DobPicker value={dob} onChange={setDob} />
 
       {/* Auto-generated User ID */}
@@ -490,21 +524,23 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         <PasswordStrength password={password} />
       </div>
 
-      {/* Department + Designation */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Department</Label>
-          <Select value={departmentId} onValueChange={setDepartmentId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select department" />
-            </SelectTrigger>
-            <SelectContent>
-              {departments.map((d) => (
-                <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      {/* Department + Designation — department hidden for HR */}
+      <div className={`grid gap-4 ${needsDept ? "sm:grid-cols-2" : "grid-cols-1"}`}>
+        {needsDept && (
+          <div className="space-y-2">
+            <Label>Department</Label>
+            <Select value={departmentId} onValueChange={setDepartmentId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select department" />
+              </SelectTrigger>
+              <SelectContent>
+                {departments.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="space-y-2">
           <Label htmlFor="desig">Designation</Label>
           <Select value={designation} onValueChange={setDesignation}>
@@ -524,6 +560,9 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
                 "Senior Lecturer",
                 "Lab Assistant",
                 "Teaching Assistant",
+                "HR Manager",
+                "HR Executive",
+                "HR Officer",
               ].map((d) => (
                 <SelectItem key={d} value={d}>{d}</SelectItem>
               ))}
@@ -537,7 +576,9 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
       </Button>
 
       <p className="text-xs text-muted-foreground">
-        Teacher accounts stay pending until their department's HOD approves them. HOD and principal accounts are created by the administrator.
+        All accounts require admin approval before you can sign in.
+        {registerRole === "teacher" && " After approval, upload your documents for HR verification to unlock all features."}
+        {registerRole === "hr" && " HR accounts skip the document upload step."}
       </p>
     </form>
   );

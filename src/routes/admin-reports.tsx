@@ -19,6 +19,7 @@ import { LEAVE_TYPES, leaveTypeLabel, fmtDate, type LeaveType } from "@/lib/leav
 import {
   FileText, BarChart2, ChevronDown,
   User, Building2, ClipboardList, CalendarDays, Wallet, IndianRupee,
+  BookOpen, FlaskConical,
 } from "lucide-react";
 
 export const Route = createFileRoute("/admin-reports")({
@@ -386,10 +387,10 @@ function AdminReportsPage() {
 
   // ── Excel export ─────────────────────────────────────────────────────────────
   function exportExcel() {
+    if (rows.length === 0) return toast.error("No data to export");
     const mod      = activeModInfo;
     const subtitle = `${deptLabel} · ${monthLabel} · ${filterYear}`;
-    // Use rows if available; fallback to headers-only sheet
-    const headers  = rows.length > 0 ? Object.keys(rows[0]) : ["No data found for selected filters"];
+    const headers  = Object.keys(rows[0]);
     const body     = rows.map((r) => headers.map((h) => r[h] ?? ""));
     const wb = XLSX.utils.book_new();
     // Meta sheet
@@ -420,11 +421,12 @@ function AdminReportsPage() {
 
   // ── PDF export ── uses jsPDF autoTable for professional output ───────────────
   function exportPDF() {
+    if (rows.length === 0) return toast.error("No data to export");
     setExporting(true);
     try {
       const mod      = activeModInfo;
       const subtitle = `${deptLabel}  ·  ${monthLabel}  ·  ${filterYear}`;
-      const headers  = rows.length > 0 ? Object.keys(rows[0]) : ["No data found for selected filters"];
+      const headers  = Object.keys(rows[0]);
       const body     = rows.map((r) => headers.map((h) => String(r[h] ?? "—")));
       const isWide   = headers.length > 6;
       const doc      = new jsPDF({ orientation: isWide ? "landscape" : "portrait", unit: "mm", format: "a4" });
@@ -502,9 +504,9 @@ function AdminReportsPage() {
           <div className="rounded-xl border border-border overflow-hidden">
             <div className="flex">
               {([
-                { id: "commerce_arts" as const,  label: "Commerce & Arts",     emoji: "📚" },
-                { id: "science_tech"  as const,  label: "Science & Technology", emoji: "🔬" },
-              ]).map(({ id, label, emoji }) => (
+                { id: "commerce_arts" as const, label: "Commerce & Arts",      Icon: BookOpen },
+                { id: "science_tech"  as const, label: "Science & Technology", Icon: FlaskConical },
+              ]).map(({ id, label, Icon }) => (
                 <button
                   key={id}
                   onClick={() => setPrincipalDeptTab(id)}
@@ -514,7 +516,7 @@ function AdminReportsPage() {
                       : "border-transparent bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                   }`}
                 >
-                  <span className="text-base leading-none">{emoji}</span>
+                  <Icon className="size-4 shrink-0" />
                   {label}
                 </button>
               ))}
@@ -789,11 +791,11 @@ function AdminReportsPage() {
 
               {/* Export buttons */}
               <div className="flex flex-col sm:flex-row gap-3 mt-4 pt-4 border-t border-border">
-                <Button variant="outline" className="gap-2 flex-1" onClick={exportPDF} disabled={exporting}>
+                <Button variant="outline" className="gap-2 flex-1" onClick={exportPDF} disabled={exporting || rows.length === 0}>
                   <FileText className="size-4 text-red-600 shrink-0" />
                   {exporting ? "Preparing…" : "Download PDF"}
                 </Button>
-                <Button variant="outline" className="gap-2 flex-1" onClick={exportExcel}>
+                <Button variant="outline" className="gap-2 flex-1" onClick={exportExcel} disabled={rows.length === 0}>
                   <BarChart2 className="size-4 text-emerald-600 shrink-0" />
                   Download Excel
                 </Button>

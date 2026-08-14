@@ -7,7 +7,8 @@ import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, StatusBadge, Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
-import { fmtDate, leaveTypeLabel, money, perDaySalary, type LeaveStatus, type LeaveType } from "@/lib/leave";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { fmtDate, leaveTypeLabel, money, perDaySalary, LEAVE_TYPES, type LeaveStatus, type LeaveType } from "@/lib/leave";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export const Route = createFileRoute("/payroll")({
@@ -32,28 +33,30 @@ export const Route = createFileRoute("/payroll")({
 const iso = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = Array.from({ length: 5 }, (_, i) => String(CURRENT_YEAR - i));
+
 function PayrollPage() {
   const { profile } = useAuth();
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [filterYear, setFilterYear] = useState(String(CURRENT_YEAR));
+  const [filterType, setFilterType] = useState("all");
 
-  const fromISO = iso(month);
-  const toISO = iso(new Date(month.getFullYear(), month.getMonth() + 1, 0));
+  const fromISO = iso(new Date(Number(filterYear), month.getMonth(), 1));
+  const toISO   = iso(new Date(Number(filterYear), month.getMonth() + 1, 0));
 
-  const { data: leaves = [] } = useQuery({
+  // Sync month year with filterYear
+  const effectiveMonth = new Date(Number(filterYear), month.getMonth(), 1);
+
+  const { data: allLeaves = [] } = useQuery({
     queryKey: ["payroll-leaves", profile?.id, fromISO],
     enabled: !!profile,
     queryFn: async () => {
-      // Include both fully-approved leaves (status='approved') and
-      // HOD-approved medical/duty leaves (status='hod_approved') — these are
-      // approved by HOD only; the principal later verifies the document and
-      // sets paid/unpaid. We show them in payroll immediately so the teacher
-      // can see the salary impact once the principal decides.
       const { data, error } = await supabase
         .from("leave_requests")
         .select("id, leave_type, from_date, to_date, status, total_days, paid_days, unpaid_days, payment_decision, principal_acted_at, hod_acted_at, doc_status")
         .eq("teacher_id", profile!.id)
         .in("status", ["approved", "hod_approved"])
-        // Use overlap: leave intersects the month if it starts before month end AND ends after month start
         .lte("from_date", toISO)
         .gte("to_date", fromISO)
         .order("from_date");
@@ -61,6 +64,11 @@ function PayrollPage() {
       return data ?? [];
     },
   });
+
+  const leaves = useMemo(() =>
+    filterType === "all" ? allLeaves : allLeaves.filter((l) => l.leave_type === filterType),
+    [allLeaves, filterType],
+  );
 
   const salary = Number(profile?.monthly_salary ?? 0);
   const dayRate = perDaySalary(salary);
@@ -84,6 +92,42 @@ function PayrollPage() {
   return (
     <AppShell title="Payroll" subtitle="Salary and leave deductions">
       <div className="space-y-6">
+
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Year */}
+          <Select value={filterYear} onValueChange={setFilterYear}>
+            <SelectTrigger className="w-28 h-9"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {YEARS.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}
+            </SelectContent>
+          </Select>
+
+          {/* Month nav */}
+          <div className="flex items-center gap-1 rounded-lg border border-border px-1">
+            <Button variant="ghost" size="icon" className="h-7 w-7"
+              onClick={() => setMonth(new Date(effectiveMonth.getFullYear(), effectiveMonth.getMonth() - 1, 1))}>
+              <ChevronLeft className="size-3.5" />
+            </Button>
+            <span className="text-sm font-medium w-24 text-center">
+              {effectiveMonth.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}
+            </span>
+            <Button variant="ghost" size="icon" className="h-7 w-7"
+              onClick={() => setMonth(new Date(effectiveMonth.getFullYear(), effectiveMonth.getMonth() + 1, 1))}>
+              <ChevronRight className="size-3.5" />
+            </Button>
+          </div>
+
+          {/* Leave type */}
+          <Select value={filterType} onValueChange={setFilterType}>
+            <SelectTrigger className="w-44 h-9"><SelectValue placeholder="All leave types" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All leave types</SelectItem>
+              {LEAVE_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Monthly Salary" value={money(salary)} hint={`${money(dayRate)} per day`} />
           <StatCard label="Paid Leave Days" value={totals.paid} tone="success" hint="no deduction" />
@@ -98,27 +142,7 @@ function PayrollPage() {
 
         <SectionCard
           title="Salary breakdown"
-          subtitle={month.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
-          action={
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Previous month"
-                onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Next month"
-                onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
-          }
+          subtitle={effectiveMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
         >
           <ul className="space-y-2 text-sm">
             <li className="flex justify-between">
@@ -138,7 +162,10 @@ function PayrollPage() {
           </ul>
         </SectionCard>
 
-        <SectionCard title="Leaves this month" subtitle="Deductions apply only after both HOD and Principal approval">
+        <SectionCard
+          title="Leaves this month"
+          subtitle={`${filterType === "all" ? "All types" : leaveTypeLabel(filterType as LeaveType)} · Deductions apply only after both HOD and Principal approval`}
+        >
           {leaves.length === 0 ? (
             <Empty>No leaves this month — full salary payable.</Empty>
           ) : (

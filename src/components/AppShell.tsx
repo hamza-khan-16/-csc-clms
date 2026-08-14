@@ -13,6 +13,7 @@ import {
   LogOut,
   ClipboardCheck,
   Repeat,
+  Briefcase,
   Menu,
   Wallet,
   Megaphone,
@@ -62,22 +63,36 @@ export function AppShell({
     },
   });
 
+  const { data: pendingHR = 0 } = useQuery({
+    queryKey: ["pending-hr-count"],
+    enabled: role === "hr",
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("approved", true)
+        .is("hr_approved", null);
+      return count ?? 0;
+    },
+  });
+
   const items: NavItem[] = [
-    { to: "/admin", label: "Admin Panel", icon: ShieldCheck, roles: ["admin"] },
-    { to: "/admin-reports", label: "Reports", icon: BarChart3, roles: ["admin", "principal"] },
-    { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["teacher", "hod", "principal"] },
-    { to: "/apply", label: "Apply Leave", icon: CalendarPlus, roles: ["teacher", "hod"] },
-    { to: "/leaves", label: "My Leaves", icon: FileText, roles: ["teacher", "hod"] },
-    { to: "/schedule", label: "My Schedule", icon: CalendarDays, roles: ["teacher", "hod"] },
-    { to: "/proxies", label: "Proxy Assignments", icon: Repeat, roles: ["teacher", "hod"], badge: pendingProxies },
-    { to: "/payroll", label: "Payroll", icon: Wallet, roles: ["teacher", "hod"] },
-    { to: "/requests", label: "Leave Requests", icon: ClipboardCheck, roles: ["hod", "principal", "admin"] },
-    { to: "/notices", label: "Notices", icon: Megaphone, roles: ["hod", "principal", "admin"] },
-    { to: "/teachers", label: "Teachers", icon: Users, roles: ["hod", "principal", "admin"] },
-    { to: "/departments", label: "Departments", icon: Building2, roles: ["principal", "admin"] },
-    { to: "/holidays", label: "Holidays", icon: PartyPopper, roles: ["teacher", "hod", "principal", "admin"] },
-    { to: "/reports", label: "Reports", icon: BarChart3, roles: ["hod"] },
-    { to: "/profile", label: "Profile", icon: UserRound, roles: ["teacher", "hod", "principal", "admin"] },
+    { to: "/admin",         label: "Admin Panel",       icon: ShieldCheck,    roles: ["admin"] },
+    { to: "/hr",            label: "HR Panel",          icon: Briefcase,      roles: ["hr"], badge: pendingHR },
+    { to: "/admin-reports", label: "Reports",           icon: BarChart3,      roles: ["admin", "principal"] },
+    { to: "/dashboard",     label: "Dashboard",         icon: LayoutDashboard,roles: ["teacher", "hod", "principal"] },
+    { to: "/apply",         label: "Apply Leave",       icon: CalendarPlus,   roles: ["teacher", "hod"] },
+    { to: "/leaves",        label: "My Leaves",         icon: FileText,       roles: ["teacher", "hod"] },
+    { to: "/schedule",      label: "My Schedule",       icon: CalendarDays,   roles: ["teacher", "hod"] },
+    { to: "/proxies",       label: "Proxy Assignments", icon: Repeat,         roles: ["teacher", "hod"], badge: pendingProxies },
+    { to: "/payroll",       label: "Payroll",           icon: Wallet,         roles: ["teacher", "hod"] },
+    { to: "/requests",      label: "Leave Requests",    icon: ClipboardCheck, roles: ["hod", "principal", "admin"] },
+    { to: "/notices",       label: "Notices",           icon: Megaphone,      roles: ["hod", "principal", "admin"] },
+    { to: "/teachers",      label: "Teachers",          icon: Users,          roles: ["hod", "principal", "admin"] },
+    { to: "/departments",   label: "Departments",       icon: Building2,      roles: ["principal", "admin"] },
+    { to: "/holidays",      label: "Holidays",          icon: PartyPopper,    roles: ["teacher", "hod", "principal", "admin"] },
+    { to: "/reports",       label: "Reports",           icon: BarChart3,      roles: ["hod"] },
+    { to: "/profile",       label: "Profile",           icon: UserRound,      roles: ["teacher", "hod", "principal", "admin", "hr"] },
   ];
 
   const visible = items.filter((i) => (role ? i.roles.includes(role) : false));

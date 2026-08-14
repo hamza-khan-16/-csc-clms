@@ -16,9 +16,11 @@ import { Route as ApplyRouteImport } from './routes/apply'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as DepartmentsRouteImport } from './routes/departments'
 import { Route as HolidaysRouteImport } from './routes/holidays'
+import { Route as HrRouteImport } from './routes/hr'
 import { Route as LeavesRouteImport } from './routes/leaves'
 import { Route as MarkLeaveRouteImport } from './routes/mark-leave'
 import { Route as NoticesRouteImport } from './routes/notices'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as PayrollRouteImport } from './routes/payroll'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as ProxiesRouteImport } from './routes/proxies'
@@ -63,6 +65,11 @@ const HolidaysRoute = HolidaysRouteImport.update({
   path: '/holidays',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HrRoute = HrRouteImport.update({
+  id: '/hr',
+  path: '/hr',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LeavesRoute = LeavesRouteImport.update({
   id: '/leaves',
   path: '/leaves',
@@ -76,6 +83,11 @@ const MarkLeaveRoute = MarkLeaveRouteImport.update({
 const NoticesRoute = NoticesRouteImport.update({
   id: '/notices',
   path: '/notices',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PayrollRoute = PayrollRouteImport.update({
@@ -127,9 +139,11 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/departments': typeof DepartmentsRoute
   '/holidays': typeof HolidaysRoute
+  '/hr': typeof HrRoute
   '/leaves': typeof LeavesRoute
   '/mark-leave': typeof MarkLeaveRoute
   '/notices': typeof NoticesRoute
+  '/onboarding': typeof OnboardingRoute
   '/payroll': typeof PayrollRoute
   '/profile': typeof ProfileRoute
   '/proxies': typeof ProxiesRoute
@@ -147,9 +161,11 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/departments': typeof DepartmentsRoute
   '/holidays': typeof HolidaysRoute
+  '/hr': typeof HrRoute
   '/leaves': typeof LeavesRoute
   '/mark-leave': typeof MarkLeaveRoute
   '/notices': typeof NoticesRoute
+  '/onboarding': typeof OnboardingRoute
   '/payroll': typeof PayrollRoute
   '/profile': typeof ProfileRoute
   '/proxies': typeof ProxiesRoute
@@ -168,9 +184,11 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/departments': typeof DepartmentsRoute
   '/holidays': typeof HolidaysRoute
+  '/hr': typeof HrRoute
   '/leaves': typeof LeavesRoute
   '/mark-leave': typeof MarkLeaveRoute
   '/notices': typeof NoticesRoute
+  '/onboarding': typeof OnboardingRoute
   '/payroll': typeof PayrollRoute
   '/profile': typeof ProfileRoute
   '/proxies': typeof ProxiesRoute
@@ -190,9 +208,11 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/departments'
     | '/holidays'
+    | '/hr'
     | '/leaves'
     | '/mark-leave'
     | '/notices'
+    | '/onboarding'
     | '/payroll'
     | '/profile'
     | '/proxies'
@@ -210,9 +230,11 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/departments'
     | '/holidays'
+    | '/hr'
     | '/leaves'
     | '/mark-leave'
     | '/notices'
+    | '/onboarding'
     | '/payroll'
     | '/profile'
     | '/proxies'
@@ -230,9 +252,11 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/departments'
     | '/holidays'
+    | '/hr'
     | '/leaves'
     | '/mark-leave'
     | '/notices'
+    | '/onboarding'
     | '/payroll'
     | '/profile'
     | '/proxies'
@@ -251,9 +275,11 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   DepartmentsRoute: typeof DepartmentsRoute
   HolidaysRoute: typeof HolidaysRoute
+  HrRoute: typeof HrRoute
   LeavesRoute: typeof LeavesRoute
   MarkLeaveRoute: typeof MarkLeaveRoute
   NoticesRoute: typeof NoticesRoute
+  OnboardingRoute: typeof OnboardingRoute
   PayrollRoute: typeof PayrollRoute
   ProfileRoute: typeof ProfileRoute
   ProxiesRoute: typeof ProxiesRoute
@@ -315,6 +341,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HolidaysRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/hr': {
+      id: '/hr'
+      path: '/hr'
+      fullPath: '/hr'
+      preLoaderRoute: typeof HrRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/leaves': {
       id: '/leaves'
       path: '/leaves'
@@ -334,6 +367,13 @@ declare module '@tanstack/react-router' {
       path: '/notices'
       fullPath: '/notices'
       preLoaderRoute: typeof NoticesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/payroll': {
@@ -403,9 +443,11 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   DepartmentsRoute: DepartmentsRoute,
   HolidaysRoute: HolidaysRoute,
+  HrRoute: HrRoute,
   LeavesRoute: LeavesRoute,
   MarkLeaveRoute: MarkLeaveRoute,
   NoticesRoute: NoticesRoute,
+  OnboardingRoute: OnboardingRoute,
   PayrollRoute: PayrollRoute,
   ProfileRoute: ProfileRoute,
   ProxiesRoute: ProxiesRoute,

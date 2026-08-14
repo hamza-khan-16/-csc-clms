@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
-export type AppRole = "teacher" | "hod" | "principal" | "admin";
+export type AppRole = "teacher" | "hod" | "principal" | "admin" | "hr";
 
 export interface Profile {
   id: string;
@@ -17,6 +17,8 @@ export interface Profile {
   gender: string | null;
   date_of_birth: string | null;
   account_locked: boolean;
+  hr_approved: boolean | null;
+  hr_rejection_reason: string | null;
   failed_login_attempts: number;
 }
 
@@ -43,7 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       supabase
         .from("profiles")
         .select(
-          "id, user_id, full_name, designation, department_id, monthly_salary, approved, password_changed_at, gender, date_of_birth, account_locked, failed_login_attempts, departments(name)",
+          "id, user_id, full_name, designation, department_id, monthly_salary, approved, password_changed_at, gender, date_of_birth, account_locked, failed_login_attempts, hr_approved, hr_rejection_reason, departments(name)",
         )
         .eq("id", userId)
         .maybeSingle(),
@@ -63,6 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         gender: (p as any).gender ?? null,
         date_of_birth: (p as any).date_of_birth ?? null,
         account_locked: Boolean((p as any).account_locked),
+        hr_approved: (p as any).hr_approved ?? null,
+        hr_rejection_reason: (p as any).hr_rejection_reason ?? null,
         failed_login_attempts: Number((p as any).failed_login_attempts ?? 0),
       });
 
