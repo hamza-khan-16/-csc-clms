@@ -263,7 +263,7 @@ function SignInForm() {
             id="userid"
             type="text"
             required
-            placeholder="firstname@CSC.COM or email"
+            placeholder="firstname@CSC.COM"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="pr-10"
