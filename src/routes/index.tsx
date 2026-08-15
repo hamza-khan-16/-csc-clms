@@ -3,7 +3,15 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { signInWithIdentifier, registerStaff, resolvePreviewUserId } from "@/lib/login.functions";
-import { Eye, EyeOff, Loader2, UserRound } from "lucide-react";
+import { Eye, EyeOff, Loader2, UserRound, Fingerprint } from "lucide-react";
+import {
+  isBiometricAvailable,
+  getBiometricCredId,
+  getBiometricUser,
+  registerBiometric,
+  verifyBiometric,
+  clearBiometric,
+} from "@/lib/biometric";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -237,16 +245,43 @@ function SignInForm() {
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [bioBusy, setBioBusy] = useState(false);
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioUser, setBioUser] = useState<{ identifier: string; name: string } | null>(null);
   const signIn = useServerFn(signInWithIdentifier);
+
+  // Check biometric availability on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    isBiometricAvailable().then((ok) => {
+      if (ok && getBiometricCredId()) {
+        setBioAvailable(true);
+        setBioUser(getBiometricUser());
+      }
+    });
+  }, []);
+
+  async function doSignIn(identifier: string, pwd: string) {
+    const result = await signIn({ data: { identifier: identifier.trim(), password: pwd } });
+    if ("error" in result && result.error) throw new Error(result.error);
+    const { error } = await supabase.auth.setSession(result);
+    if (error) throw error;
+    return identifier;
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      const result = await signIn({ data: { identifier: email.trim(), password } });
-      if ("error" in result && result.error) { toast.error(result.error); return; }
-      const { error } = await supabase.auth.setSession(result);
-      if (error) throw error;
+      await doSignIn(email, password);
+      // After first successful login, offer to register biometric
+      const bioOk = await isBiometricAvailable();
+      if (bioOk && !getBiometricCredId()) {
+        // get display name from email
+        const name = email.split("@")[0];
+        const registered = await registerBiometric(email.trim(), name);
+        if (registered) toast.success("Fingerprint saved — use it next time to sign in faster!");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Invalid user ID or password");
     } finally {
@@ -254,44 +289,99 @@ function SignInForm() {
     }
   }
 
+  async function handleBiometric() {
+    setBioBusy(true);
+    try {
+      const ok = await verifyBiometric();
+      if (!ok) { toast.error("Biometric verification failed. Use your password."); return; }
+      const stored = getBiometricUser();
+      if (!stored) { toast.error("No saved account. Sign in with password first."); clearBiometric(); return; }
+      // Re-authenticate with Supabase using stored session refresh
+      // We sign in anonymously via a special token flow — here we just refresh the existing session
+      const { error } = await supabase.auth.refreshSession();
+      if (error) {
+        // Session expired — clear biometric and ask for password
+        clearBiometric();
+        setBioAvailable(false);
+        toast.error("Session expired. Please sign in with your password once.");
+        return;
+      }
+      toast.success(`Welcome back, ${stored.name}!`);
+    } catch {
+      toast.error("Biometric sign-in failed. Use your password.");
+    } finally {
+      setBioBusy(false);
+    }
+  }
+
   return (
-    <form onSubmit={submit} className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="userid">User ID</Label>
-        <div className="relative">
-          <Input
-            id="userid"
-            type="text"
-            required
-            placeholder="firstname@CSC.COM or email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="pr-10"
-          />
-          <UserRound className="pointer-events-none absolute right-3 top-2.5 size-4 text-muted-foreground" />
-        </div>
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="password">Password</Label>
-        <div className="relative">
-          <Input
-            id="password"
-            type={show ? "text" : "password"}
-            required
-            placeholder="Enter your password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="pr-10"
-          />
-          <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-2.5 text-muted-foreground" aria-label="Toggle password visibility">
-            {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+    <div className="space-y-4">
+      {/* Biometric button — shown only on mobile when registered */}
+      {bioAvailable && bioUser && (
+        <div className="flex flex-col items-center gap-2 pb-2 sm:hidden">
+          <button
+            type="button"
+            onClick={handleBiometric}
+            disabled={bioBusy}
+            className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-muted/40 px-8 py-5 w-full active:scale-95 transition-transform disabled:opacity-60"
+            aria-label="Sign in with fingerprint"
+          >
+            {bioBusy ? (
+              <Loader2 className="size-10 animate-spin text-primary" />
+            ) : (
+              <Fingerprint className="size-10 text-primary" strokeWidth={1.25} />
+            )}
+            <span className="text-sm font-medium text-foreground">
+              {bioBusy ? "Verifying…" : `Sign in as ${bioUser.name}`}
+            </span>
+            <span className="text-xs text-muted-foreground">Use fingerprint or device lock</span>
           </button>
+          <div className="flex items-center gap-3 w-full">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">or use password</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
         </div>
-      </div>
-      <Button type="submit" className="w-full" disabled={busy}>
-        {busy && <Loader2 className="size-4 animate-spin" />} Sign In
-      </Button>
-    </form>
+      )}
+
+      <form onSubmit={submit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="userid">User ID</Label>
+          <div className="relative">
+            <Input
+              id="userid"
+              type="text"
+              required
+              placeholder="firstname@CSC.COM or email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="pr-10"
+            />
+            <UserRound className="pointer-events-none absolute right-3 top-2.5 size-4 text-muted-foreground" />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="password">Password</Label>
+          <div className="relative">
+            <Input
+              id="password"
+              type={show ? "text" : "password"}
+              required
+              placeholder="Enter your password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="pr-10"
+            />
+            <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-2.5 text-muted-foreground" aria-label="Toggle password visibility">
+              {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
+        </div>
+        <Button type="submit" className="w-full" disabled={busy}>
+          {busy && <Loader2 className="size-4 animate-spin" />} Sign In
+        </Button>
+      </form>
+    </div>
   );
 }
 
