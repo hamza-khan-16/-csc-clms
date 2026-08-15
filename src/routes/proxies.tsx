@@ -357,8 +357,8 @@ function ProxiesPage() {
               <p className="text-sm text-muted-foreground">Nothing here yet.</p>
             </div>
           ) : (
-            <div className="rounded-xl border border-border overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="rounded-xl border border-border overflow-hidden overflow-x-auto">
+              <table className="w-full text-sm min-w-[480px]">
                 <thead>
                   <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="px-4 py-2.5 text-left font-semibold">Date</th>
@@ -398,8 +398,8 @@ function ProxiesPage() {
               <Gift className="size-4 text-muted-foreground" />
               <h2 className="font-semibold text-sm">My compensation offers</h2>
             </div>
-            <div className="rounded-xl border border-border overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="rounded-xl border border-border overflow-hidden overflow-x-auto">
+              <table className="w-full text-sm min-w-[480px]">
                 <thead>
                   <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                     <th className="px-4 py-2.5 text-left font-semibold">To</th>

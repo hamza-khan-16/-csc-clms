@@ -334,7 +334,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
             {allProxySlots.map((s) => (
               <li key={s.key} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background p-3 text-sm">
                 {s.isManual ? (
-                  <div className="grid w-full gap-2 sm:grid-cols-5">
+                  <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-5">
                     <Input type="date" value={s.date} min={fromDate} max={toDate} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, date: e.target.value } : x))} className="h-8 text-xs" />
                     <Input type="time" value={s.start_time} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, start_time: e.target.value } : x))} className="h-8 text-xs" />
                     <Input type="time" value={s.end_time} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, end_time: e.target.value } : x))} className="h-8 text-xs" />
@@ -342,13 +342,13 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
                     <Input placeholder="Class" value={s.class_name} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, class_name: e.target.value } : x))} className="h-8 text-xs" />
                   </div>
                 ) : (
-                  <div className="min-w-40">
+                  <div className="min-w-0 flex-1">
                     <p className="font-semibold text-xs">{s.subject} · {s.class_name}</p>
                     <p className="text-xs text-muted-foreground">{fmtDate(s.date)} · {fmtTime(s.start_time)} – {fmtTime(s.end_time)}</p>
                   </div>
                 )}
                 <Select value={choices[s.key] ?? ""} onValueChange={(v) => setChoices((c) => ({ ...c, [s.key]: v }))}>
-                  <SelectTrigger className="w-52 h-8 text-xs"><SelectValue placeholder="Select proxy…" /></SelectTrigger>
+                  <SelectTrigger className="w-full sm:w-52 h-8 text-xs"><SelectValue placeholder="Select proxy…" /></SelectTrigger>
                   <SelectContent>
                     {deptPeople.map((p) => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}
                   </SelectContent>
@@ -831,7 +831,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
               return (
                 <li key={s.key} className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3 text-sm">
                   {isManual ? (
-                    <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-5">
+                    <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-5">
                       <Input type="date" value={s.date} min={request.from_date} max={request.to_date} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, date: e.target.value } : x))} />
                       <Input type="time" value={s.start_time} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, start_time: e.target.value } : x))} />
                       <Input type="time" value={s.end_time} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, end_time: e.target.value } : x))} />
@@ -839,13 +839,13 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
                       <Input placeholder="Class" value={s.class_name} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, class_name: e.target.value } : x))} />
                     </div>
                   ) : (
-                    <div className="min-w-52">
+                    <div className="min-w-0 flex-1">
                       <p className="font-semibold">{s.subject} · {s.class_name}</p>
                       <p className="text-xs text-muted-foreground">{fmtDate(s.date)} · {fmtTime(s.start_time)} – {fmtTime(s.end_time)}</p>
                     </div>
                   )}
                   <Select value={choices[s.key] ?? ""} onValueChange={(v) => setChoices((c) => ({ ...c, [s.key]: v }))}>
-                    <SelectTrigger className="w-64"><SelectValue placeholder="Select proxy teacher" /></SelectTrigger>
+                    <SelectTrigger className="w-full sm:w-64"><SelectValue placeholder="Select proxy teacher" /></SelectTrigger>
                     <SelectContent>
                       {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.full_name} {o.free ? "· Free" : "· Busy"}</SelectItem>)}
                     </SelectContent>

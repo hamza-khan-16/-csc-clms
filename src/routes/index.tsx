@@ -114,7 +114,7 @@ function DobPicker({ value, onChange }: { value: string; onChange: (v: string) =
   return (
     <div className="space-y-2">
       <Label>Date of Birth <span className="text-muted-foreground text-xs">(optional — year is optional)</span></Label>
-      <div className="grid grid-cols-[80px_1fr_100px] gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-[80px_1fr_100px]">
         {/* Day */}
         <Select value={day} onValueChange={(v) => update(v, month, year)}>
           <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
@@ -419,7 +419,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
       {/* Role selection */}
       <div className="space-y-2">
         <Label>Registering as</Label>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {REGISTER_ROLES.map((r) => (
             <button
               key={r.value}
@@ -439,7 +439,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
       </div>
 
       {/* Salutation + First name + Last name */}
-      <div className="grid grid-cols-[130px_1fr_1fr] gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[130px_1fr_1fr]">
         <Select value={salutation} onValueChange={setSalutation}>
           <SelectTrigger>
             <SelectValue placeholder="Salutation" />

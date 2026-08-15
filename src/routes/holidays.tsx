@@ -453,8 +453,8 @@ function HolidaysPage() {
                 ) : (
                   <>
                     {/* Preview table */}
-                    <div className="rounded-lg border border-border overflow-hidden max-h-64 overflow-y-auto">
-                      <table className="w-full text-xs">
+                    <div className="rounded-lg border border-border overflow-hidden max-h-64 overflow-y-auto overflow-x-auto">
+                      <table className="w-full text-xs min-w-[320px]">
                         <thead className="sticky top-0 bg-muted/80">
                           <tr>
                             <th className="px-3 py-2 text-left font-semibold text-muted-foreground">#</th>

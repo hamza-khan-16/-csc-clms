@@ -62,7 +62,7 @@ function DobPicker({ value, onChange }: { value: string; onChange: (v: string) =
   return (
     <div className="space-y-2">
       <Label>Date of Birth <span className="text-muted-foreground text-xs">(optional — year is optional)</span></Label>
-      <div className="grid grid-cols-[80px_1fr_100px] gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-[80px_1fr_100px]">
         <Select value={day} onValueChange={(v) => update(v, month, year)}>
           <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
           <SelectContent>
@@ -230,7 +230,7 @@ function ProfilePage() {
               <Label>College ID</Label>
               <Input value={profile?.user_id ?? ""} disabled />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Role</Label>
                 <Input value={role ?? ""} disabled className="capitalize" />

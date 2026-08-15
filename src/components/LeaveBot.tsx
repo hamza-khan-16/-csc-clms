@@ -665,8 +665,8 @@ export function LeaveBot() {
     <>
       {/* ── Chat window ── */}
       {open && (
-        <div className="fixed bottom-20 right-4 z-50 w-[350px] sm:w-[400px] flex flex-col shadow-2xl rounded-2xl border border-border bg-background overflow-hidden"
-          style={{ height: "520px" }}>
+        <div className="fixed bottom-20 right-2 left-2 z-50 sm:left-auto sm:right-4 sm:w-[400px] flex flex-col shadow-2xl rounded-2xl border border-border bg-background overflow-hidden"
+          style={{ height: "520px", maxHeight: "calc(100dvh - 6rem)" }}>
 
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 bg-primary text-primary-foreground flex-shrink-0">

@@ -351,7 +351,7 @@ function TeacherDetailPanel({
       <div className="p-5 space-y-5 max-h-[calc(100vh-220px)] overflow-y-auto">
 
         {/* Key stats */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
           {[
             { label: "Leaves this yr", value: teacher.taken, icon: Calendar, color: "text-warning-foreground" },
             { label: "Pay-cut days", value: teacher.unpaid, icon: TrendingUp, color: teacher.unpaid > 0 ? "text-destructive" : "text-muted-foreground" },

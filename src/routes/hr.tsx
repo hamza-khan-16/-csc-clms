@@ -489,8 +489,8 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
                 {approvedLeaves.length === 0 ? (
                   <p className="text-sm text-muted-foreground italic text-center py-4">No approved leaves found for this period.</p>
                 ) : (
-                  <div className="rounded-lg border border-border overflow-hidden">
-                    <table className="w-full text-xs">
+                  <div className="rounded-lg border border-border overflow-hidden overflow-x-auto">
+                    <table className="w-full text-xs min-w-[400px]">
                       <thead className="bg-muted/50">
                         <tr>
                           <th className="px-3 py-2 text-left font-semibold">Type</th>
@@ -555,8 +555,8 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
 
 function LeaveTable({ rows }: { rows: LeaveRow[] }) {
   return (
-    <div className="rounded-lg border border-border overflow-hidden mb-3">
-      <table className="w-full text-xs">
+    <div className="rounded-lg border border-border overflow-hidden overflow-x-auto mb-3">
+      <table className="w-full text-xs min-w-[400px]">
         <thead className="bg-muted/50">
           <tr>
             <th className="px-3 py-2 text-left font-semibold">Type</th>
