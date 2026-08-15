@@ -240,48 +240,67 @@ function SignInPage() {
   );
 }
 
+// ── Biometric-first Sign-In Form ─────────────────────────────────────────────
+//
+// States:
+//   "checking"    → detecting biometric support (brief)
+//   "bio"         → biometric registered, show fingerprint button only
+//   "password"    → no biometric yet OR session expired, show password form
+//   "registering" → password passed, now forcing biometric registration
+//   "expired"     → session gone, biometric passed but need password once more
+//
+type SignInStage = "checking" | "bio" | "password" | "registering" | "expired";
+
 function SignInForm() {
+  const [stage, setStage] = useState<SignInStage>("checking");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [bioBusy, setBioBusy] = useState(false);
-  const [bioAvailable, setBioAvailable] = useState(false);
   const [bioUser, setBioUser] = useState<{ identifier: string; name: string } | null>(null);
+  const [bioSupported, setBioSupported] = useState(false);
   const signIn = useServerFn(signInWithIdentifier);
 
-  // Check biometric availability on mount
+  // On mount: detect biometric state
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    isBiometricAvailable().then((ok) => {
-      if (ok && getBiometricCredId()) {
-        setBioAvailable(true);
-        setBioUser(getBiometricUser());
+    (async () => {
+      const supported = await isBiometricAvailable();
+      setBioSupported(supported);
+      const credId = getBiometricCredId();
+      const user = getBiometricUser();
+      if (supported && credId && user) {
+        setBioUser(user);
+        setStage("bio");
+      } else {
+        setStage("password");
       }
-    });
+    })();
   }, []);
 
-  async function doSignIn(identifier: string, pwd: string) {
-    const result = await signIn({ data: { identifier: identifier.trim(), password: pwd } });
-    if ("error" in result && result.error) throw new Error(result.error);
-    const { error } = await supabase.auth.setSession(result);
-    if (error) throw error;
-    return identifier;
-  }
-
-  async function submit(e: React.FormEvent) {
+  // ── Password submit ────────────────────────────────────────────────────────
+  async function submitPassword(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      await doSignIn(email, password);
-      // After first successful login, offer to register biometric
-      const bioOk = await isBiometricAvailable();
-      if (bioOk && !getBiometricCredId()) {
-        // get display name from email
+      const result = await signIn({ data: { identifier: email.trim(), password } });
+      if ("error" in result && result.error) { toast.error(result.error); return; }
+      const { error } = await supabase.auth.setSession(result);
+      if (error) throw error;
+
+      // Force biometric registration if device supports it
+      if (bioSupported) {
+        setStage("registering");
         const name = email.split("@")[0];
-        const registered = await registerBiometric(email.trim(), name);
-        if (registered) toast.success("Fingerprint saved — use it next time to sign in faster!");
+        const ok = await registerBiometric(email.trim(), name);
+        if (ok) {
+          setBioUser({ identifier: email.trim(), name });
+          toast.success("Fingerprint registered! You'll use it to sign in from now on.");
+        } else {
+          // User cancelled — still let them in but warn
+          toast("Fingerprint not set up. You'll need to set it up next time.");
+        }
       }
+      // Auth context will pick up the session and redirect
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Invalid user ID or password");
     } finally {
@@ -289,90 +308,188 @@ function SignInForm() {
     }
   }
 
+  // ── Biometric tap ──────────────────────────────────────────────────────────
   async function handleBiometric() {
-    setBioBusy(true);
+    setBusy(true);
     try {
       const ok = await verifyBiometric();
-      if (!ok) { toast.error("Biometric verification failed. Use your password."); return; }
-      const stored = getBiometricUser();
-      if (!stored) { toast.error("No saved account. Sign in with password first."); clearBiometric(); return; }
-      // Re-authenticate with Supabase using stored session refresh
-      // We sign in anonymously via a special token flow — here we just refresh the existing session
-      const { error } = await supabase.auth.refreshSession();
-      if (error) {
-        // Session expired — clear biometric and ask for password
-        clearBiometric();
-        setBioAvailable(false);
-        toast.error("Session expired. Please sign in with your password once.");
+      if (!ok) {
+        toast.error("Could not verify. Try again or use password.");
         return;
       }
-      toast.success(`Welcome back, ${stored.name}!`);
+      // Try to refresh existing Supabase session
+      const { error } = await supabase.auth.refreshSession();
+      if (error || !error === null) {
+        // Session truly expired — need password once more
+        clearBiometric();
+        setBioUser(null);
+        setStage("expired");
+        return;
+      }
+      // Session refreshed — auth context handles redirect
     } catch {
-      toast.error("Biometric sign-in failed. Use your password.");
+      toast.error("Biometric failed. Please try again.");
     } finally {
-      setBioBusy(false);
+      setBusy(false);
     }
   }
 
+  // ── Re-auth after session expiry ───────────────────────────────────────────
+  async function submitExpired(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const result = await signIn({ data: { identifier: email.trim(), password } });
+      if ("error" in result && result.error) { toast.error(result.error); return; }
+      const { error } = await supabase.auth.setSession(result);
+      if (error) throw error;
+      // Re-register biometric
+      if (bioSupported) {
+        const name = email.split("@")[0];
+        const ok = await registerBiometric(email.trim(), name);
+        if (ok) {
+          setBioUser({ identifier: email.trim(), name });
+          toast.success("Fingerprint re-registered successfully.");
+        }
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Invalid credentials");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ── Render: checking ───────────────────────────────────────────────────────
+  if (stage === "checking") {
+    return (
+      <div className="flex flex-col items-center gap-3 py-8">
+        <Loader2 className="size-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Checking device security…</p>
+      </div>
+    );
+  }
+
+  // ── Render: registering biometric (after password success) ─────────────────
+  if (stage === "registering") {
+    return (
+      <div className="flex flex-col items-center gap-4 py-8 text-center">
+        <div className="rounded-full bg-primary/10 p-5">
+          <Fingerprint className="size-12 text-primary" strokeWidth={1.2} />
+        </div>
+        <p className="text-base font-semibold">Set up fingerprint login</p>
+        <p className="text-sm text-muted-foreground max-w-xs">
+          Tap your fingerprint sensor or use your device lock to register biometric sign-in.
+          You'll need it every time you open the app.
+        </p>
+        {busy && <Loader2 className="size-5 animate-spin text-primary" />}
+      </div>
+    );
+  }
+
+  // ── Render: biometric screen ───────────────────────────────────────────────
+  if (stage === "bio" && bioUser) {
+    return (
+      <div className="flex flex-col items-center gap-5 py-4">
+        <button
+          type="button"
+          onClick={handleBiometric}
+          disabled={busy}
+          className="group flex flex-col items-center gap-3 rounded-3xl border-2 border-primary/20 bg-primary/5 px-10 py-8 w-full transition-all active:scale-95 hover:border-primary/40 hover:bg-primary/10 disabled:opacity-60"
+          aria-label="Sign in with fingerprint"
+        >
+          <div className="rounded-full bg-primary/10 p-4 group-hover:bg-primary/20 transition-colors">
+            {busy ? (
+              <Loader2 className="size-12 animate-spin text-primary" />
+            ) : (
+              <Fingerprint className="size-12 text-primary" strokeWidth={1.1} />
+            )}
+          </div>
+          <div>
+            <p className="text-base font-semibold text-foreground">
+              {busy ? "Verifying…" : "Touch to sign in"}
+            </p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {busy ? "Waiting for fingerprint…" : `as ${bioUser.name}`}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Fingerprint · Face ID · Device PIN
+          </p>
+        </button>
+
+        <button
+          type="button"
+          className="text-xs text-muted-foreground underline underline-offset-2"
+          onClick={() => { clearBiometric(); setStage("password"); setBioUser(null); }}
+        >
+          Sign in with a different account
+        </button>
+      </div>
+    );
+  }
+
+  // ── Render: session expired ────────────────────────────────────────────────
+  if (stage === "expired") {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-warning/30 bg-warning/8 px-4 py-3 text-sm text-warning-foreground">
+          Your session expired. Enter your password once to re-enable fingerprint sign-in.
+        </div>
+        <form onSubmit={submitExpired} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="userid-exp">User ID</Label>
+            <div className="relative">
+              <Input id="userid-exp" type="text" required placeholder="firstname@CSC.COM or email"
+                value={email} onChange={(e) => setEmail(e.target.value)} className="pr-10" />
+              <UserRound className="pointer-events-none absolute right-3 top-2.5 size-4 text-muted-foreground" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password-exp">Password</Label>
+            <div className="relative">
+              <Input id="password-exp" type={show ? "text" : "password"} required
+                placeholder="Enter your password" value={password}
+                onChange={(e) => setPassword(e.target.value)} className="pr-10" />
+              <button type="button" onClick={() => setShow(!show)}
+                className="absolute right-3 top-2.5 text-muted-foreground">
+                {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+          </div>
+          <Button type="submit" className="w-full" disabled={busy}>
+            {busy && <Loader2 className="size-4 animate-spin" />} Verify & Re-enable Fingerprint
+          </Button>
+        </form>
+      </div>
+    );
+  }
+
+  // ── Render: password form (first time / no biometric) ─────────────────────
   return (
     <div className="space-y-4">
-      {/* Biometric button — shown only on mobile when registered */}
-      {bioAvailable && bioUser && (
-        <div className="flex flex-col items-center gap-2 pb-2 sm:hidden">
-          <button
-            type="button"
-            onClick={handleBiometric}
-            disabled={bioBusy}
-            className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-muted/40 px-8 py-5 w-full active:scale-95 transition-transform disabled:opacity-60"
-            aria-label="Sign in with fingerprint"
-          >
-            {bioBusy ? (
-              <Loader2 className="size-10 animate-spin text-primary" />
-            ) : (
-              <Fingerprint className="size-10 text-primary" strokeWidth={1.25} />
-            )}
-            <span className="text-sm font-medium text-foreground">
-              {bioBusy ? "Verifying…" : `Sign in as ${bioUser.name}`}
-            </span>
-            <span className="text-xs text-muted-foreground">Use fingerprint or device lock</span>
-          </button>
-          <div className="flex items-center gap-3 w-full">
-            <div className="h-px flex-1 bg-border" />
-            <span className="text-xs text-muted-foreground">or use password</span>
-            <div className="h-px flex-1 bg-border" />
-          </div>
+      {bioSupported && (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground flex items-start gap-2">
+          <Fingerprint className="size-4 text-primary shrink-0 mt-0.5" />
+          <span>Sign in once with your password to enable fingerprint login for future sessions.</span>
         </div>
       )}
-
-      <form onSubmit={submit} className="space-y-4">
+      <form onSubmit={submitPassword} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="userid">User ID</Label>
           <div className="relative">
-            <Input
-              id="userid"
-              type="text"
-              required
-              placeholder="firstname@CSC.COM or email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="pr-10"
-            />
+            <Input id="userid" type="text" required placeholder="firstname@CSC.COM or email"
+              value={email} onChange={(e) => setEmail(e.target.value)} className="pr-10" />
             <UserRound className="pointer-events-none absolute right-3 top-2.5 size-4 text-muted-foreground" />
           </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="password">Password</Label>
           <div className="relative">
-            <Input
-              id="password"
-              type={show ? "text" : "password"}
-              required
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="pr-10"
-            />
-            <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-2.5 text-muted-foreground" aria-label="Toggle password visibility">
+            <Input id="password" type={show ? "text" : "password"} required
+              placeholder="Enter your password" value={password}
+              onChange={(e) => setPassword(e.target.value)} className="pr-10" />
+            <button type="button" onClick={() => setShow(!show)}
+              className="absolute right-3 top-2.5 text-muted-foreground">
               {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </button>
           </div>
