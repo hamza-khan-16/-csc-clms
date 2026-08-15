@@ -336,39 +336,60 @@ function TeacherDashboard() {
           {leaves.length === 0 ? (
             <Empty>No leave requests yet.</Empty>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="pb-2 font-semibold">Type</th>
-                    <th className="pb-2 font-semibold">From</th>
-                    <th className="pb-2 font-semibold">To</th>
-                    <th className="pb-2 font-semibold">Duration</th>
-                    <th className="pb-2 font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leaves.map((l) => (
-                    <tr key={l.id} className="border-t border-border">
-                      <td className="py-3 font-medium">{leaveTypeLabel(l.leave_type as LeaveType)}</td>
-                      <td className="py-3">{fmtDate(l.from_date)}</td>
-                      <td className="py-3">{fmtDate(l.to_date)}</td>
-                      <td className="py-3">
+            <>
+              {/* Mobile card list */}
+              <div className="space-y-2 sm:hidden">
+                {leaves.map((l) => (
+                  <div key={l.id} className="flex items-start justify-between gap-2 border-t border-border pt-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium">{leaveTypeLabel(l.leave_type as LeaveType)}</p>
+                      <p className="text-xs text-muted-foreground">{fmtDate(l.from_date)} – {fmtDate(l.to_date)}</p>
+                      <p className="text-xs text-muted-foreground">
                         {Number(l.total_days)} day(s)
                         {Number(l.unpaid_days) > 0 && (
-                          <span className="ml-1 text-xs font-semibold text-destructive">
-                            · {Number(l.unpaid_days)} unpaid
-                          </span>
+                          <span className="ml-1 font-semibold text-destructive">· {Number(l.unpaid_days)} unpaid</span>
                         )}
-                      </td>
-                      <td className="py-3">
-                        <StatusBadge status={l.status as LeaveStatus} />
-                      </td>
+                      </p>
+                    </div>
+                    <StatusBadge status={l.status as LeaveStatus} />
+                  </div>
+                ))}
+              </div>
+              {/* Desktop table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="pb-2 pr-4 font-semibold">Type</th>
+                      <th className="pb-2 pr-4 font-semibold whitespace-nowrap">From</th>
+                      <th className="pb-2 pr-4 font-semibold whitespace-nowrap">To</th>
+                      <th className="pb-2 pr-4 font-semibold">Duration</th>
+                      <th className="pb-2 font-semibold">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {leaves.map((l) => (
+                      <tr key={l.id} className="border-t border-border">
+                        <td className="py-3 pr-4 font-medium whitespace-nowrap">{leaveTypeLabel(l.leave_type as LeaveType)}</td>
+                        <td className="py-3 pr-4 whitespace-nowrap">{fmtDate(l.from_date)}</td>
+                        <td className="py-3 pr-4 whitespace-nowrap">{fmtDate(l.to_date)}</td>
+                        <td className="py-3 pr-4 whitespace-nowrap">
+                          {Number(l.total_days)} day(s)
+                          {Number(l.unpaid_days) > 0 && (
+                            <span className="ml-1 text-xs font-semibold text-destructive">
+                              · {Number(l.unpaid_days)} unpaid
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3">
+                          <StatusBadge status={l.status as LeaveStatus} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </SectionCard>
 
@@ -558,35 +579,44 @@ function PrincipalDashboard() {
         {queue.length === 0 ? (
           <Empty>Nothing awaiting your approval.</Empty>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="pb-2 font-semibold">Teacher</th>
-                  <th className="pb-2 font-semibold">Department</th>
-                  <th className="pb-2 font-semibold">Type</th>
-                  <th className="pb-2 font-semibold">Dates</th>
-                  <th className="pb-2 font-semibold">Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {queue.map((r) => (
-                  <tr key={r.id} className="border-t border-border">
-                    <td className="py-3 font-medium">{r.person?.full_name}</td>
-                    <td className="py-3">{r.person?.department_name}</td>
-
-                    <td className="py-3">{leaveTypeLabel(r.leave_type as LeaveType)}</td>
-                    <td className="py-3">
-                      {fmtDate(r.from_date)} – {fmtDate(r.to_date)}
-                    </td>
-                    <td className="py-3">
-                      {Number(r.total_days)} day(s) · {SESSION_LABEL[r.session as LeaveSession]}
-                    </td>
+          <>
+            {/* Mobile cards */}
+            <div className="space-y-2 sm:hidden">
+              {queue.map((r) => (
+                <div key={r.id} className="rounded-lg border border-border p-3 text-sm">
+                  <p className="font-semibold">{r.person?.full_name}</p>
+                  <p className="text-xs text-muted-foreground">{r.person?.department_name} · {leaveTypeLabel(r.leave_type as LeaveType)}</p>
+                  <p className="text-xs text-muted-foreground">{fmtDate(r.from_date)} – {fmtDate(r.to_date)} · {Number(r.total_days)} day(s)</p>
+                  <p className="text-xs text-muted-foreground">{SESSION_LABEL[r.session as LeaveSession]}</p>
+                </div>
+              ))}
+            </div>
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="pb-2 pr-4 font-semibold">Teacher</th>
+                    <th className="pb-2 pr-4 font-semibold">Department</th>
+                    <th className="pb-2 pr-4 font-semibold">Type</th>
+                    <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Dates</th>
+                    <th className="pb-2 font-semibold">Duration</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {queue.map((r) => (
+                    <tr key={r.id} className="border-t border-border">
+                      <td className="py-3 pr-4 font-medium whitespace-nowrap">{r.person?.full_name}</td>
+                      <td className="py-3 pr-4 whitespace-nowrap">{r.person?.department_name}</td>
+                      <td className="py-3 pr-4 whitespace-nowrap">{leaveTypeLabel(r.leave_type as LeaveType)}</td>
+                      <td className="py-3 pr-4 whitespace-nowrap">{fmtDate(r.from_date)} – {fmtDate(r.to_date)}</td>
+                      <td className="py-3 whitespace-nowrap">{Number(r.total_days)} day(s) · {SESSION_LABEL[r.session as LeaveSession]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </SectionCard>
     </div>

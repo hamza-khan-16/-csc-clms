@@ -576,19 +576,18 @@ function HolidaysPage() {
                 const isUpload = src === "upload";
                 const isManual = src === "manual";
                 return (
-                  <li key={h.id} className={`flex items-center gap-4 px-5 py-3 group transition-colors hover:bg-muted/20 ${isPast ? "opacity-50" : ""}`}>
+                  <li key={h.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 group transition-colors hover:bg-muted/20 sm:flex-nowrap sm:px-5 ${isPast ? "opacity-50" : ""}`}>
                     {/* Date block */}
-                    <div className="shrink-0 w-44 flex items-baseline gap-1.5">
+                    <div className="shrink-0 flex items-baseline gap-1.5 min-w-[120px] sm:w-36">
                       <span className="text-sm font-bold tabular-nums">
                         {String(day).padStart(2, "0")} {month} {year}
                       </span>
+                      <span className="text-xs text-muted-foreground sm:hidden"> · {dayFull}</span>
                     </div>
-                    {/* Day name */}
-                    <div className="shrink-0 w-28">
+                    {/* Day name - desktop only */}
+                    <div className="hidden shrink-0 w-24 sm:block">
                       <span className="text-sm text-muted-foreground">{dayFull}</span>
                     </div>
-                    {/* Separator */}
-                    <span className="text-muted-foreground/40 shrink-0">—</span>
                     {/* Occasion */}
                     <div className="flex-1 min-w-0 flex items-center gap-2">
                       <p className="text-sm font-medium truncate">{h.occasion}</p>

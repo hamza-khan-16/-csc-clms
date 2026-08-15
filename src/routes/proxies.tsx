@@ -221,17 +221,17 @@ function ProxiesPage() {
       <div className="space-y-6">
 
         {/* Summary stats strip */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {[
             { label: "Awaiting response", value: totalPending, icon: Clock3, color: "text-warning-foreground", bg: "bg-warning/10 border-warning/25" },
             { label: "Accepted this year", value: totalAccepted, icon: CheckCircle2, color: "text-success", bg: "bg-success/8 border-success/20" },
             { label: "Declined", value: totalDeclined, icon: XCircle, color: "text-muted-foreground", bg: "bg-muted/60 border-border" },
           ].map(({ label, value, icon: Icon, color, bg }) => (
-            <div key={label} className={`rounded-xl border p-4 flex items-center gap-3 ${bg}`}>
-              <Icon className={`size-5 shrink-0 ${color}`} />
+            <div key={label} className={`rounded-xl border p-3 sm:p-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3 ${bg}`}>
+              <Icon className={`size-4 shrink-0 sm:size-5 ${color}`} />
               <div>
-                <p className={`text-2xl font-bold ${color}`}>{value}</p>
-                <p className="text-xs text-muted-foreground leading-tight">{label}</p>
+                <p className={`text-xl font-bold sm:text-2xl ${color}`}>{value}</p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">{label}</p>
               </div>
             </div>
           ))}

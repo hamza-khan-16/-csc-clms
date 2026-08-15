@@ -161,19 +161,19 @@ export function AppShell({
       )}
 
       <div className="flex min-w-0 flex-1 flex-col lg:pl-64">
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border bg-background/85 px-4 py-4 backdrop-blur sm:px-6">
+        <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border bg-background/85 px-3 py-3 backdrop-blur sm:gap-3 sm:px-6 sm:py-4">
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden"
+            className="shrink-0 lg:hidden"
             onClick={() => setOpen(true)}
             aria-label="Open menu"
           >
             <Menu className="size-5" />
           </Button>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-lg font-bold tracking-tight sm:text-xl">{title}</h1>
-            {subtitle && <p className="truncate text-xs text-muted-foreground sm:text-sm">{subtitle}</p>}
+            <h1 className="truncate text-base font-bold tracking-tight sm:text-xl">{title}</h1>
+            {subtitle && <p className="truncate text-[11px] text-muted-foreground sm:text-sm">{subtitle}</p>}
           </div>
           <NoticeBell role={role} />
           <div className="hidden items-center gap-3 sm:flex">
@@ -188,7 +188,7 @@ export function AppShell({
             </div>
           </div>
         </header>
-        <main className="flex-1 px-4 py-6 sm:px-6">{children}</main>
+        <main className="flex-1 px-3 py-4 sm:px-6 sm:py-6">{children}</main>
       </div>
       <LeaveBot />
     </div>

@@ -563,32 +563,53 @@ function RequestsPage() {
 
         <SectionCard title="All requests">
           {rest.length === 0 ? <Empty>No other requests.</Empty> : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="pb-2 font-semibold">Teacher</th>
-                    <th className="pb-2 font-semibold">Type</th>
-                    <th className="pb-2 font-semibold">Dates</th>
-                    <th className="pb-2 font-semibold">Days</th>
-                    <th className="pb-2 font-semibold">Pay cut</th>
-                    <th className="pb-2 font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rest.map((r) => (
-                    <tr key={r.id} className="border-t border-border">
-                      <td className="py-3 font-medium">{r.teacher?.full_name}</td>
-                      <td className="py-3">{leaveTypeLabel(r.leave_type as LeaveType)}</td>
-                      <td className="py-3">{fmtDate(r.from_date)} – {fmtDate(r.to_date)}</td>
-                      <td className="py-3">{Number(r.total_days)}</td>
-                      <td className="py-3">{Number(r.unpaid_days)}</td>
-                      <td className="py-3"><StatusBadge status={r.status as LeaveStatus} /></td>
+            <>
+              {/* Mobile card list */}
+              <div className="space-y-3 sm:hidden">
+                {rest.map((r) => (
+                  <div key={r.id} className="rounded-lg border border-border p-3 text-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-semibold truncate">{r.teacher?.full_name}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{leaveTypeLabel(r.leave_type as LeaveType)}</p>
+                        <p className="text-xs text-muted-foreground">{fmtDate(r.from_date)} – {fmtDate(r.to_date)} · {Number(r.total_days)} day(s)</p>
+                        {Number(r.unpaid_days) > 0 && (
+                          <p className="text-xs font-semibold text-destructive">Pay cut: {Number(r.unpaid_days)} day(s)</p>
+                        )}
+                      </div>
+                      <StatusBadge status={r.status as LeaveStatus} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Desktop table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="pb-2 pr-4 font-semibold">Teacher</th>
+                      <th className="pb-2 pr-4 font-semibold">Type</th>
+                      <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Dates</th>
+                      <th className="pb-2 pr-4 font-semibold">Days</th>
+                      <th className="pb-2 pr-4 font-semibold whitespace-nowrap">Pay Cut</th>
+                      <th className="pb-2 font-semibold">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {rest.map((r) => (
+                      <tr key={r.id} className="border-t border-border">
+                        <td className="py-3 pr-4 font-medium whitespace-nowrap">{r.teacher?.full_name}</td>
+                        <td className="py-3 pr-4 whitespace-nowrap">{leaveTypeLabel(r.leave_type as LeaveType)}</td>
+                        <td className="py-3 pr-4 whitespace-nowrap">{fmtDate(r.from_date)} – {fmtDate(r.to_date)}</td>
+                        <td className="py-3 pr-4">{Number(r.total_days)}</td>
+                        <td className="py-3 pr-4">{Number(r.unpaid_days)}</td>
+                        <td className="py-3"><StatusBadge status={r.status as LeaveStatus} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </SectionCard>
       </div>
@@ -798,16 +819,16 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
 
   return (
     <div className="rounded-xl border border-border p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+        <div className="min-w-0">
           <p className="font-bold">{request.teacher?.full_name}</p>
           <p className="text-sm text-muted-foreground">{leaveTypeLabel(request.leave_type as LeaveType)} · {sessionLabel}</p>
           <p className="text-sm text-muted-foreground">{fmtDate(request.from_date)} – {fmtDate(request.to_date)} · {Number(request.total_days)} day(s)</p>
-          <p className="text-xs text-muted-foreground mt-0.5">Dates: {dates.map(fmtDate).join(", ")}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 break-words">Dates: {dates.map(fmtDate).join(", ")}</p>
         </div>
-        <div className="text-right text-sm">
+        <div className="flex flex-row items-center justify-between gap-3 sm:flex-col sm:items-end sm:text-right sm:text-sm">
           <StatusBadge status={request.status as LeaveStatus} />
-          <p className="mt-2 text-muted-foreground">Paid {Number(request.paid_days)} · <span className="font-semibold text-destructive">Pay cut {Number(request.unpaid_days)}</span></p>
+          <p className="text-xs sm:text-sm text-muted-foreground sm:mt-2">Paid {Number(request.paid_days)} · <span className="font-semibold text-destructive">Pay cut {Number(request.unpaid_days)}</span></p>
         </div>
       </div>
 
@@ -967,14 +988,14 @@ function DocCard({ request }: { request: RequestRow }) {
 
   return (
     <div className="rounded-xl border border-border p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+        <div className="min-w-0">
           <p className="font-bold">{request.teacher?.full_name}</p>
           <p className="text-sm text-muted-foreground">{leaveTypeLabel(request.leave_type as LeaveType)} · {SESSION_LABEL[request.session as LeaveSession]}</p>
           <p className="text-sm text-muted-foreground">{fmtDate(request.from_date)} – {fmtDate(request.to_date)} · {Number(request.total_days)} day(s)</p>
-          <p className="text-xs text-muted-foreground mt-0.5">Dates: {dates.map(fmtDate).join(", ")}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 break-words">Dates: {dates.map(fmtDate).join(", ")}</p>
         </div>
-        <div className="flex flex-col items-end gap-1">
+        <div className="flex flex-row items-center justify-between sm:flex-col sm:items-end gap-1">
           <Badge variant={docUploaded ? "default" : "secondary"} className={docUploaded ? "bg-info text-info-foreground" : ""}>{docUploaded ? "Document Uploaded" : "Awaiting Upload"}</Badge>
           <span className="text-xs text-muted-foreground">HOD approved</span>
         </div>
