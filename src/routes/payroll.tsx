@@ -94,23 +94,21 @@ function PayrollPage() {
       <div className="space-y-6">
 
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Year */}
+        <div className="flex flex-wrap items-center gap-2">
           <Select value={filterYear} onValueChange={setFilterYear}>
-            <SelectTrigger className="w-28 h-9"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-24 h-9 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               {YEARS.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}
             </SelectContent>
           </Select>
 
-          {/* Month nav */}
-          <div className="flex items-center gap-1 rounded-lg border border-border px-1">
+          <div className="flex items-center gap-0.5 rounded-lg border border-border px-1 h-9">
             <Button variant="ghost" size="icon" className="h-7 w-7"
               onClick={() => setMonth(new Date(effectiveMonth.getFullYear(), effectiveMonth.getMonth() - 1, 1))}>
               <ChevronLeft className="size-3.5" />
             </Button>
-            <span className="text-sm font-medium w-24 text-center">
-              {effectiveMonth.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}
+            <span className="text-sm font-medium w-20 text-center">
+              {effectiveMonth.toLocaleDateString("en-GB", { month: "short", year: "2-digit" })}
             </span>
             <Button variant="ghost" size="icon" className="h-7 w-7"
               onClick={() => setMonth(new Date(effectiveMonth.getFullYear(), effectiveMonth.getMonth() + 1, 1))}>
@@ -118,9 +116,8 @@ function PayrollPage() {
             </Button>
           </div>
 
-          {/* Leave type */}
           <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="w-44 h-9"><SelectValue placeholder="All leave types" /></SelectTrigger>
+            <SelectTrigger className="flex-1 min-w-[140px] h-9 text-sm"><SelectValue placeholder="All types" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All leave types</SelectItem>
               {LEAVE_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
@@ -128,15 +125,15 @@ function PayrollPage() {
           </Select>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Monthly Salary" value={money(salary)} hint={`${money(dayRate)} per day`} />
-          <StatCard label="Paid Leave Days" value={totals.paid} tone="success" hint="no deduction" />
-          <StatCard label="Unpaid Leave Days" value={totals.unpaid} tone="destructive" hint="salary is cut" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatCard label="Monthly Salary" value={money(salary)} hint={`${money(dayRate)}/day`} />
+          <StatCard label="Paid Days" value={totals.paid} tone="success" hint="no deduction" />
+          <StatCard label="Unpaid Days" value={totals.unpaid} tone={totals.unpaid > 0 ? "destructive" : "success"} hint="salary cut" />
           <StatCard
             label="Net Pay"
             value={money(totals.net)}
             tone={totals.deduction > 0 ? "warning" : "success"}
-            hint={totals.deduction > 0 ? `− ${money(totals.deduction)} deducted` : "full salary"}
+            hint={totals.deduction > 0 ? `−${money(totals.deduction)}` : "full salary"}
           />
         </div>
 
@@ -169,50 +166,50 @@ function PayrollPage() {
           {leaves.length === 0 ? (
             <Empty>No leaves this month — full salary payable.</Empty>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="pb-2 font-semibold">Type</th>
-                    <th className="pb-2 font-semibold">Dates</th>
-                    <th className="pb-2 font-semibold">Days</th>
-                    <th className="pb-2 font-semibold">Paid / Unpaid</th>
-                    <th className="pb-2 font-semibold">Deduction</th>
-                    <th className="pb-2 font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leaves.map((l) => (
-                    <tr key={l.id} className="border-t border-border">
-                      <td className="py-3 font-medium">{leaveTypeLabel(l.leave_type as LeaveType)}</td>
-                      <td className="py-3">
-                        {fmtDate(l.from_date)} – {fmtDate(l.to_date)}
-                      </td>
-                      <td className="py-3">{Number(l.total_days)}</td>
-                      <td className="py-3">
-                        {l.payment_decision === null && l.leave_type !== "casual" ? (
-                          <span className="text-muted-foreground">
-                            {l.leave_type === "medical" || l.leave_type === "duty"
-                              ? "Awaiting principal document verification"
-                              : "Awaiting principal approval"}
-                          </span>
-                        ) : (
-                          <>
-                            <span className="text-success">{Number(l.paid_days)} paid</span> ·{" "}
-                            <span className="text-destructive">{Number(l.unpaid_days)} unpaid</span>
-                          </>
-                        )}
-                      </td>
-                      <td className="py-3 font-semibold text-destructive">
-                        {Number(l.unpaid_days) > 0 ? `− ${money(Number(l.unpaid_days) * dayRate)}` : "—"}
-                      </td>
-                      <td className="py-3">
-                        <StatusBadge status={l.status as LeaveStatus} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-3">
+              {leaves.map((l) => {
+                const isAwaitingDecision =
+                  l.payment_decision === null && l.leave_type !== "casual";
+                const awaitingLabel =
+                  l.leave_type === "medical" || l.leave_type === "duty"
+                    ? "Awaiting document verification"
+                    : "Awaiting principal approval";
+                const deductionAmt = Number(l.unpaid_days) * dayRate;
+
+                return (
+                  <div key={l.id} className="rounded-xl border border-border bg-muted/20 px-4 py-3 space-y-2.5">
+                    {/* Row 1: leave type + status badge */}
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold text-sm">{leaveTypeLabel(l.leave_type as LeaveType)}</p>
+                      <StatusBadge status={l.status as LeaveStatus} />
+                    </div>
+
+                    {/* Row 2: dates + days */}
+                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>{fmtDate(l.from_date)} – {fmtDate(l.to_date)}</span>
+                      <span className="font-medium text-foreground">{Number(l.total_days)} day{Number(l.total_days) !== 1 ? "s" : ""}</span>
+                    </div>
+
+                    {/* Row 3: paid/unpaid + deduction */}
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      {isAwaitingDecision ? (
+                        <span className="text-muted-foreground italic">{awaitingLabel}</span>
+                      ) : (
+                        <span>
+                          <span className="text-success font-medium">{Number(l.paid_days)} paid</span>
+                          <span className="text-muted-foreground mx-1">·</span>
+                          <span className="text-destructive font-medium">{Number(l.unpaid_days)} unpaid</span>
+                        </span>
+                      )}
+                      {!isAwaitingDecision && Number(l.unpaid_days) > 0 ? (
+                        <span className="font-semibold text-destructive">− {money(deductionAmt)}</span>
+                      ) : (
+                        !isAwaitingDecision && <span className="text-muted-foreground">—</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </SectionCard>

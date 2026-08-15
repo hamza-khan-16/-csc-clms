@@ -79,13 +79,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let initialised = false;
 
-    // onAuthStateChange fires INITIAL_SESSION synchronously with the stored
-    // session, so we don't need a separate getSession() call — that would
-    // trigger a second token refresh and hit the 429 rate limit.
-    //
-    // TOKEN_REFRESHED fires every ~55 minutes when the access token auto-renews.
-    // We deliberately skip reloading the profile on that event — the user/role
-    // data hasn't changed, and re-fetching would hammer the DB and auth endpoints.
     const profileLoadEvents = new Set([
       'INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED', 'PASSWORD_RECOVERY',
     ]);
@@ -98,11 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         initialised = true;
       } else if (profileLoadEvents.has(event)) {
-        // Keep loading=true until profile is fully fetched so Guard never
-        // flashes the "no profile" message between session arriving and profile loading.
         setLoading(true);
-        // Use setTimeout(0) so Supabase internal state settles before we
-        // make additional DB queries with the new token.
         setTimeout(() => {
           loadProfile(next.user.id).finally(() => {
             setLoading(false);
@@ -110,7 +99,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
         }, 0);
       } else {
-        // TOKEN_REFRESHED or other events — just update loading state
         if (!initialised) {
           setLoading(false);
           initialised = true;
@@ -118,8 +106,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    // Safety fallback: if onAuthStateChange never fires (e.g. no session),
-    // stop the loading spinner after a short delay.
     const fallback = setTimeout(() => {
       if (!initialised) setLoading(false);
     }, 2000);
@@ -129,6 +115,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTimeout(fallback);
     };
   }, []);
+
+  // ── Realtime: re-fetch profile when HR changes hr_approved / approved ──────
+  // This makes the teacher's UI update automatically (no page refresh needed)
+  // when an HR admin approves or rejects their onboarding in the HR panel.
+  useEffect(() => {
+    if (!session?.user.id) return;
+    const userId = session.user.id;
+
+    const channel = supabase
+      .channel(`profile-changes-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `id=eq.${userId}`,
+        },
+        () => {
+          // Profile row was updated — re-fetch to get latest hr_approved, approved, etc.
+          loadProfile(userId);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session?.user.id]);
 
   const value: AuthState = {
     session,

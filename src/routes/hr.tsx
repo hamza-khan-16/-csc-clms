@@ -210,71 +210,95 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
   const deduction       = (teacher.monthly_salary / 30) * totalUnpaid;
   const net             = teacher.monthly_salary - deduction;
 
-  const hasRequired = REQUIRED_DOCS.every((t) => teacher.docs.some((d) => d.doc_type === t));
+  // Required docs must be APPROVED (not just uploaded) to unlock
+  const hasRequired = REQUIRED_DOCS.every((t) =>
+    teacher.docs.some((d) => d.doc_type === t && d.status === "approved"),
+  );
 
   async function approveDoc(id: string) {
     setBusy(true);
-    const { error } = await supabase.from("teacher_documents").update({ status: "approved", hr_note: null }).eq("id", id);
+    const { error } = await supabase
+      .from("teacher_documents")
+      .update({ status: "approved", hr_note: null })
+      .eq("id", id);
     if (error) { toast.error(error.message); setBusy(false); return; }
 
-    // Re-fetch docs to check if all required docs are now approved
-    const { data: updatedDocs } = await supabase
+    // Check if all required docs are now approved after this one
+    // Re-fetch docs for this teacher to get fresh state
+    const { data: freshDocs } = await supabase
       .from("teacher_documents")
       .select("doc_type, status")
       .eq("teacher_id", teacher.id);
 
     const allRequiredApproved = REQUIRED_DOCS.every((t) =>
-      updatedDocs?.some((d) => d.doc_type === t && d.status === "approved")
+      (freshDocs ?? []).some((d) => d.doc_type === t && d.status === "approved"),
     );
 
-    if (allRequiredApproved && teacher.hr_approved !== true) {
-      // Auto-approve the teacher profile when all required docs are approved
+    if (allRequiredApproved) {
+      // Auto-unlock teacher when all required docs are approved
       const { error: profileErr } = await supabase
         .from("profiles")
         .update({ hr_approved: true, hr_rejection_reason: null })
         .eq("id", teacher.id);
-      if (profileErr) toast.error("Doc approved but profile unlock failed: " + profileErr.message);
-      else toast.success("Document approved — teacher panel unlocked!");
+      if (profileErr) toast.error(profileErr.message);
+      else toast.success("Document approved — all required docs verified, teacher unlocked!");
     } else {
       toast.success("Document approved");
     }
-
     onRefresh();
     setBusy(false);
   }
+
   async function rejectDoc(id: string, n: string) {
     if (!n.trim()) { toast.error("Add a rejection note"); return; }
     setBusy(true);
-    const { error } = await supabase.from("teacher_documents").update({ status: "rejected", hr_note: n }).eq("id", id);
+    const { error } = await supabase
+      .from("teacher_documents")
+      .update({ status: "rejected", hr_note: n })
+      .eq("id", id);
     if (error) { toast.error(error.message); setBusy(false); return; }
 
-    // Mark teacher profile as rejected so they are locked out and notified
-    if (teacher.hr_approved !== false) {
-      const { error: profileErr } = await supabase
+    // If hr was previously approved, revoke it since a doc is now rejected
+    if (teacher.hr_approved === true) {
+      await supabase
         .from("profiles")
-        .update({ hr_approved: false, hr_rejection_reason: n })
+        .update({ hr_approved: false, hr_rejection_reason: `Document rejected: ${n}` })
         .eq("id", teacher.id);
-      if (profileErr) toast.error("Doc rejected but profile status not updated: " + profileErr.message);
-      else toast.success("Document rejected — teacher notified");
+      toast.success("Document rejected — teacher access revoked until re-upload");
     } else {
       toast.success("Document rejected");
     }
-
     onRefresh();
     setBusy(false);
   }
   async function approveTeacher() {
-    if (!hasRequired) { toast.error("Required docs not uploaded yet"); return; }
+    if (!hasRequired) { toast.error("All required documents must be approved first"); return; }
     setBusy(true);
-    const { error } = await supabase.from("profiles").update({ hr_approved: true, hr_rejection_reason: null }).eq("id", teacher.id);
-    if (error) toast.error(error.message); else { toast.success(`${teacher.full_name} unlocked`); onRefresh(); }
+    const { error } = await supabase
+      .from("profiles")
+      .update({ hr_approved: true, hr_rejection_reason: null })
+      .eq("id", teacher.id);
+    if (error) toast.error(error.message);
+    else { toast.success(`${teacher.full_name} approved — all features unlocked`); onRefresh(); }
     setBusy(false);
   }
+
   async function rejectTeacher() {
-    if (!note.trim()) { toast.error("Add a rejection reason"); return; }
+    if (!note.trim()) { toast.error("Add a rejection reason for the teacher"); return; }
     setBusy(true);
-    const { error } = await supabase.from("profiles").update({ hr_approved: false, hr_rejection_reason: note }).eq("id", teacher.id);
-    if (error) toast.error(error.message); else { toast.success("Teacher notified"); onRefresh(); }
+    // Mark profile as rejected
+    const { error } = await supabase
+      .from("profiles")
+      .update({ hr_approved: false, hr_rejection_reason: note })
+      .eq("id", teacher.id);
+    if (error) { toast.error(error.message); setBusy(false); return; }
+    // Reset ALL docs back to pending so teacher re-uploads everything
+    await supabase
+      .from("teacher_documents")
+      .update({ status: "pending", hr_note: null })
+      .eq("teacher_id", teacher.id);
+    toast.success("Teacher notified — documents reset to pending for re-upload");
+    onRefresh();
     setBusy(false);
   }
 
@@ -392,22 +416,64 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
                 </div>
 
                 {/* HR decision */}
-                {teacher.hr_approved !== true ? (
-                  <div className="space-y-2 pt-2 border-t border-border">
+                {teacher.hr_approved === true ? (
+                  <div className="rounded-lg bg-success/10 border border-success/30 px-4 py-3 text-sm text-success flex items-center gap-2">
+                    <CheckCircle2 className="size-4 shrink-0" /> Fully onboarded — all features unlocked. Cannot be rejected after approval.
+                  </div>
+                ) : teacher.hr_approved === false ? (
+                  <div className="rounded-lg bg-destructive/10 border border-destructive/30 px-4 py-3 text-sm text-destructive">
+                    <p className="font-semibold flex items-center gap-2"><XCircle className="size-4 shrink-0" /> Application rejected</p>
+                    {teacher.hr_rejection_reason && <p className="mt-1 text-xs">{teacher.hr_rejection_reason}</p>}
+                    <p className="mt-1 text-xs text-muted-foreground">Teacher will see the rejection reason and a "Request Again" button.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 pt-2 border-t border-border">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">HR Decision</p>
-                    <Textarea rows={2} placeholder="Rejection reason (required to reject)…" value={note} onChange={(e) => setNote(e.target.value)} />
+
+                    {/* Required doc checklist */}
+                    <div className="rounded-lg bg-muted/40 border border-border px-3 py-2.5 space-y-1.5">
+                      {REQUIRED_DOCS.map((type) => {
+                        const doc = teacher.docs.find((d) => d.doc_type === type);
+                        const label = DOC_LABEL[type];
+                        if (!doc) return (
+                          <p key={type} className="text-xs flex items-center gap-1.5 text-muted-foreground">
+                            <Clock className="size-3 shrink-0" /> {label} — not uploaded
+                          </p>
+                        );
+                        if (doc.status === "approved") return (
+                          <p key={type} className="text-xs flex items-center gap-1.5 text-success">
+                            <CheckCircle2 className="size-3 shrink-0" /> {label} — approved
+                          </p>
+                        );
+                        if (doc.status === "rejected") return (
+                          <p key={type} className="text-xs flex items-center gap-1.5 text-destructive">
+                            <XCircle className="size-3 shrink-0" /> {label} — rejected
+                          </p>
+                        );
+                        return (
+                          <p key={type} className="text-xs flex items-center gap-1.5 text-warning-foreground">
+                            <Clock className="size-3 shrink-0" /> {label} — pending review
+                          </p>
+                        );
+                      })}
+                    </div>
+
+                    {!hasRequired && (
+                      <p className="text-xs text-warning-foreground">
+                        Approve required documents above first — teacher will auto-unlock once all are approved.
+                      </p>
+                    )}
+
+                    <Textarea rows={2} placeholder="Overall rejection reason (required to reject entire application)…"
+                      value={note} onChange={(e) => setNote(e.target.value)} />
                     <div className="flex gap-2">
                       <Button size="sm" className="flex-1" disabled={busy || !hasRequired} onClick={approveTeacher}>
                         <CheckCircle2 className="size-3.5 mr-1.5" /> Approve & Unlock
                       </Button>
                       <Button size="sm" variant="destructive" className="flex-1" disabled={busy} onClick={rejectTeacher}>
-                        <XCircle className="size-3.5 mr-1.5" /> Reject
+                        <XCircle className="size-3.5 mr-1.5" /> Reject & Reset Docs
                       </Button>
                     </div>
-                  </div>
-                ) : (
-                  <div className="rounded-lg bg-success/10 border border-success/30 px-4 py-3 text-sm text-success flex items-center gap-2">
-                    <CheckCircle2 className="size-4 shrink-0" /> Fully onboarded — all features unlocked.
                   </div>
                 )}
               </>
