@@ -198,7 +198,7 @@ function SignInPage() {
 
   return (
     <div className="grid min-h-screen lg:grid-cols-[minmax(0,480px)_1fr]">
-      <div className="flex flex-col justify-center px-6 py-12 sm:px-12 overflow-y-auto">
+      <div className="flex flex-col justify-center px-6 py-12 sm:px-8 overflow-y-auto">
         <Logo />
         <h1 className="mt-10 text-2xl font-extrabold tracking-tight">Leave Management System</h1>
         <p className="mt-1 text-sm text-muted-foreground">

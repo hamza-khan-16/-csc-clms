@@ -591,16 +591,6 @@ function HolidaysPage() {
                     {/* Occasion */}
                     <div className="flex-1 min-w-0 flex items-center gap-2">
                       <p className="text-sm font-medium truncate">{h.occasion}</p>
-                      <Badge
-                        variant="secondary"
-                        className={`text-[10px] px-1.5 py-0 leading-4 shrink-0 ${
-                          isUpload ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-300" :
-                          isManual ? "bg-info/12 text-info border-info/20" :
-                          "bg-success/12 text-success border-success/20"
-                        }`}
-                      >
-                        {isUpload ? "Uploaded" : isManual ? (h.kind ?? "Custom") : (h.kind ?? "National")}
-                      </Badge>
                     </div>
                     {isPrincipalOrAdmin && (
                       <button
