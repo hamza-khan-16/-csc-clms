@@ -108,7 +108,8 @@ async function downloadAllDocs(teacher: TeacherProfile, setBusy: (v: boolean) =>
   setBusy(true);
   try {
     const zip = new JSZip();
-    const folder = zip.folder(teacher.full_name.replace(/\s+/g, "_")) ?? zip;
+    const safeName = teacher.full_name.replace(/\s+/g, "_");
+    const folder = zip.folder(safeName) ?? zip;
     await Promise.all(teacher.docs.map(async (doc) => {
       const url = await signedUrl(doc.file_path);
       if (!url) return;
@@ -119,7 +120,7 @@ async function downloadAllDocs(teacher: TeacherProfile, setBusy: (v: boolean) =>
     const content = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(content);
-    a.download = `${teacher.full_name.replace(/\s+/g, "_")}_documents.zip`;
+    a.download = safeName + "_documents.zip";
     a.click(); URL.revokeObjectURL(a.href);
     toast.success("All documents downloaded");
   } catch { toast.error("Download failed"); }
@@ -326,25 +327,12 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
             From: fmtDate(l.from_date), To: fmtDate(l.to_date),
             "Total Days": l.total_days, "Paid Days": l.paid_days,
             "Unpaid Days": l.unpaid_days,
-            Status: l.status.replace(/_/g, " "),
+            Status: l.status.split("_").join(" "),
           }))
         : [{ Note: "No approved leaves in this period" }]
     ), "Approved Leaves");
-<<<<<<< HEAD
-=======
-    // Sheet 3: Pending / in-progress leaves (for awareness)
-    if (pendingLeaves.length) {
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
-        pendingLeaves.map((l) => ({
-          Type: leaveTypeLabel(l.leave_type as LeaveType),
-          From: fmtDate(l.from_date), To: fmtDate(l.to_date),
-          "Total Days": l.total_days,
-          Status: l.status.replace(/_/g, " "),
-        }))
-      ), "Pending Leaves");
-    }
->>>>>>> f4a704c5663679c2c158d732dcbe856665246ab7
-    XLSX.writeFile(wb, `${teacher.full_name.replace(/\s+/g, "_")}_HR_${filterYear}.xlsx`);
+    const fileName = teacher.full_name.replace(/\s+/g, "_") + "_HR_" + filterYear + ".xlsx";
+    XLSX.writeFile(wb, fileName);
   }
 
   const TABS: { id: CardTab; label: string; Icon: any }[] = [
@@ -427,7 +415,6 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Documents</p>
-<<<<<<< HEAD
                     {teacher.docs.length > 0 && (
                       <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" disabled={zipBusy}
                         onClick={() => downloadAllDocs(teacher, setZipBusy)}>
@@ -740,6 +727,3 @@ function HrPage() {
     </Guarded>
   );
 }
-=======
-   
->>>>>>> f4a704c5663679c2c158d732dcbe856665246ab7
