@@ -42,7 +42,7 @@ const BLOCKED_SUBSTRINGS = [
 ];
 
 /** Returns the matched blocked word if found, else null */
-function localBlocklistCheck(text: string): string | null {
+export function localBlocklistCheck(text: string): string | null {
   const normalised = text.toLowerCase().replace(/[\s\-_]+/g, "");
   for (const sub of BLOCKED_SUBSTRINGS) {
     const normSub = sub.toLowerCase().replace(/[\s\-_]+/g, "");
@@ -51,9 +51,15 @@ function localBlocklistCheck(text: string): string | null {
   return null;
 }
 
+/** One-shot moderation check — returns true if the text is abusive. Used for chat input on send. */
+export async function groqModerationCheck(text: string): Promise<boolean> {
+  const verdict = await groqCheck(text);
+  return verdict === "ABUSIVE";
+}
+
 // ── Layer 2: Groq LLM check ───────────────────────────────────────────────────
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL    = "llama-3.1-8b-instant";
+const MODEL    = "llama-3.3-70b-versatile";
 
 type GroqVerdict = "CLEAN" | "ABUSIVE" | "UNCLEAR";
 

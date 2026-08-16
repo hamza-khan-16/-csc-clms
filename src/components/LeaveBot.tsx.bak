@@ -16,7 +16,6 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { leaveTypeLabel, type LeaveType } from "@/lib/leave";
-import { localBlocklistCheck, groqModerationCheck } from "@/lib/textGuard";
 
 // ── System prompt — full app knowledge ────────────────────────────────────────
 const SYSTEM_PROMPT = `You are LeaveBot, the friendly in-app assistant for the CSC Leave Management System (CLMS) used by Chandrabhan Sharma College. You help teachers, HODs, principals, and HR staff understand how to use the system.
@@ -216,7 +215,7 @@ interface Message {
 }
 
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL    = "llama-3.3-70b-versatile";
+const MODEL    = "llama-3.1-8b-instant";
 
 // ── API call ──────────────────────────────────────────────────────────────────
 async function askGroq(messages: Message[], userContext: string): Promise<string> {
@@ -256,43 +255,19 @@ async function askGroq(messages: Message[], userContext: string): Promise<string
 
 // ── Suggested starter questions ───────────────────────────────────────────────
 const TEACHER_STARTERS = [
-  "How many casual leaves do I have left this year?",
+  "How many casual leaves do I get per month?",
   "What is the sandwich rule?",
   "How do I apply for medical leave?",
-  "Where is my next lecture today?",
   "What happens after I submit a leave request?",
-];
-
-const HOD_STARTERS = [
-  "How many leave requests are pending in my department?",
-  "Which teachers in my department are on leave today?",
-  "How do I approve or reject a leave request?",
-  "Can I post a notice for my department?",
-  "What leave types can I approve directly without the principal?",
-];
-
-const PRINCIPAL_STARTERS = [
-  "How many leave requests are pending across the college?",
-  "Which teachers are on approved leave today?",
-  "How do I give final approval on a leave request?",
-  "How do I view department-wise leave reports?",
-  "What is the approval flow for medical leave longer than 3 days?",
-];
-
-const ADMIN_STARTERS = [
-  "How do I add a new staff member to the system?",
-  "How do I export the full payroll report?",
-  "How do I manage departments and HOD assignments?",
-  "How do I add or remove a holiday from the calendar?",
-  "How do I reset a teacher's password?",
+  "Where is my next lecture today?",
 ];
 
 const HR_STARTERS = [
   "How many teachers are pending HR approval?",
-  "How do I approve a teacher's onboarding documents?",
+  "How do I approve a teacher's onboarding?",
   "What documents are required from new teachers?",
+  "How do I download all documents of a teacher?",
   "How is the payroll deduction calculated?",
-  "How do I download all documents of a teacher as a ZIP?",
 ];
 
 // ── Message bubble ────────────────────────────────────────────────────────────
@@ -330,7 +305,6 @@ export function LeaveBot() {
   ]);
   const [input, setInput]     = useState("");
   const [loading, setLoading] = useState(false);
-  const [inputError, setInputError] = useState<string | null>(null);
   const [userContext, setUserContext] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
@@ -644,82 +618,6 @@ export function LeaveBot() {
         );
       }
 
-      // ── Principal-specific live context ──────────────────────────────────
-      if (role === "principal") {
-        const { data: allLeaves } = await supabase
-          .from("leave_requests")
-          .select("teacher_id, leave_type, from_date, to_date, total_days, status")
-          .gte("from_date", `${year}-01-01`);
-
-        const { data: allProfiles } = await supabase
-          .from("profiles")
-          .select("id, full_name, department_id, departments(name)")
-          .eq("approved", true);
-
-        const PENDING_STATUSES  = ["pending_hod", "hod_recommended", "pending_principal"];
-        const APPROVED_STATUSES = ["approved", "hod_approved"];
-
-        const pendingAll  = (allLeaves ?? []).filter((l) => PENDING_STATUSES.includes(l.status));
-        const onLeaveToday = (allLeaves ?? []).filter((l) =>
-          APPROVED_STATUSES.includes(l.status) && l.from_date <= todayISO && l.to_date >= todayISO
-        );
-
-        // Group pending by department
-        const profileMap: Record<string, { name: string; dept: string }> = {};
-        for (const p of allProfiles ?? []) {
-          profileMap[p.id] = { name: p.full_name, dept: (p as any).departments?.name ?? "Unknown" };
-        }
-
-        const pendingByDept: Record<string, number> = {};
-        for (const l of pendingAll) {
-          const dept = profileMap[l.teacher_id]?.dept ?? "Unknown";
-          pendingByDept[dept] = (pendingByDept[dept] ?? 0) + 1;
-        }
-
-        lines.push(
-          "", "COLLEGE-WIDE LIVE STATS (Principal view):",
-          `• Total pending leave requests: ${pendingAll.length}`,
-          `• Teachers on approved leave today: ${onLeaveToday.length}`,
-          "", "PENDING REQUESTS BY DEPARTMENT:",
-        );
-        if (Object.keys(pendingByDept).length === 0) {
-          lines.push("• No pending requests.");
-        } else {
-          for (const [dept, count] of Object.entries(pendingByDept)) {
-            lines.push(`• ${dept}: ${count} pending`);
-          }
-        }
-        lines.push(
-          "",
-          "Note: As Principal, you oversee ALL departments. You do not belong to any specific department.",
-          "Use the Requests page to review and give final approval on leave requests.",
-          "Use the Reports page for department-wise and college-wide leave and payroll summaries.",
-        );
-      }
-
-      // ── Admin-specific live context ───────────────────────────────────────
-      if (role === "admin") {
-        const { data: allProfiles } = await supabase
-          .from("profiles")
-          .select("id, approved")
-          .eq("approved", true);
-
-        const { data: depts } = await supabase
-          .from("departments")
-          .select("id, name");
-
-        lines.push(
-          "", "ADMIN LIVE STATS:",
-          `• Total approved staff accounts: ${(allProfiles ?? []).length}`,
-          `• Total departments: ${(depts ?? []).length}`,
-          "", "ADMIN CAPABILITIES:",
-          "• Add/remove staff, reset passwords, manage departments",
-          "• Export full payroll and leave reports",
-          "• Manage holidays and notices",
-          "• View all data across all roles",
-        );
-      }
-
       setUserContext(lines.join("\n"));
     }
 
@@ -740,13 +638,6 @@ export function LeaveBot() {
     const question = (text ?? input).trim();
     if (!question || loading) return;
 
-    // Layer 1 — instant local blocklist (zero latency)
-    if (localBlocklistCheck(question)) {
-      setInputError("Please keep your messages respectful and professional.");
-      return;
-    }
-    setInputError(null);
-
     const userMsg: Message = { role: "user", content: question };
     const next = [...messages, userMsg];
     setMessages(next);
@@ -754,15 +645,6 @@ export function LeaveBot() {
     setLoading(true);
 
     try {
-      // Layer 2 — LLM moderation check before forwarding to chat model
-      const isAbusive = await groqModerationCheck(question);
-      if (isAbusive) {
-        setMessages([...next, {
-          role: "assistant",
-          content: "⚠️ I'm here to help with leave management questions. Please keep your messages respectful and professional.",
-        }]);
-        return;
-      }
       const answer = await askGroq(next, userContext);
       setMessages([...next, { role: "assistant", content: answer }]);
     } catch {
@@ -825,13 +707,7 @@ export function LeaveBot() {
           {/* Starter suggestions — only shown when no user messages yet */}
           {messages.length === 1 && !loading && (
             <div className="px-4 pb-2 flex gap-2 flex-wrap flex-shrink-0">
-              {(
-                role === "hr"        ? HR_STARTERS :
-                role === "admin"     ? ADMIN_STARTERS :
-                role === "principal" ? PRINCIPAL_STARTERS :
-                role === "hod"       ? HOD_STARTERS :
-                TEACHER_STARTERS
-              ).map((s) => (
+              {(role === "hr" || role === "admin" ? HR_STARTERS : TEACHER_STARTERS).map((s) => (
                 <button
                   key={s}
                   onClick={() => send(s)}
@@ -844,29 +720,24 @@ export function LeaveBot() {
           )}
 
           {/* Input row */}
-          <div className="flex-shrink-0 border-t border-border">
-            {inputError && (
-              <p className="text-xs text-destructive px-4 pt-2">{inputError}</p>
-            )}
-            <div className="flex items-center gap-2 px-3 py-3">
-              <input
-                ref={inputRef}
-                className="flex-1 bg-muted rounded-full px-4 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/30"
-                placeholder="Ask a question…"
-                value={input}
-                onChange={(e) => { setInput(e.target.value); if (inputError) setInputError(null); }}
-                onKeyDown={handleKey}
-                disabled={loading}
-              />
-              <button
-                onClick={() => send()}
-                disabled={!input.trim() || loading}
-                className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors flex-shrink-0"
-                aria-label="Send"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
+          <div className="flex items-center gap-2 px-3 py-3 border-t border-border flex-shrink-0">
+            <input
+              ref={inputRef}
+              className="flex-1 bg-muted rounded-full px-4 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/30"
+              placeholder="Ask a question…"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKey}
+              disabled={loading}
+            />
+            <button
+              onClick={() => send()}
+              disabled={!input.trim() || loading}
+              className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors flex-shrink-0"
+              aria-label="Send"
+            >
+              <Send className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
