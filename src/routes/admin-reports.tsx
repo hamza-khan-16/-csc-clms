@@ -254,7 +254,9 @@ const REPORT_MODULES: {
 
 function AdminReportsPage() {
   const { role } = useAuth();
-  const isPrincipal = role === "principal";
+  const isPrincipal  = role === "principal";
+  const isAdmin      = role === "admin";
+  const showDeptTabs = isPrincipal || isAdmin; // both see department group tabs
 
   const [activeModule, setActiveModule] = useState("teacher");
   const [filterYear,   setFilterYear]   = useState(String(CURRENT_YEAR));
@@ -342,15 +344,15 @@ function AdminReportsPage() {
 
   // For principal: further filter by dept group tab
   const principalFilteredLeaves = useMemo(() => {
-    if (!isPrincipal) return filteredLeaves;
+    if (!showDeptTabs) return filteredLeaves;
     return filteredLeaves.filter((l) => {
       const deptName = people[l.teacher_id]?.department_name ?? "";
       const grp = getDeptGroup(deptName);
       return grp === principalDeptTab || grp === "other";
     });
-  }, [filteredLeaves, isPrincipal, principalDeptTab, people]);
+  }, [filteredLeaves, showDeptTabs, principalDeptTab, people]);
 
-  const effectiveLeaves = isPrincipal ? principalFilteredLeaves : filteredLeaves;
+  const effectiveLeaves = showDeptTabs ? principalFilteredLeaves : filteredLeaves;
 
   // Filter people by department too (for payroll/salary modules)
   const filteredPeople = useMemo(() => {
@@ -499,8 +501,8 @@ function AdminReportsPage() {
     <AppShell title="Reports" subtitle="College-wide leave analytics and exports">
       <div className="space-y-4">
 
-        {/* ── Principal: Department group tabs (above everything) ─────────── */}
-        {isPrincipal && (
+        {/* ── Principal + Admin: Department group tabs (above everything) ── */}
+        {showDeptTabs && (
           <div className="rounded-xl border border-border overflow-hidden">
             <div className="flex">
               {([
