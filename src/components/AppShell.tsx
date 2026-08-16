@@ -180,7 +180,8 @@ export function AppShell({
             <div className="text-right">
               <p className="text-sm font-semibold">{profile?.full_name}</p>
               <p className="text-xs capitalize text-muted-foreground">
-                {role === "hod" ? "HOD" : role} · {profile?.department_name ?? "College"}
+                {role === "hod" ? "HOD" : role === "principal" ? "Principal" : role === "admin" ? "Admin" : role === "hr" ? "HR" : role}
+                {(role === "teacher" || role === "hod") && profile?.department_name ? ` · ${profile.department_name}` : ""}
               </p>
             </div>
             <div className="grid size-10 place-items-center rounded-full bg-accent text-sm font-bold text-accent-foreground">
