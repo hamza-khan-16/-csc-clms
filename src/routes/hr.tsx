@@ -330,6 +330,20 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
           }))
         : [{ Note: "No approved leaves in this period" }]
     ), "Approved Leaves");
+<<<<<<< HEAD
+=======
+    // Sheet 3: Pending / in-progress leaves (for awareness)
+    if (pendingLeaves.length) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+        pendingLeaves.map((l) => ({
+          Type: leaveTypeLabel(l.leave_type as LeaveType),
+          From: fmtDate(l.from_date), To: fmtDate(l.to_date),
+          "Total Days": l.total_days,
+          Status: l.status.replace(/_/g, " "),
+        }))
+      ), "Pending Leaves");
+    }
+>>>>>>> f4a704c5663679c2c158d732dcbe856665246ab7
     XLSX.writeFile(wb, `${teacher.full_name.replace(/\s+/g, "_")}_HR_${filterYear}.xlsx`);
   }
 
@@ -413,6 +427,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Documents</p>
+<<<<<<< HEAD
                     {teacher.docs.length > 0 && (
                       <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" disabled={zipBusy}
                         onClick={() => downloadAllDocs(teacher, setZipBusy)}>
@@ -725,3 +740,6 @@ function HrPage() {
     </Guarded>
   );
 }
+=======
+   
+>>>>>>> f4a704c5663679c2c158d732dcbe856665246ab7
