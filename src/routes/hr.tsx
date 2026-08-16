@@ -22,6 +22,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { fmtDate, leaveTypeLabel, LEAVE_TYPES, type LeaveType } from "@/lib/leave";
+import { useTextGuard } from "@/lib/textGuard";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/hr")({ component: HrPage });
@@ -133,6 +134,7 @@ function DocRow({ doc, onApprove, onReject, busy }: {
 }) {
   const [note, setNote] = useState(doc.hr_note ?? "");
   const [dl, setDl] = useState(false);
+  const { error: noteError, checking: noteChecking } = useTextGuard(note, "Rejection note");
   return (
     <div className={cn("rounded-lg border p-3 space-y-2",
       doc.status === "approved" && "border-success/30 bg-success/5",
@@ -159,15 +161,26 @@ function DocRow({ doc, onApprove, onReject, busy }: {
         </div>
       </div>
       {doc.status !== "approved" && (
-        <div className="flex gap-2 items-start">
-          <input className="flex-1 text-xs rounded border border-border px-2 py-1.5 bg-background placeholder:text-muted-foreground"
-            placeholder="Rejection note (required to reject)…" value={note} onChange={(e) => setNote(e.target.value)} />
-          <Button size="sm" variant="outline" className="h-7 shrink-0 text-success border-success/40 hover:bg-success/10" disabled={busy} onClick={onApprove}>
-            <CheckCircle2 className="size-3.5" />
-          </Button>
-          <Button size="sm" variant="outline" className="h-7 shrink-0 text-destructive border-destructive/40 hover:bg-destructive/10" disabled={busy} onClick={() => onReject(note)}>
-            <XCircle className="size-3.5" />
-          </Button>
+        <div className="space-y-1">
+          <div className="flex gap-2 items-center">
+            <div className="relative flex-1">
+              <input className="w-full text-xs rounded border border-border px-2 py-1.5 bg-background placeholder:text-muted-foreground pr-6"
+                placeholder="Rejection note (required to reject)…" value={note} onChange={(e) => setNote(e.target.value)} />
+              {noteChecking && (
+                <Loader2 className="size-3 animate-spin absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              )}
+            </div>
+            <Button size="sm" variant="outline" className="h-7 shrink-0 text-success border-success/40 hover:bg-success/10" disabled={busy} onClick={onApprove}>
+              <CheckCircle2 className="size-3.5" />
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 shrink-0 text-destructive border-destructive/40 hover:bg-destructive/10"
+              disabled={busy || !!noteError || noteChecking} onClick={() => onReject(note)}>
+              <XCircle className="size-3.5" />
+            </Button>
+          </div>
+          {noteError && (
+            <p className="text-xs text-destructive">{noteError}</p>
+          )}
         </div>
       )}
     </div>
@@ -185,6 +198,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
   const [busy,   setBusy]   = useState(false);
   const [zipBusy,setZipBusy]= useState(false);
   const [note,   setNote]   = useState(teacher.hr_rejection_reason ?? "");
+  const { error: noteError, checking: noteChecking } = useTextGuard(note, "Rejection reason");
 
   // Month / year filters (Leaves + Salary tabs)
   const [filterYear,  setFilterYear]  = useState(String(CURRENT_YEAR));
@@ -482,13 +496,25 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
                       </p>
                     )}
 
-                    <Textarea rows={2} placeholder="Overall rejection reason (required to reject entire application)…"
-                      value={note} onChange={(e) => setNote(e.target.value)} />
+                    <div className="space-y-1">
+                      <div className="relative">
+                        <Textarea rows={2} placeholder="Overall rejection reason (required to reject entire application)…"
+                          value={note} onChange={(e) => setNote(e.target.value)}
+                          className={noteError ? "border-destructive" : ""} />
+                        {noteChecking && (
+                          <Loader2 className="size-3.5 animate-spin absolute right-2.5 top-2.5 text-muted-foreground" />
+                        )}
+                      </div>
+                      {noteError && (
+                        <p className="text-xs text-destructive">{noteError}</p>
+                      )}
+                    </div>
                     <div className="flex gap-2">
                       <Button size="sm" className="flex-1" disabled={busy || !hasRequired} onClick={approveTeacher}>
                         <CheckCircle2 className="size-3.5 mr-1.5" /> Approve & Unlock
                       </Button>
-                      <Button size="sm" variant="destructive" className="flex-1" disabled={busy} onClick={rejectTeacher}>
+                      <Button size="sm" variant="destructive" className="flex-1"
+                        disabled={busy || !!noteError || noteChecking} onClick={rejectTeacher}>
                         <XCircle className="size-3.5 mr-1.5" /> Reject & Reset Docs
                       </Button>
                     </div>
