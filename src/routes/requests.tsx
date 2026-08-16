@@ -388,7 +388,7 @@ function LockedAccountsPanel({ role, deptId }: { role: "hod" | "principal"; dept
     queryKey: ["locked-accounts", role, deptId],
     enabled: role === "principal", // HODs never manage locked accounts
     queryFn: async () => {
-      const targetRoles = ["teacher", "hod"]; // principal can unlock teachers & HODs
+      const targetRoles = ["teacher", "hod"] as const; // principal can unlock teachers & HODs
       const { data: roleRows } = await supabase
         .from("user_roles")
         .select("user_id, department_id, role")

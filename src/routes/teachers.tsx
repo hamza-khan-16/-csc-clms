@@ -272,7 +272,7 @@ function TeacherDetailPanel({
         experience_years: expYears ? parseInt(expYears, 10) : null,
         date_of_joining: doj || null,
         date_of_birth: buildDobValue(),
-        gender: gender || null,
+        gender: (gender || null) as "female" | "male" | "other" | null,
         subjects_taught: subjects.trim() || null,
       })
       .eq("id", teacher.id);

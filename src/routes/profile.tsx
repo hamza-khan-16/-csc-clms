@@ -142,7 +142,7 @@ function ProfilePage() {
       .from("profiles")
       .update({
         full_name: name.trim(),
-        gender: gender || null,
+        gender: (gender || null) as "female" | "male" | "other" | null,
         date_of_birth: dob || null,
       })
       .eq("id", profile!.id);

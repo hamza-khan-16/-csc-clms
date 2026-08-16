@@ -211,7 +211,7 @@ export const registerStaff = createServerFn({ method: "POST" })
       department_id: dept,
       approved,
       hr_approved: hrApproved,
-      ...(data.gender ? { gender: data.gender } : {}),
+      ...(data.gender ? { gender: data.gender as "female" | "male" | "other" } : {}),
       ...(data.dob ? { date_of_birth: data.dob } : {}),
       password_changed_at: new Date().toISOString(),
     });

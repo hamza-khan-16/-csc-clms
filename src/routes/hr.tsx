@@ -190,7 +190,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
   const [filterMonth, setFilterMonth] = useState<number | "all">("all");
   const [filterType,  setFilterType]  = useState("all");
 
-  // Filter leaves for this teacher
+  // All leaves for this teacher matching year/month/type filters
   const myLeaves = useMemo(() => {
     return leaves
       .filter((l) => l.teacher_id === teacher.id)
@@ -204,8 +204,10 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
       });
   }, [leaves, teacher.id, filterYear, filterMonth, filterType]);
 
-  const approvedLeaves  = myLeaves.filter((l) => ["approved","hod_approved"].includes(l.status));
-  const pendingLeaves   = myLeaves.filter((l) => ["pending_hod","hod_recommended","pending_principal"].includes(l.status));
+  // Only fully approved leaves count for payroll / the Leaves tab
+  const approvedLeaves = myLeaves.filter((l) => ["approved", "hod_approved"].includes(l.status));
+
+  // Salary always uses approved leaves only (for deduction calc)
   const totalUnpaid     = approvedLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0);
   const deduction       = (teacher.monthly_salary / 30) * totalUnpaid;
   const net             = teacher.monthly_salary - deduction;
@@ -304,17 +306,31 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
 
   function downloadReport() {
     const wb = XLSX.utils.book_new();
+    // Sheet 1: Payroll summary (based on approved leaves — salary-impacting)
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{
       Teacher: teacher.full_name, Department: teacher.department_name ?? "—",
-      "Monthly Salary": teacher.monthly_salary, "Unpaid Days": totalUnpaid,
-      "Deduction (₹)": Math.round(deduction), "Net Payable (₹)": Math.round(net),
-    }]), "Salary");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(myLeaves.map((l) => ({
-      Type: leaveTypeLabel(l.leave_type as LeaveType), From: l.from_date, To: l.to_date,
-      Days: l.total_days, Paid: l.paid_days, Unpaid: l.unpaid_days,
-      Status: l.status.replace(/_/g, " "),
-    }))), "Leaves");
-    XLSX.writeFile(wb, `${teacher.full_name.replace(/\s+/g, "_")}_HR.xlsx`);
+      "Filter Period": filterMonth === "all"
+        ? filterYear
+        : `${MONTHS_SHORT[filterMonth as number]} ${filterYear}`,
+      "Monthly Salary": teacher.monthly_salary,
+      "Approved Leave Days": approvedLeaves.reduce((s, l) => s + Number(l.total_days), 0),
+      "Unpaid Days": totalUnpaid,
+      "Deduction (₹)": Math.round(deduction),
+      "Net Payable (₹)": Math.round(net),
+    }]), "Payroll");
+    // Sheet 2: All approved leaves in the filtered period
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+      approvedLeaves.length
+        ? approvedLeaves.map((l) => ({
+            Type: leaveTypeLabel(l.leave_type as LeaveType),
+            From: fmtDate(l.from_date), To: fmtDate(l.to_date),
+            "Total Days": l.total_days, "Paid Days": l.paid_days,
+            "Unpaid Days": l.unpaid_days,
+            Status: l.status.replace(/_/g, " "),
+          }))
+        : [{ Note: "No approved leaves in this period" }]
+    ), "Approved Leaves");
+    XLSX.writeFile(wb, `${teacher.full_name.replace(/\s+/g, "_")}_HR_${filterYear}.xlsx`);
   }
 
   const TABS: { id: CardTab; label: string; Icon: any }[] = [
@@ -484,10 +500,10 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
               <>
                 <FilterBar />
                 <p className="text-xs text-muted-foreground mb-3">
-                  Showing only leaves approved by HOD / Principal.
+                  Showing approved leaves only (HOD / Principal approved).
                 </p>
                 {approvedLeaves.length === 0 ? (
-                  <p className="text-sm text-muted-foreground italic text-center py-4">No approved leaves found for this period.</p>
+                  <p className="text-sm text-muted-foreground italic text-center py-4">No approved leaves for this period.</p>
                 ) : (
                   <div className="rounded-lg border border-border overflow-hidden overflow-x-auto">
                     <table className="w-full text-xs min-w-[400px]">
@@ -549,35 +565,6 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function LeaveTable({ rows }: { rows: LeaveRow[] }) {
-  return (
-    <div className="rounded-lg border border-border overflow-hidden overflow-x-auto mb-3">
-      <table className="w-full text-xs min-w-[400px]">
-        <thead className="bg-muted/50">
-          <tr>
-            <th className="px-3 py-2 text-left font-semibold">Type</th>
-            <th className="px-3 py-2 text-left font-semibold">From</th>
-            <th className="px-3 py-2 text-left font-semibold">To</th>
-            <th className="px-3 py-2 text-left font-semibold">Days</th>
-            <th className="px-3 py-2 text-left font-semibold">Status</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {rows.map((l) => (
-            <tr key={l.id} className="hover:bg-muted/20">
-              <td className="px-3 py-2">{leaveTypeLabel(l.leave_type as LeaveType)}</td>
-              <td className="px-3 py-2">{fmtDate(l.from_date)}</td>
-              <td className="px-3 py-2">{fmtDate(l.to_date)}</td>
-              <td className="px-3 py-2">{l.total_days}</td>
-              <td className="px-3 py-2"><StatusBadge status={l.status as any} /></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
@@ -650,7 +637,8 @@ function HrPage() {
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ["hr-teachers"] });
-    qc.invalidateQueries({ queryKey: ["hr-all-leaves"] });
+    // exact: false matches ["hr-all-leaves", teacherIds.join(",")]
+    qc.invalidateQueries({ queryKey: ["hr-all-leaves"], exact: false });
   }
 
   // Full payroll report — all teachers, current year approved leaves
@@ -725,7 +713,7 @@ function HrPage() {
         {isLoading ? (
           <div className="flex justify-center py-16"><Loader2 className="size-6 animate-spin text-primary" /></div>
         ) : filtered.length === 0 ? (
-          <Empty message={`No ${hrFilter === "all" ? "" : hrFilter} teachers found`} />
+          <Empty>{hrFilter === "all" ? "No teachers found" : `No ${hrFilter} teachers found`}</Empty>
         ) : (
           <div className="space-y-2">
             {filtered.map((t) => (

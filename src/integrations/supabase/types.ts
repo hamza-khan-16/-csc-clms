@@ -258,41 +258,62 @@ export type Database = {
       }
       profiles: {
         Row: {
+          account_locked: boolean
           approved: boolean
           created_at: string
+          date_of_birth: string | null
           date_of_joining: string | null
           department_id: string | null
           designation: string
           experience_years: number | null
+          failed_login_attempts: number
           full_name: string
+          gender: "female" | "male" | "other" | null
+          hr_approved: boolean | null
+          hr_rejection_reason: string | null
           id: string
           monthly_salary: number
+          password_changed_at: string | null
           subjects_taught: string | null
           user_id: string
         }
         Insert: {
+          account_locked?: boolean
           approved?: boolean
           created_at?: string
+          date_of_birth?: string | null
           date_of_joining?: string | null
           department_id?: string | null
           designation?: string
           experience_years?: number | null
+          failed_login_attempts?: number
           full_name: string
+          gender?: "female" | "male" | "other" | null
+          hr_approved?: boolean | null
+          hr_rejection_reason?: string | null
           id: string
           monthly_salary?: number
+          password_changed_at?: string | null
           subjects_taught?: string | null
           user_id: string
         }
         Update: {
+          account_locked?: boolean
           approved?: boolean
           created_at?: string
+          date_of_birth?: string | null
           date_of_joining?: string | null
           department_id?: string | null
           designation?: string
           experience_years?: number | null
+          failed_login_attempts?: number
           full_name?: string
+          gender?: "female" | "male" | "other" | null
+          hr_approved?: boolean | null
+          hr_rejection_reason?: string | null
           id?: string
           monthly_salary?: number
+          password_changed_at?: string | null
           subjects_taught?: string | null
           user_id?: string
         }
@@ -435,6 +456,45 @@ export type Database = {
         }
         Relationships: []
       }
+      teacher_documents: {
+        Row: {
+          doc_type: "degree" | "marksheet" | "salary_slip" | "experience_letter"
+          file_path: string
+          hr_note: string | null
+          id: string
+          original_name: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: "pending" | "approved" | "rejected"
+          teacher_id: string
+          uploaded_at: string
+        }
+        Insert: {
+          doc_type: "degree" | "marksheet" | "salary_slip" | "experience_letter"
+          file_path: string
+          hr_note?: string | null
+          id?: string
+          original_name?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: "pending" | "approved" | "rejected"
+          teacher_id: string
+          uploaded_at?: string
+        }
+        Update: {
+          doc_type?: "degree" | "marksheet" | "salary_slip" | "experience_letter"
+          file_path?: string
+          hr_note?: string | null
+          id?: string
+          original_name?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: "pending" | "approved" | "rejected"
+          teacher_id?: string
+          uploaded_at?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           department_id: string | null
@@ -466,7 +526,17 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      leave_balances: {
+        Row: {
+          id: string | null
+          leave_type: string | null
+          remaining_days: number | null
+          teacher_id: string | null
+          used_days: number | null
+          year: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       cleanup_expired_dated_lectures: {
@@ -499,7 +569,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "teacher" | "hod" | "principal" | "admin"
+      app_role: "teacher" | "hod" | "principal" | "admin" | "hr"
       leave_session: "full_day" | "forenoon" | "afternoon"
       leave_status: "pending_hod" | "hod_recommended" | "pending_principal" | "hod_approved" | "approved" | "rejected"
       leave_type: "casual" | "maternity" | "bereavement" | "medical" | "duty"
@@ -631,7 +701,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["teacher", "hod", "principal", "admin"],
+      app_role: ["teacher", "hod", "principal", "admin", "hr"],
       leave_session: ["full_day", "forenoon", "afternoon"],
       leave_status: ["pending_hod", "hod_recommended", "pending_principal", "hod_approved", "approved", "rejected"],
       leave_type: ["casual", "maternity", "bereavement", "medical", "duty"],
