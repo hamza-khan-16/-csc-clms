@@ -157,16 +157,13 @@ export function AppShell({
 
   function togglePinned(to: string) {
     setPinnedTabs((prev) => {
-      const alreadyPinned = prev.includes(to);
-      if (alreadyPinned) {
-        return prev.filter((t) => t !== to);
-      }
-      // Initialise from current mobile nav if this is the first manual pick
+      // Seed from the current default display on first manual interaction
       const base = prev.length === 0 ? mobileNavItems.map((i) => i.to) : prev;
-      if (base.includes(to)) return base.filter((t) => t !== to);
-      if (base.length < MAX_MOBILE_TABS) return [...base, to];
-      // Replace the last slot
-      return [...base.slice(0, MAX_MOBILE_TABS - 1), to];
+      if (base.includes(to)) {
+        return base.filter((t) => t !== to); // unpin
+      }
+      if (base.length < MAX_MOBILE_TABS) return [...base, to]; // pin
+      return [...base.slice(0, MAX_MOBILE_TABS - 1), to]; // replace last slot
     });
   }
 
@@ -323,9 +320,9 @@ export function AppShell({
               <ul className="mt-1 flex flex-col gap-1 pb-4">
                 {visible.map((item) => {
                   const Icon = item.icon;
-                  const isPinned = mobileNavItems.some((m) => m.to === item.to);
-                  const pinnedCount = mobileNavItems.length;
-                  const canAdd = pinnedCount < MAX_MOBILE_TABS || isPinned;
+                  const effectivePins = pinnedTabs.length === 0 ? mobileNavItems.map((i) => i.to) : pinnedTabs;
+                  const isPinned = effectivePins.includes(item.to);
+                  const canAdd = effectivePins.length < MAX_MOBILE_TABS || isPinned;
                   return (
                     <li key={item.to}>
                       <button
