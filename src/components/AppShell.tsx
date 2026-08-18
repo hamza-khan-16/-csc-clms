@@ -20,8 +20,17 @@ import {
   ShieldCheck,
   Moon,
   Sun,
+  Settings2,
+  Check,
 } from "lucide-react";
 import { useState, useEffect, type ReactNode } from "react";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type AppRole } from "@/lib/auth";
 import { Logo } from "@/components/Logo";
@@ -51,6 +60,7 @@ export function AppShell({
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
 
   // Dark mode — persist to localStorage
   const [dark, setDark] = useState(() => {
@@ -62,6 +72,25 @@ export function AppShell({
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("theme", dark ? "dark" : "light");
   }, [dark]);
+
+  // Mobile bottom nav pinned tabs — persisted per role
+  const storageKey = `mobile-tabs-${role ?? "guest"}`;
+  const [pinnedTabs, setPinnedTabs] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = localStorage.getItem(storageKey);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Sync pinnedTabs to localStorage whenever they change
+  useEffect(() => {
+    if (pinnedTabs.length > 0) {
+      localStorage.setItem(storageKey, JSON.stringify(pinnedTabs));
+    }
+  }, [pinnedTabs, storageKey]);
 
   const { data: pendingProxies = 0 } = useQuery({
     queryKey: ["pending-proxy-count", profile?.id],
@@ -110,6 +139,37 @@ export function AppShell({
 
   const visible = items.filter((i) => (role ? i.roles.includes(role) : false));
 
+  // Derive the 5 tabs to show in the mobile bottom nav
+  const MAX_MOBILE_TABS = 5;
+  const mobileNavItems = (() => {
+    if (pinnedTabs.length === 0) return visible.slice(0, MAX_MOBILE_TABS);
+    // Keep only pinned tabs that are still in the visible list (role may change)
+    const pinned = pinnedTabs
+      .map((to) => visible.find((v) => v.to === to))
+      .filter((v): v is NavItem => !!v);
+    // If fewer than MAX because of role change, pad with first non-pinned visible items
+    if (pinned.length < MAX_MOBILE_TABS) {
+      const rest = visible.filter((v) => !pinnedTabs.includes(v.to));
+      return [...pinned, ...rest].slice(0, MAX_MOBILE_TABS);
+    }
+    return pinned.slice(0, MAX_MOBILE_TABS);
+  })();
+
+  function togglePinned(to: string) {
+    setPinnedTabs((prev) => {
+      const alreadyPinned = prev.includes(to);
+      if (alreadyPinned) {
+        return prev.filter((t) => t !== to);
+      }
+      // Initialise from current mobile nav if this is the first manual pick
+      const base = prev.length === 0 ? mobileNavItems.map((i) => i.to) : prev;
+      if (base.includes(to)) return base.filter((t) => t !== to);
+      if (base.length < MAX_MOBILE_TABS) return [...base, to];
+      // Replace the last slot
+      return [...base.slice(0, MAX_MOBILE_TABS - 1), to];
+    });
+  }
+
   async function handleSignOut() {
     await signOut();
     navigate({ to: "/", replace: true });
@@ -155,21 +215,25 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex shadow-sm">
-        <div className="px-5 pb-6">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex shadow-sm overflow-hidden">
+        <div className="px-5 pb-6 shrink-0">
           <Logo />
         </div>
-        {nav}
+        <div className="flex-1 overflow-y-auto">
+          {nav}
+        </div>
       </aside>
 
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-foreground/30" onClick={() => setOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-sidebar py-6">
-            <div className="px-5 pb-6">
+          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-sidebar py-6 overflow-hidden">
+            <div className="px-5 pb-6 shrink-0">
               <Logo />
             </div>
-            {nav}
+            <div className="flex-1 overflow-y-auto">
+              {nav}
+            </div>
           </aside>
         </div>
       )}
@@ -208,9 +272,9 @@ export function AppShell({
         </header>
         <main className="flex-1 px-3 py-4 pb-20 sm:px-6 sm:py-6 lg:pb-6 page-enter">{children}</main>
 
-        {/* Mobile bottom nav — shows 4 key items for current role */}
+        {/* Mobile bottom nav — customisable */}
         <nav className="fixed bottom-0 inset-x-0 z-30 flex lg:hidden border-t border-border bg-background/95 backdrop-blur-md pb-safe">
-          {visible.slice(0, 5).map((item) => {
+          {mobileNavItems.map((item) => {
             const active = pathname === item.to;
             const Icon = item.icon;
             return (
@@ -235,6 +299,61 @@ export function AppShell({
               </Link>
             );
           })}
+
+          {/* Customise button */}
+          <Sheet open={customizeOpen} onOpenChange={setCustomizeOpen}>
+            <SheetTrigger asChild>
+              <button
+                className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Customise navigation tabs"
+              >
+                <div className="rounded-lg p-1">
+                  <Settings2 className="size-5" />
+                </div>
+                <span className="leading-tight">More</span>
+              </button>
+            </SheetTrigger>
+            <SheetContent side="bottom" className="max-h-[70vh] overflow-y-auto rounded-t-2xl px-4 pb-safe">
+              <SheetHeader className="pb-2 pt-1">
+                <SheetTitle className="text-base">Customise Tabs</SheetTitle>
+                <p className="text-xs text-muted-foreground">
+                  Pick up to {MAX_MOBILE_TABS} tabs to pin in your bottom bar.
+                </p>
+              </SheetHeader>
+              <ul className="mt-1 flex flex-col gap-1 pb-4">
+                {visible.map((item) => {
+                  const Icon = item.icon;
+                  const isPinned = mobileNavItems.some((m) => m.to === item.to);
+                  const pinnedCount = mobileNavItems.length;
+                  const canAdd = pinnedCount < MAX_MOBILE_TABS || isPinned;
+                  return (
+                    <li key={item.to}>
+                      <button
+                        onClick={() => togglePinned(item.to)}
+                        disabled={!isPinned && !canAdd}
+                        className={cn(
+                          "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors",
+                          isPinned
+                            ? "bg-primary/10 text-primary"
+                            : "hover:bg-muted text-foreground",
+                          !isPinned && !canAdd && "opacity-40 cursor-not-allowed"
+                        )}
+                      >
+                        <Icon className="size-5 shrink-0" />
+                        <span className="flex-1 text-left">{item.label}</span>
+                        {!!item.badge && (
+                          <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
+                            {item.badge}
+                          </span>
+                        )}
+                        {isPinned && <Check className="size-4 shrink-0 text-primary" />}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </SheetContent>
+          </Sheet>
         </nav>
       </div>
       <LeaveBot />
