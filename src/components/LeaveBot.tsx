@@ -17,6 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { leaveTypeLabel, type LeaveType } from "@/lib/leave";
 import { localBlocklistCheck, groqModerationCheck } from "@/lib/textGuard";
+import { validateMeaningfulText } from "@/lib/validateText";
 
 // ── System prompt — full app knowledge ────────────────────────────────────────
 const SYSTEM_PROMPT = `You are LeaveBot, the friendly in-app assistant for the CSC Leave Management System (CLMS) used by Chandrabhan Sharma College. You help teachers, HODs, principals, and HR staff understand how to use the system.
@@ -216,7 +217,7 @@ interface Message {
 }
 
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL    = "llama-3.3-70b-versatile";
+const MODEL    = "openai/gpt-oss-120b";
 
 // ── API call ──────────────────────────────────────────────────────────────────
 async function askGroq(messages: Message[], userContext: string): Promise<string> {
@@ -322,12 +323,26 @@ function Bubble({ msg }: { msg: Message }) {
 export function LeaveBot() {
   const { profile, role } = useAuth();
   const [open, setOpen]       = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: "assistant",
-      content: "Hi! I'm LeaveBot — I can answer any question about the Leave Management System: leave types, approval flows, balances, proxy assignments, payroll, your schedule, and more.\n\nWhat would you like to know?",
-    },
-  ]);
+
+  const CHAT_KEY = `leavebot_chat_${profile?.id ?? "anon"}`;
+  const INITIAL_MSG: Message = {
+    role: "assistant",
+    content: "Hi! I'm LeaveBot — I can answer any question about the Leave Management System: leave types, approval flows, balances, proxy assignments, payroll, your schedule, and more.\n\nWhat would you like to know?",
+  };
+
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const saved = sessionStorage.getItem(CHAT_KEY);
+      if (saved) return JSON.parse(saved) as Message[];
+    } catch {}
+    return [INITIAL_MSG];
+  });
+
+  // Persist messages to sessionStorage whenever they change
+  useEffect(() => {
+    try { sessionStorage.setItem(CHAT_KEY, JSON.stringify(messages)); } catch {}
+  }, [CHAT_KEY, messages]);
+
   const [input, setInput]     = useState("");
   const [loading, setLoading] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
@@ -355,18 +370,14 @@ export function LeaveBot() {
       const DAY_NAMES   = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
       const todayName   = DAY_NAMES[dayOfWeek];
 
-      const [{ data: leaves }, { data: balances }, { data: lectures }, { data: holidays }, { data: proxies }, { data: compensations }] = await Promise.all([
+      const [{ data: leaves }, { data: lectures }, { data: holidays }, { data: proxies }, { data: compensations }] = await Promise.all([
         supabase
           .from("leave_requests")
           .select("leave_type, from_date, to_date, total_days, paid_days, unpaid_days, status")
           .eq("teacher_id", profile!.id)
           .gte("from_date", `${year}-01-01`)
           .order("from_date", { ascending: false }),
-        supabase
-          .from("leave_balances")
-          .select("leave_type, used_days, remaining_days")
-          .eq("teacher_id", profile!.id)
-          .eq("year", year),
+
         supabase
           .from("lectures")
           .select("day_of_week, start_time, end_time, subject, class_name, room, lecture_date")
@@ -582,17 +593,10 @@ export function LeaveBot() {
         if (s.unpaid > 0) lines.push(`  - Unpaid: ${s.unpaid} days`);
       }
 
-      if (balances && balances.length > 0) {
-        lines.push("", "REMAINING BALANCES:");
-        for (const b of balances) {
-          lines.push(`• ${leaveTypeLabel(b.leave_type as LeaveType)}: ${b.remaining_days} remaining (${b.used_days} used)`);
-        }
-      } else {
-        lines.push("", "ESTIMATED REMAINING:");
-        for (const [type, quota] of Object.entries(QUOTA)) {
-          const used = summary[type]?.approved ?? 0;
-          lines.push(`• ${leaveTypeLabel(type as LeaveType)}: ${quota - used} remaining (${used} used of ${quota})`);
-        }
+      lines.push("", "REMAINING BALANCES:");
+      for (const [type, quota] of Object.entries(QUOTA)) {
+        const used = summary[type]?.approved ?? 0;
+        lines.push(`• ${leaveTypeLabel(type as LeaveType)}: ${quota - used} remaining (${used} used of ${quota})`);
       }
 
       lines.push(
@@ -740,9 +744,15 @@ export function LeaveBot() {
     const question = (text ?? input).trim();
     if (!question || loading) return;
 
-    // Layer 1 — instant local blocklist (zero latency)
+    // Layer 1a — instant local blocklist (zero latency)
     if (localBlocklistCheck(question)) {
       setInputError("Please keep your messages respectful and professional.");
+      return;
+    }
+    // Layer 1b — gibberish / nonsense check
+    const meaningfulCheck = validateMeaningfulText(question, "Message");
+    if (!meaningfulCheck.valid) {
+      setInputError("Please type a clear question about leave.");
       return;
     }
     setInputError(null);
@@ -783,18 +793,34 @@ export function LeaveBot() {
     <>
       {/* ── Chat window ── */}
       {open && (
-        <div className="fixed bottom-20 right-2 left-2 z-50 sm:left-auto sm:right-4 sm:w-[400px] flex flex-col shadow-2xl rounded-2xl border border-border bg-background overflow-hidden"
+        <>
+          {/* Tap-outside overlay — mobile only */}
+          <div
+            className="fixed inset-0 z-40 sm:hidden"
+            onClick={() => setOpen(false)}
+            aria-hidden
+          />
+          <div className="fixed bottom-36 right-2 left-2 z-50 sm:left-auto sm:right-4 sm:w-[400px] sm:bottom-20 flex flex-col shadow-2xl rounded-2xl border border-border bg-background overflow-hidden max-h-[70dvh] sm:max-h-[600px]"
           style={{ height: "520px", maxHeight: "calc(100dvh - 6rem)" }}>
 
           {/* Header */}
-          <div className="flex items-center gap-3 px-4 py-3 bg-primary text-primary-foreground flex-shrink-0">
-            <div className="w-8 h-8 rounded-full bg-primary-foreground/20 flex items-center justify-center">
+          <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-primary to-primary/80 text-primary-foreground flex-shrink-0">
+            <div className="relative w-8 h-8 rounded-full bg-primary-foreground/20 flex items-center justify-center">
               <Bot className="w-4 h-4" />
+              <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-green-400 border-2 border-primary" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm leading-tight">LeaveBot</p>
               <p className="text-xs opacity-75">Ask me anything about this system</p>
             </div>
+            <button
+              onClick={() => { setMessages([INITIAL_MSG]); try { sessionStorage.removeItem(CHAT_KEY); } catch {} }}
+              className="opacity-60 hover:opacity-100 transition-opacity mr-1"
+              aria-label="Clear chat"
+              title="Clear chat"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
             <button
               onClick={() => setOpen(false)}
               className="opacity-75 hover:opacity-100 transition-opacity"
@@ -869,13 +895,14 @@ export function LeaveBot() {
             </div>
           </div>
         </div>
+        </>
       )}
 
       {/* ── Floating button ── */}
       <button
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "fixed bottom-4 right-4 z-50 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-200",
+          "fixed bottom-20 right-4 z-50 lg:bottom-6 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-200",
           open ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground hover:scale-105"
         )}
         aria-label="Open LeaveBot"

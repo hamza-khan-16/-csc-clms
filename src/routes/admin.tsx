@@ -253,6 +253,8 @@ function AdminPage() {
 
         <AddStaffCard departments={departments} onDone={invalidate} />
 
+        <PasswordResetRequests />
+
         <SectionCard title="All staff" subtitle="Edit salary, role, department or remove an account">
           {isLoading ? (
             <Empty>Loading…</Empty>
@@ -1033,6 +1035,88 @@ function DepartmentsCard({ departments }: { departments: { id: string; name: str
           ))}
         </ul>
       )}
+    </SectionCard>
+  );
+}
+
+function PasswordResetRequests() {
+  const qc = useQueryClient();
+  const resetFn = useServerFn(directPasswordReset);
+
+  const { data: requests = [] } = useQuery({
+    queryKey: ["password-reset-requests"],
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("password_reset_requests")
+        .select("id, teacher_id, full_name, college_id, status, created_at")
+        .eq("status", "pending")
+        .order("created_at", { ascending: true });
+      return data ?? [];
+    },
+  });
+
+  const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function handleSetTemp(req: { id: string; teacher_id: string; full_name: string }) {
+    const pw = tempPasswords[req.id]?.trim();
+    if (!pw || pw.length < 8) return toast.error("Temporary password must be at least 8 characters");
+    setBusy(req.id);
+    try {
+      await resetFn({ data: { targetUserId: req.teacher_id, newPassword: pw } });
+      await supabase
+        .from("password_reset_requests")
+        .update({ status: "completed", completed_at: new Date().toISOString() })
+        .eq("id", req.id);
+      toast.success(`Temporary password set for ${req.full_name}`);
+      setTempPasswords((prev) => { const n = { ...prev }; delete n[req.id]; return n; });
+      qc.invalidateQueries({ queryKey: ["password-reset-requests"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to set password");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (requests.length === 0) return null;
+
+  return (
+    <SectionCard
+      title="Password Reset Requests"
+      subtitle={`${requests.length} pending — set a temporary password for each`}
+    >
+      <ul className="space-y-3">
+        {requests.map((req) => (
+          <li key={req.id} className="rounded-xl border border-warning/30 bg-warning/5 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold text-sm">{req.full_name}</p>
+                <p className="text-xs text-muted-foreground">College ID: {req.college_id}</p>
+                <p className="text-xs text-muted-foreground">
+                  Requested: {new Date(req.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Set temporary password (min 8 chars)"
+                className="flex-1 rounded-lg border border-border px-3 py-2 text-sm bg-background outline-none focus:ring-2 focus:ring-primary/30"
+                value={tempPasswords[req.id] ?? ""}
+                onChange={(e) => setTempPasswords((prev) => ({ ...prev, [req.id]: e.target.value }))}
+              />
+              <Button
+                size="sm"
+                disabled={busy === req.id || !tempPasswords[req.id]?.trim()}
+                onClick={() => handleSetTemp(req)}
+              >
+                {busy === req.id ? <Loader2 className="size-4 animate-spin" /> : "Set"}
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
     </SectionCard>
   );
 }

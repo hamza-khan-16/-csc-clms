@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { fetchPeople } from "@/lib/people";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
-import { SectionCard, StatusBadge, Empty } from "@/components/ui-bits";
+import { SectionCard, StatusBadge, Empty, ListSkeleton } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -41,7 +41,7 @@ import {
 } from "@/lib/leave";
 import { AlertCircle, LockKeyhole, Lightbulb, FileText, CheckCircle2, Clock, ChevronRight } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
-import { GuardedInput, GuardedTextarea } from "@/components/GuardedField";
+import { GuardedTextarea } from "@/components/GuardedField";
 import { useServerFn } from "@tanstack/react-start";
 import { unlockAccount } from "@/lib/admin.functions";
 
@@ -307,7 +307,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
         </div>
         <div className="space-y-1 sm:col-span-2">
           <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
-          <GuardedInput fieldName="Reason" className="h-9 text-sm" placeholder="Reason for leave…" value={reason} onChange={setReason} />
+          <Input className="h-9 text-sm" placeholder="Reason for leave…" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} />
         </div>
       </div>
 
@@ -492,10 +492,12 @@ function LockedAccountsPanel({ role, deptId }: { role: "hod" | "principal"; dept
 function RequestsPage() {
   const { profile, role } = useAuth();
   const isHod = role === "hod";
+  const qc = useQueryClient();
 
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ["review-requests", role, profile?.id],
     enabled: !!profile,
+    staleTime: 30_000,
     queryFn: async () => {
       const { data: adminRoles } = await supabase.from("user_roles").select("user_id, role")
         .in("role", ["admin", "principal"]);
@@ -528,6 +530,46 @@ function RequestsPage() {
   const docPending = isHod ? [] : requests.filter((r) => r.status === "hod_approved" && r.doc_status !== "verified");
   const rest = requests.filter((r) => !actionable.includes(r) && !docPending.includes(r));
 
+  const [searchQ, setSearchQ] = useState("");
+  const filteredRest = useMemo(() => {
+    if (!searchQ.trim()) return rest;
+    const q = searchQ.toLowerCase();
+    return rest.filter((r) =>
+      r.teacher?.full_name?.toLowerCase().includes(q) ||
+      r.leave_type?.toLowerCase().includes(q) ||
+      r.status?.toLowerCase().includes(q)
+    );
+  }, [rest, searchQ]);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkApprove() {
+    if (selectedIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      const newStatus = isHod ? "hod_approved" : "approved";
+      const { error } = await supabase
+        .from("leave_requests")
+        .update({ status: newStatus })
+        .in("id", Array.from(selectedIds));
+      if (error) { toast.error(error.message); return; }
+      toast.success(`${selectedIds.size} request(s) approved`);
+      setSelectedIds(new Set());
+      qc.invalidateQueries({ queryKey: ["review-requests", role, profile?.id] });
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   return (
     <AppShell
       title="Leave Requests"
@@ -541,6 +583,11 @@ function RequestsPage() {
           </SectionCard>
         )}
 
+        {/* HOD: Dept leave calendar — who's on leave today */}
+        {isHod && profile?.department_id && (
+          <DeptLeaveToday deptId={profile.department_id} />
+        )}
+
         {/* Locked accounts — Principal sees locked teachers + HODs; HOD sees nothing (admin/principal handles it) */}
         {(isHod || role === "principal") && (
           <LockedAccountsPanel
@@ -549,10 +596,41 @@ function RequestsPage() {
           />
         )}
 
-        <SectionCard title="Needs your action" subtitle={`${actionable.length} request(s)`}>
-          {isLoading ? <Empty>Loading…</Empty>
-            : actionable.length === 0 ? <Empty>Nothing waiting on you right now.</Empty>
-            : <div className="space-y-4">{actionable.map((r) => <RequestCard key={r.id} request={r} isHod={isHod} />)}</div>}
+        <SectionCard
+          title="Needs your action"
+          subtitle={`${actionable.length} request(s)`}
+          action={
+            actionable.length > 1 ? (
+              <div className="flex items-center gap-2">
+                {selectedIds.size > 0 && (
+                  <Button size="sm" disabled={bulkBusy} onClick={bulkApprove}>
+                    Approve {selectedIds.size} selected
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" onClick={() =>
+                  setSelectedIds(selectedIds.size === actionable.length ? new Set() : new Set(actionable.map((r) => r.id)))
+                }>
+                  {selectedIds.size === actionable.length ? "Deselect all" : "Select all"}
+                </Button>
+              </div>
+            ) : undefined
+          }
+        >
+          {isLoading ? <ListSkeleton rows={3} />
+            : actionable.length === 0 ? <Empty illustration="check">Nothing waiting on you right now.</Empty>
+            : <div className="space-y-4">{actionable.map((r) => (
+                <div key={r.id} className="relative">
+                  {actionable.length > 1 && (
+                    <input
+                      type="checkbox"
+                      className="absolute right-3 top-3 z-10 size-4 cursor-pointer accent-primary"
+                      checked={selectedIds.has(r.id)}
+                      onChange={() => toggleSelect(r.id)}
+                    />
+                  )}
+                  <RequestCard request={r} isHod={isHod} />
+                </div>
+              ))}</div>}
         </SectionCard>
 
         {!isHod && docPending.length > 0 && (
@@ -561,12 +639,27 @@ function RequestsPage() {
           </SectionCard>
         )}
 
-        <SectionCard title="All requests">
-          {rest.length === 0 ? <Empty>No other requests.</Empty> : (
+        <SectionCard
+          title="All requests"
+          action={
+            <div className="relative">
+              <input
+                className="h-8 w-48 rounded-lg border border-border bg-muted/50 pl-8 pr-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                placeholder="Search by name…"
+                value={searchQ}
+                onChange={(e) => setSearchQ(e.target.value)}
+              />
+              <svg className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            </div>
+          }
+        >
+          {rest.length === 0 ? <Empty illustration="check">No other requests.</Empty> : filteredRest.length === 0 ? (
+            <Empty illustration="search">No requests match "{searchQ}".</Empty>
+          ) : (
             <>
               {/* Mobile card list */}
               <div className="space-y-3 sm:hidden">
-                {rest.map((r) => (
+                {filteredRest.map((r) => (
                   <div key={r.id} className="rounded-lg border border-border p-3 text-sm">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -596,7 +689,7 @@ function RequestsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rest.map((r) => (
+                    {filteredRest.map((r) => (
                       <tr key={r.id} className="border-t border-border">
                         <td className="py-3 pr-4 font-medium whitespace-nowrap">{r.teacher?.full_name}</td>
                         <td className="py-3 pr-4 whitespace-nowrap">{leaveTypeLabel(r.leave_type as LeaveType)}</td>
@@ -921,7 +1014,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       )}
 
       <GuardedTextarea fieldName="Note" className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={setNote} />
-
+      <p className="text-right text-xs text-muted-foreground mt-1">{note.length}/300</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {isHod && isHodFinal && <Button onClick={hodDirectApprove} disabled={busy}>Approve Leave</Button>}
         {isHod && !isHodFinal && <Button onClick={hodRecommend} disabled={busy}>Approve &amp; send to principal</Button>}
@@ -1017,6 +1110,7 @@ function DocCard({ request }: { request: RequestRow }) {
         </div>
       )}
       <GuardedTextarea fieldName="Note" className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={setNote} />
+      <p className="text-right text-xs text-muted-foreground mt-1">{note.length}/300</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {docUploaded && <Button onClick={verifyAndApprove} disabled={busy}>Verify Document</Button>}
         <Button variant="outline" onClick={rejectDoc} disabled={busy || !docUploaded}>Reject Document</Button>
@@ -1037,4 +1131,45 @@ function ViewDocButton({ path }: { path: string }) {
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
   return <button onClick={open} disabled={loading} className="mt-1 inline-block text-xs underline text-info disabled:opacity-50">{loading ? "Opening…" : "View document ↗"}</button>;
+}
+
+function DeptLeaveToday({ deptId }: { deptId: string }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: onLeave = [] } = useQuery({
+    queryKey: ["dept-on-leave-today", deptId, today],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data: leaves } = await supabase
+        .from("leave_requests")
+        .select("teacher_id, leave_type, from_date, to_date, status, profiles(full_name)")
+        .eq("department_id", deptId)
+        .in("status", ["approved", "hod_approved"])
+        .lte("from_date", today)
+        .gte("to_date", today);
+      return (leaves ?? []).map((l) => ({
+        name: ((l as unknown as { profiles: { full_name: string } | null }).profiles)?.full_name ?? "Unknown",
+        leave_type: l.leave_type,
+        from_date: l.from_date,
+        to_date: l.to_date,
+      }));
+    },
+  });
+
+  if (onLeave.length === 0) return null;
+
+  return (
+    <SectionCard
+      title="On leave today"
+      subtitle={`${onLeave.length} teacher(s) absent`}
+    >
+      <ul className="space-y-2">
+        {onLeave.map((t, i) => (
+          <li key={i} className="flex items-center justify-between text-sm">
+            <span className="font-medium">{t.name}</span>
+            <span className="text-xs text-muted-foreground capitalize">{t.leave_type.replace(/_/g, " ")}</span>
+          </li>
+        ))}
+      </ul>
+    </SectionCard>
+  );
 }

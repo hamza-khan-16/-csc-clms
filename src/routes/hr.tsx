@@ -17,6 +17,7 @@ import { Guarded } from "@/components/Guard";
 import { StatusBadge, Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { GuardedTextarea } from "@/components/GuardedField";
 import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -412,7 +413,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
             ))}
           </div>
 
-          <div className="px-4 py-4 space-y-4">
+          <div className="px-4 py-4 space-y-4 overflow-y-auto max-h-[60vh]">
 
             {/* ── PROFILE TAB ─────────────────────────────────────────────── */}
             {tab === "profile" && (
@@ -498,7 +499,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
 
                     <div className="space-y-1">
                       <div className="relative">
-                        <Textarea rows={2} placeholder="Overall rejection reason (required to reject entire application)…"
+                        <Textarea rows={2} fieldName="Rejection reason" placeholder="Overall rejection reason (required to reject entire application)…"
                           value={note} onChange={(e) => setNote(e.target.value)}
                           className={noteError ? "border-destructive" : ""} />
                         {noteChecking && (
@@ -607,6 +608,7 @@ function HrPage() {
   // ── Fetch teachers + their docs ───────────────────────────────────────────
   const { data: teachers = [], isLoading: tLoading } = useQuery({
     queryKey: ["hr-teachers"],
+    staleTime: 30_000,
     queryFn: async () => {
       const { data: profiles, error } = await supabase
         .from("profiles")
@@ -652,6 +654,7 @@ function HrPage() {
   const { data: allLeaves = [], isLoading: lLoading } = useQuery({
     queryKey: ["hr-all-leaves", teacherIds.join(",")],
     enabled: teacherIds.length > 0,
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leave_requests")
@@ -664,8 +667,8 @@ function HrPage() {
   });
 
   function refresh() {
-    qc.invalidateQueries({ queryKey: ["hr-teachers"] });
-    // exact: false matches ["hr-all-leaves", teacherIds.join(",")]
+    // Invalidate with exact:false so it matches all variants of the key
+    qc.invalidateQueries({ queryKey: ["hr-teachers"], exact: false });
     qc.invalidateQueries({ queryKey: ["hr-all-leaves"], exact: false });
   }
 

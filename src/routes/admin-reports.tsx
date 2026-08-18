@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { supabase } from "@/integrations/supabase/client";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
@@ -16,6 +17,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { LEAVE_TYPES, leaveTypeLabel, fmtDate, type LeaveType } from "@/lib/leave";
+
+const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 import {
   FileText, BarChart2, ChevronDown,
   User, Building2, ClipboardList, CalendarDays, Wallet, IndianRupee,
@@ -250,6 +253,20 @@ const REPORT_MODULES: {
       );
     },
   },
+  {
+    key: "balances",
+    label: "Leave Balances",
+    description: "Remaining leave balance per teacher (current year)",
+    Icon: BarChart2,
+    build: (_leaves, people) =>
+      Object.values(people).filter(Boolean).map((p) => ({
+        Teacher:    p!.full_name,
+        Department: p!.department_name ?? "—",
+        "Casual Remaining":   "—",
+        "Medical Remaining":  "—",
+        "Note": "Sync from leave_balances view",
+      })),
+  },
 ];
 
 function AdminReportsPage() {
@@ -292,6 +309,7 @@ function AdminReportsPage() {
   // Raw leave + salary data
   const { data: reportData, isLoading } = useQuery({
     queryKey: ["admin-report-data", filterYear],
+    staleTime: 60_000,
     queryFn: async () => {
       const { data: leaves, error } = await supabase
         .from("leave_requests")
@@ -643,7 +661,7 @@ function AdminReportsPage() {
                 <div className="space-y-1 col-span-2 sm:col-span-1">
                   <label className="text-xs text-muted-foreground">Department</label>
                   <Select value={filterDept} onValueChange={setFilterDept}>
-                    <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-8 text-xs w-full min-w-[130px]"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All departments</SelectItem>
                       {departments.map((d) => (
@@ -721,6 +739,40 @@ function AdminReportsPage() {
                 </ul>
               )}
             </div>
+
+            {/* Department-wise leave bar chart */}
+            {(() => {
+              const deptCounts: Record<string, number> = {};
+              for (const l of effectiveLeaves) {
+                const dept = people[l.teacher_id]?.department_name ?? "Unknown";
+                deptCounts[dept] = (deptCounts[dept] ?? 0) + 1;
+              }
+              const chartData = Object.entries(deptCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 12)
+                .map(([dept, count]) => ({ dept: dept.length > 16 ? dept.slice(0, 14) + "…" : dept, count }));
+              if (chartData.length < 2) return null;
+              return (
+                <SectionCard title="Leaves by department" subtitle={`${filterYear}${filterMonth !== "all" ? ` · ${MONTHS_SHORT[Number(filterMonth)]}` : ""}`}>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 40 }}>
+                      <XAxis dataKey="dept" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} angle={-35} textAnchor="end" interval={0} />
+                      <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} allowDecimals={false} />
+                      <Tooltip
+                        formatter={(v: number) => [`${v} leave(s)`, "Count"]}
+                        contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)" }}
+                        cursor={{ fill: "var(--muted)" }}
+                      />
+                      <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                        {chartData.map((_, i) => (
+                          <Cell key={i} fill={`hsl(${(i * 47) % 360} 65% 55%)`} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </SectionCard>
+              );
+            })()}
 
             {/* Data preview */}
             <SectionCard
@@ -805,7 +857,78 @@ function AdminReportsPage() {
             </SectionCard>
           </div>
         </div>
+
+        {/* Leave balances overview (if balances module active) */}
+        {activeModule === "balances" && (
+          <LeaveBalancesOverview people={filteredPeople} filterYear={filterYear} />
+        )}
       </div>
     </AppShell>
+  );
+}
+
+function LeaveBalancesOverview({ people, filterYear }: { people: PeopleMap; filterYear: string }) {
+  const year = Number(filterYear);
+  const { data: allLeaves = [] } = useQuery({
+    queryKey: ["balance-overview-leaves", year],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("leave_requests")
+        .select("teacher_id, leave_type, paid_days, unpaid_days, status, from_date")
+        .in("status", ["approved", "hod_approved"])
+        .gte("from_date", `${year}-01-01`)
+        .lte("from_date", `${year}-12-31`);
+      return data ?? [];
+    },
+  });
+
+  const CASUAL_ANNUAL = 12;
+  const MEDICAL_PAID  = 14;
+
+  const rows = Object.entries(people).filter(([, p]) => !!p).map(([id, p]) => {
+    const person = p!;
+    const mine = allLeaves.filter((l: { teacher_id: string; leave_type: string; paid_days: string | number }) => l.teacher_id === id);
+    const casualUsed  = mine.filter((l: { leave_type: string }) => l.leave_type === "casual").reduce((s: number, l: { paid_days: string | number }) => s + Number(l.paid_days), 0);
+    const medUsed     = mine.filter((l: { leave_type: string }) => l.leave_type === "medical").reduce((s: number, l: { paid_days: string | number }) => s + Number(l.paid_days), 0);
+    return {
+      name:       person.full_name,
+      department: person.department_name ?? "—",
+      casualUsed,
+      casualLeft: Math.max(CASUAL_ANNUAL - casualUsed, 0),
+      medUsed,
+      medLeft:    Math.max(MEDICAL_PAID - medUsed, 0),
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
+  return (
+    <SectionCard title="Leave Balances Overview" subtitle={`All teachers · ${filterYear}`}>
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-xs min-w-[480px]">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="px-3 py-2 text-left font-semibold">Teacher</th>
+              <th className="px-3 py-2 text-left font-semibold">Department</th>
+              <th className="px-3 py-2 text-center font-semibold">Casual Used</th>
+              <th className="px-3 py-2 text-center font-semibold">Casual Left</th>
+              <th className="px-3 py-2 text-center font-semibold">Medical Used</th>
+              <th className="px-3 py-2 text-center font-semibold">Medical Left</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.map((r, i) => (
+              <tr key={i} className="hover:bg-muted/20">
+                <td className="px-3 py-2 font-medium">{r.name}</td>
+                <td className="px-3 py-2 text-muted-foreground">{r.department}</td>
+                <td className="px-3 py-2 text-center">{r.casualUsed}</td>
+                <td className={`px-3 py-2 text-center font-semibold ${r.casualLeft === 0 ? "text-destructive" : r.casualLeft <= 2 ? "text-warning-foreground" : "text-success"}`}>{r.casualLeft}</td>
+                <td className="px-3 py-2 text-center">{r.medUsed}</td>
+                <td className={`px-3 py-2 text-center font-semibold ${r.medLeft === 0 ? "text-destructive" : r.medLeft <= 3 ? "text-warning-foreground" : "text-success"}`}>{r.medLeft}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </SectionCard>
   );
 }

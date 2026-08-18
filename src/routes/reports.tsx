@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useCallback, useMemo } from "react";
+import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
@@ -808,27 +809,40 @@ function ReportsPage() {
 
   // ── Download handlers ─────────────────────────────────────────────────────
   const handleDownloadExcel = useCallback(() => {
+    if (!monthlyData && !isPrincipal) return toast.error("Report data not loaded yet");
     setDownloading("excel");
-    try {
-      if (isPrincipal) {
-        const deptTabLabel = principalDeptTab === "commerce_arts" ? "Commerce & Arts" : "Science & Technology";
-        exportPrincipalExcel(year, deptTabLabel, filteredLeaves, data?.people ?? {});
-      } else {
-        exportExcel(selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, monthlyData?.fixedLectures??[], monthlyData?.datedLectures??[], monthlyData?.proxies??[], monthlyData?.compensations??[]);
-      }
-    } finally { setDownloading(null); }
+    setTimeout(() => {
+      try {
+        if (isPrincipal) {
+          const deptTabLabel = principalDeptTab === "commerce_arts" ? "Commerce & Arts" : "Science & Technology";
+          exportPrincipalExcel(year, deptTabLabel, filteredLeaves, data?.people ?? {});
+        } else {
+          exportExcel(selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, monthlyData?.fixedLectures??[], monthlyData?.datedLectures??[], monthlyData?.proxies??[], monthlyData?.compensations??[]);
+        }
+      } catch (e) {
+        toast.error("Export failed — please try again");
+        console.error(e);
+      } finally { setDownloading(null); }
+    }, 50);
   }, [selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, monthlyData, isPrincipal, principalDeptTab, filteredLeaves, data?.people]);
 
   const handleDownloadPDF = useCallback(() => {
+    if (!monthlyData && !isPrincipal) return toast.error("Report data not loaded yet");
+    if (!isPrincipal && filteredSummaries.length === 0) return toast.error("No data to export");
     setDownloading("pdf");
-    try {
-      if (isPrincipal) {
-        const deptTabLabel = principalDeptTab === "commerce_arts" ? "Commerce & Arts" : "Science & Technology";
-        exportPrincipalPDF(year, deptTabLabel, filteredLeaves, data?.people ?? {});
-      } else {
-        exportPDF(selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays);
-      }
-    } finally { setDownloading(null); }
+    setTimeout(() => {
+      try {
+        if (isPrincipal) {
+          const deptTabLabel = principalDeptTab === "commerce_arts" ? "Commerce & Arts" : "Science & Technology";
+          exportPrincipalPDF(year, deptTabLabel, filteredLeaves, data?.people ?? {});
+        } else {
+          exportPDF(selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays);
+        }
+      } catch (e) {
+        toast.error("PDF generation failed — please try again");
+        console.error(e);
+      } finally { setDownloading(null); }
+    }, 50);
   }, [selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, isPrincipal, principalDeptTab, filteredLeaves, data?.people]);
 
   return (
@@ -898,7 +912,7 @@ function ReportsPage() {
                   <span className="hidden xs:inline">{downloading === "excel" ? "…" : "Excel"}</span>
                 </Button>
                 <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadPDF} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
-                  <FileText className="size-4 text-red-600" />
+                  <FileText className="size-4 text-red-600 dark:text-red-400" />
                   <span className="hidden xs:inline">{downloading === "pdf" ? "…" : "PDF"}</span>
                 </Button>
               </div>
@@ -1142,9 +1156,9 @@ function TeacherScheduleCard({
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs shrink-0">
-                    {weekOwn > 0   && <span className="text-blue-600 font-medium">{weekOwn} lec</span>}
-                    {weekProxy > 0 && <span className="text-amber-600 font-medium">{weekProxy} proxy</span>}
-                    {weekLeave > 0 && <span className="text-red-600 font-medium">{weekLeave} leave</span>}
+                    {weekOwn > 0   && <span className="text-blue-600 dark:text-blue-400 font-medium">{weekOwn} lec</span>}
+                    {weekProxy > 0 && <span className="text-amber-600 dark:text-amber-400 font-medium">{weekProxy} proxy</span>}
+                    {weekLeave > 0 && <span className="text-red-600 dark:text-red-400 font-medium">{weekLeave} leave</span>}
                   </div>
                 </div>
 
@@ -1228,7 +1242,7 @@ function TeacherScheduleCard({
               <div className="space-y-1.5">
                 {summary.myProxies.map((p: any, i: number) => (
                   <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-3 py-2 text-xs">
-                    <Clock className="size-3 text-amber-600 shrink-0" />
+                    <Clock className="size-3 text-amber-600 dark:text-amber-400 shrink-0" />
                     <span className="font-medium">{p.subject} · {p.class_name}</span>
                     <span className="text-muted-foreground">·</span>
                     <span>{fmtDate(p.proxy_date)}</span>
@@ -1267,7 +1281,7 @@ function DayCard({ day, info }: { day: Date; info: DayInfo }) {
 
       {info.isLeave ? (
         <div className="flex-1 flex items-center justify-center">
-          <span className="font-bold text-red-600 text-[9px] sm:text-[11px] text-center leading-tight">ON LEAVE</span>
+          <span className="font-bold text-red-600 dark:text-red-400 text-[9px] sm:text-[11px] text-center leading-tight">ON LEAVE</span>
         </div>
       ) : info.ownLectures.length === 0 && info.proxyLectures.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
@@ -1311,7 +1325,7 @@ function DeptTotalsCard({ summaries, weeks }: { summaries: ReturnType<typeof bui
         </div>
         <div>
           <p className="text-xs text-muted-foreground">Proxy duties</p>
-          <p className="font-bold text-amber-600 text-base">{totalProxy}</p>
+          <p className="font-bold text-amber-600 dark:text-amber-400 text-base">{totalProxy}</p>
         </div>
         <div>
           <p className="text-xs text-muted-foreground">Compensations</p>

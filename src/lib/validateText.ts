@@ -139,10 +139,12 @@ function tokenIsPlausible(raw: string): boolean {
   // Vowel ratio check (real words are 20–78 % vowels)
   const vowelCount = [...t].filter((c) => VOWELS.has(c)).length;
   const ratio = vowelCount / t.length;
-  if (ratio < 0.15 || ratio > 0.80) return false;
+  if (ratio < 0.18 || ratio > 0.78) return false;
 
-  // Repeated character run of 3+ (e.g. "aaa", "bbb") — gibberish
-  if (/(.)\1\1/.test(t)) return false;
+  // Repeated character run of 2+ same letters (e.g. "aaa", "bbb", "ssss") — gibberish
+  if (/(.)\1\1/.test(t)) return false; // 3+ same in a row
+  // Pure keyboard-row patterns (qwerty / asdf runs of 5+)
+  if (/[qwert]{5,}|[asdfg]{5,}|[zxcvb]{5,}|[yuiop]{5,}|[hjkl]{4,}/i.test(t)) return false;
 
   // Consecutive consonant run > 3 — check against known clusters
   const consonantRuns = t.match(/[^aeiou]{4,}/g) ?? [];
@@ -202,8 +204,8 @@ export function validateMeaningfulText(
     return { valid: true };
   }
 
-  // Multi-token: require at least 60 % of words to be plausible
-  if (ratio < 0.6) {
+  // Multi-token: require at least 70 % of words to be plausible
+  if (ratio < 0.7) {
     return {
       valid: false,
       error: `${fieldName} contains unrecognizable words. Please write a clear, meaningful ${fieldName.toLowerCase()}.`,

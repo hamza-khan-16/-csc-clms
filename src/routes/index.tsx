@@ -198,7 +198,8 @@ function SignInPage() {
 
   return (
     <div className="grid min-h-screen lg:grid-cols-[minmax(0,480px)_1fr]">
-      <div className="flex flex-col justify-center px-6 py-12 sm:px-8 overflow-y-auto">
+      <div className="flex flex-col justify-center px-6 py-12 sm:px-10 overflow-y-auto">
+        <div className="max-w-sm w-full mx-auto">
         <Logo />
         <h1 className="mt-10 text-2xl font-extrabold tracking-tight">Leave Management System</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -211,19 +212,31 @@ function SignInPage() {
         >
           {mode === "signin" ? "New staff member? Register an account" : "Already registered? Sign in"}
         </button>
+        </div>
       </div>
 
-      <div className="relative hidden overflow-hidden bg-accent/40 lg:block">
+      <div className="relative hidden overflow-hidden lg:block">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-accent/20 to-background" />
         <div className="absolute inset-0 grid place-items-center p-16">
-          <div className="max-w-md">
-            <p className="text-3xl font-extrabold leading-tight tracking-tight text-accent-foreground">
-              Casual, maternity, bereavement and half-day leave — tracked, approved and proxy-covered.
+          <div className="max-w-md space-y-6">
+            <p className="text-4xl font-extrabold leading-tight tracking-tight text-foreground">
+              Leave, covered.<br />Every step of the way.
             </p>
-            <ul className="mt-8 space-y-3 text-sm text-foreground/70">
-              <li>· 2 casual leaves a month, 12 a year — paid.</li>
-              <li>· 10 paid medical leaves per year; beyond that principal decides.</li>
-              <li>· HOD assigns proxy lectures, principal gives final approval.</li>
-              <li>· Sundays and national holidays are never counted.</li>
+            <p className="text-base text-muted-foreground leading-relaxed">
+              Casual, maternity, bereavement and half-day leave — tracked, approved and proxy-covered in one place.
+            </p>
+            <ul className="space-y-3">
+              {[
+                "2 casual leaves/month, 12/year — always paid",
+                "10 paid medical leaves per year",
+                "HOD assigns proxy lectures automatically",
+                "Sundays & holidays never counted",
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-3 text-sm">
+                  <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-bold">✓</span>
+                  <span className="text-foreground/80">{item}</span>
+                </li>
+              ))}
             </ul>
           </div>
         </div>
@@ -237,18 +250,23 @@ function SignInForm() {
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const signIn = useServerFn(signInWithIdentifier);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setAuthError(null);
     setBusy(true);
     try {
       const result = await signIn({ data: { identifier: email.trim(), password } });
-      if ("error" in result && result.error) { toast.error(result.error); return; }
+      if ("error" in result && result.error) {
+        setAuthError(result.error);
+        return;
+      }
       const { error } = await supabase.auth.setSession(result);
       if (error) throw error;
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Invalid user ID or password");
+      setAuthError(err instanceof Error ? err.message : "Invalid user ID or password");
     } finally {
       setBusy(false);
     }
@@ -265,8 +283,8 @@ function SignInForm() {
             required
             placeholder="firstname@CSC.COM"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="pr-10"
+            onChange={(e) => { setEmail(e.target.value); setAuthError(null); }}
+            className={authError ? "pr-10 border-destructive focus-visible:ring-destructive" : "pr-10"}
           />
           <UserRound className="pointer-events-none absolute right-3 top-2.5 size-4 text-muted-foreground" />
         </div>
@@ -280,18 +298,132 @@ function SignInForm() {
             required
             placeholder="Enter your password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="pr-10"
+            onChange={(e) => { setPassword(e.target.value); setAuthError(null); }}
+            className={authError ? "pr-10 border-destructive focus-visible:ring-destructive" : "pr-10"}
           />
           <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-2.5 text-muted-foreground" aria-label="Toggle password visibility">
             {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
         </div>
+        {authError && (
+          <p className="text-xs text-destructive flex items-center gap-1.5 mt-1">
+            <span className="inline-block size-3.5 rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold flex items-center justify-center shrink-0">!</span>
+            {authError}
+          </p>
+        )}
       </div>
       <Button type="submit" className="w-full" disabled={busy}>
         {busy && <Loader2 className="size-4 animate-spin" />} Sign In
       </Button>
+      <ForgotPasswordDialog />
     </form>
+  );
+}
+
+function ForgotPasswordDialog() {
+  const [open, setOpen] = useState(false);
+  const [collegeId, setCollegeId] = useState("");
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function sendRequest(e: React.FormEvent) {
+    e.preventDefault();
+    const id = collegeId.trim().toUpperCase();
+    if (!id) return;
+    setBusy(true);
+    try {
+      // Look up the teacher by college ID (user_id field in profiles)
+      const { data: profile, error: profileErr } = await supabase
+        .from("profiles")
+        .select("id, full_name, user_id")
+        .eq("user_id", id)
+        .maybeSingle();
+
+      if (profileErr || !profile) {
+        toast.error("No account found with that College ID");
+        return;
+      }
+
+      // Insert a password reset request — admin will see it in admin panel
+      const { error } = await supabase
+        .from("password_reset_requests")
+        .insert({
+          teacher_id: profile.id,
+          full_name:  profile.full_name,
+          college_id: profile.user_id,
+          status:     "pending",
+        });
+
+      if (error && !error.message.includes("duplicate")) {
+        toast.error("Could not submit request. Please contact admin directly.");
+        return;
+      }
+
+      setSent(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="w-full text-center text-xs text-muted-foreground hover:text-primary transition-colors"
+        onClick={() => setOpen(true)}
+      >
+        Forgot password?
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-background p-6 shadow-2xl space-y-4">
+            {sent ? (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="size-10 rounded-full bg-success/10 flex items-center justify-center shrink-0">
+                    <span className="text-xl">✓</span>
+                  </div>
+                  <div>
+                    <p className="font-semibold">Request sent</p>
+                    <p className="text-xs text-muted-foreground">Admin will set a temporary password for you</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Your password reset request has been sent to the admin. Please check with your admin — they will set a temporary password and share it with you directly.
+                </p>
+                <Button className="w-full" onClick={() => { setOpen(false); setSent(false); setCollegeId(""); }}>Done</Button>
+              </>
+            ) : (
+              <form onSubmit={sendRequest} className="space-y-4">
+                <div>
+                  <p className="font-semibold text-base">Forgot Password?</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Enter your College ID. Your request will be sent to the admin who will set a temporary password for you.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">College ID</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. CSC2024001"
+                    className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30 bg-background uppercase placeholder:normal-case"
+                    value={collegeId}
+                    onChange={(e) => setCollegeId(e.target.value.toUpperCase())}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" className="flex-1" onClick={() => setOpen(false)}>Cancel</Button>
+                  <Button type="submit" className="flex-1" disabled={busy || !collegeId.trim()}>
+                    {busy && <Loader2 className="size-4 animate-spin mr-1" />} Send Request
+                  </Button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -7,7 +7,7 @@ import { fetchPeople } from "@/lib/people";
 import { useBalances } from "@/hooks/useBalances";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
-import { SectionCard, StatCard, StatusBadge, Empty } from "@/components/ui-bits";
+import { SectionCard, StatCard, StatCardSkeleton, ListSkeleton, StatusBadge, Empty } from "@/components/ui-bits";
 import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL, MEDICAL_PAID_QUOTA, type LeaveStatus, type LeaveType, type LeaveSession } from "@/lib/leave";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
@@ -29,8 +29,8 @@ function usePasswordExpiryDays(passwordChangedAt: string | null | undefined, rol
 function PasswordExpiryBanner({ daysLeft }: { daysLeft: number }) {
   const isExpired = daysLeft <= 0;
   return (
-    <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${isExpired ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-warning/40 bg-warning/10 text-warning-foreground"}`}>
-      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+    <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${isExpired ? "border-destructive/40 bg-destructive/10" : "border-warning/40 bg-warning/10"}`}>
+      <AlertTriangle className={`mt-0.5 size-4 shrink-0 ${isExpired ? "text-destructive" : "text-warning-foreground"}`} />
       <div className="flex-1 text-sm">
         {isExpired
           ? <><span className="font-semibold">Your password has expired.</span> Please change it immediately from your <Link to="/profile" className="underline font-medium">Profile</Link> page.</>
@@ -63,28 +63,36 @@ export const Route = createFileRoute("/dashboard")({
 function DashboardPage() {
   const { profile, role } = useAuth();
   const isPrincipal = role === "principal";
+  const isAdmin     = role === "admin";
+  const isHr        = role === "hr";
   return (
     <AppShell
       title={`Welcome, ${profile?.full_name ?? ""}`}
       subtitle={
         isPrincipal
           ? `${profile?.designation ?? "Principal"} · Chandrabhan Sharma College`
+          : isAdmin || isHr
+          ? `${role === "hr" ? "HR" : "Admin"} · Chandrabhan Sharma College`
           : `${profile?.designation ?? ""}${profile?.department_name ? `, ${profile.department_name}` : ""}`
       }
     >
-      {role === "principal" ? <PrincipalDashboard /> : <TeacherDashboard />}
+      {isPrincipal  ? <PrincipalDashboard /> :
+       isAdmin || isHr ? <AdminHrDashboard /> :
+       <TeacherDashboard />}
     </AppShell>
   );
 }
 
 function TeacherDashboard() {
   const { profile, role } = useAuth();
-  const { data: balances = [] } = useBalances(profile?.id);
+  const navigate = useNavigate();
+  const { data: balances = [], isLoading: balLoading } = useBalances(profile?.id);
   const daysLeft = usePasswordExpiryDays(profile?.password_changed_at, role);
 
-  const { data: leaves = [] } = useQuery({
+  const { data: leaves = [], isLoading: leavesLoading } = useQuery({
     queryKey: ["my-leaves-recent", profile?.id],
     enabled: !!profile,
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leave_requests")
@@ -100,6 +108,7 @@ function TeacherDashboard() {
   const { data: todayLectures = [] } = useQuery({
     queryKey: ["today-lectures", profile?.id],
     enabled: !!profile,
+    staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("lectures")
@@ -130,6 +139,7 @@ function TeacherDashboard() {
 
   const { data: holidays = [] } = useQuery({
     queryKey: ["upcoming-holidays"],
+    staleTime: 60 * 60_000, // 1 hour — holidays don't change mid-session
     queryFn: async () => {
       const { data, error } = await supabase
         .from("holidays")
@@ -246,7 +256,10 @@ function TeacherDashboard() {
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {balances
+        {balLoading ? (
+          Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
+        ) : (<>
+          {balances
           .filter((b) => b.type === "casual")
           .map((b) => {
             const remainingYear  = Math.max(b.yearlyCap - b.usedYear, 0);
@@ -268,6 +281,7 @@ function TeacherDashboard() {
                     : `days left this year · ${b.usedYear} used`
                 }
                 tone={remainingYear === 0 ? "destructive" : "default"}
+                onClick={() => navigate({ to: "/leaves" })}
               />
             );
           })}
@@ -288,6 +302,7 @@ function TeacherDashboard() {
               ? "warning"
               : "default"
           }
+          onClick={() => navigate({ to: "/leaves" })}
         />
 
         <StatCard
@@ -295,7 +310,9 @@ function TeacherDashboard() {
           value={payroll.unpaidDays}
           tone={payroll.unpaidDays > 0 ? "destructive" : "success"}
           hint={payroll.unpaidDays > 0 ? "salary deduction will apply" : "no deduction this month"}
+          onClick={() => navigate({ to: "/payroll" })}
         />
+        </>)}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -333,7 +350,9 @@ function TeacherDashboard() {
             </Button>
           }
         >
-          {leaves.length === 0 ? (
+          {leavesLoading ? (
+            <ListSkeleton rows={3} />
+          ) : leaves.length === 0 ? (
             <Empty>No leave requests yet.</Empty>
           ) : (
             <>
@@ -479,6 +498,7 @@ function TeacherDashboard() {
 
 function PrincipalDashboard() {
   const { profile, role } = useAuth();
+  const navigate = useNavigate();
   const daysLeft = usePasswordExpiryDays(profile?.password_changed_at, role);
 
   const { data: stats } = useQuery({
@@ -561,10 +581,16 @@ function PrincipalDashboard() {
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Teaching Staff (College)" value={stats?.teachers ?? 0} />
-        <StatCard label="Departments" value={stats?.departments ?? 0} />
-        <StatCard label="Awaiting Your Approval" value={stats?.pending ?? 0} tone="warning" />
-        <StatCard label="Approved (This Year)" value={stats?.approved ?? 0} tone="success" />
+        {!stats ? (
+          Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
+        ) : (
+          <>
+            <StatCard label="Teaching Staff (College)"  value={stats.teachers}   />
+            <StatCard label="Departments"               value={stats.departments} />
+            <StatCard label="Awaiting Your Approval"    value={stats.pending}     tone="warning" onClick={() => navigate({ to: "/requests" })} />
+            <StatCard label="Approved (This Year)"      value={stats.approved}    tone="success" onClick={() => navigate({ to: "/admin-reports" })} />
+          </>
+        )}
       </div>
 
       <SectionCard
@@ -618,6 +644,79 @@ function PrincipalDashboard() {
             </div>
           </>
         )}
+      </SectionCard>
+    </div>
+  );
+}
+
+function AdminHrDashboard() {
+  const { role } = useAuth();
+  const isHr = role === "hr";
+
+  const { data: stats } = useQuery({
+    queryKey: ["admin-hr-dash-stats"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data: excludedRoles } = await supabase.from("user_roles").select("user_id").in("role", ["admin", "principal"]);
+      const excludedIds = (excludedRoles ?? []).map((r) => r.user_id);
+      const year = new Date().getFullYear();
+      const [teachers, pendingLeaves, approvedLeaves, depts] = await Promise.all([
+        supabase.from("profiles").select("id", { count: "exact", head: true }).eq("approved", true)
+          .not("id", "in", excludedIds.length ? `(${excludedIds.join(",")})` : `('00000000-0000-0000-0000-000000000000')`),
+        supabase.from("leave_requests").select("id", { count: "exact", head: true })
+          .in("status", ["pending_hod", "hod_recommended", "pending_principal"]),
+        supabase.from("leave_requests").select("id", { count: "exact", head: true })
+          .in("status", ["approved", "hod_approved"]).gte("from_date", `${year}-01-01`),
+        supabase.from("departments").select("id", { count: "exact", head: true }),
+      ]);
+      return {
+        teachers:      teachers.count ?? 0,
+        pendingLeaves: pendingLeaves.count ?? 0,
+        approvedLeaves: approvedLeaves.count ?? 0,
+        departments:   depts.count ?? 0,
+      };
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-primary/20 bg-gradient-to-r from-primary/8 to-primary/4 px-5 py-4 flex items-center gap-4">
+        <div className="size-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+          <span className="text-lg">{isHr ? "👥" : "⚙️"}</span>
+        </div>
+        <div>
+          <p className="font-bold text-base">Chandrabhan Sharma College</p>
+          <p className="text-sm text-muted-foreground">
+            {isHr ? "HR Panel · Staff onboarding & payroll" : "Admin Panel · Full system access"}
+          </p>
+        </div>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Teaching Staff" value={stats?.teachers ?? "—"} />
+        <StatCard label="Departments"    value={stats?.departments ?? "—"} />
+        <StatCard label="Pending Leaves" value={stats?.pendingLeaves ?? "—"} tone="warning" />
+        <StatCard label="Approved (This Year)" value={stats?.approvedLeaves ?? "—"} tone="success" />
+      </div>
+      <SectionCard title="Quick Actions">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {isHr ? (
+            <>
+              <Button asChild className="w-full justify-start"><Link to="/hr">HR Panel</Link></Button>
+              <Button asChild variant="secondary" className="w-full justify-start"><Link to="/teachers">View Teachers</Link></Button>
+              <Button asChild variant="secondary" className="w-full justify-start"><Link to="/holidays">Holidays</Link></Button>
+              <Button asChild variant="secondary" className="w-full justify-start"><Link to="/notices">Notices</Link></Button>
+            </>
+          ) : (
+            <>
+              <Button asChild className="w-full justify-start"><Link to="/admin">Admin Panel</Link></Button>
+              <Button asChild variant="secondary" className="w-full justify-start"><Link to="/admin-reports">Reports</Link></Button>
+              <Button asChild variant="secondary" className="w-full justify-start"><Link to="/teachers">Teachers</Link></Button>
+              <Button asChild variant="secondary" className="w-full justify-start"><Link to="/departments">Departments</Link></Button>
+              <Button asChild variant="secondary" className="w-full justify-start"><Link to="/requests">Leave Requests</Link></Button>
+              <Button asChild variant="secondary" className="w-full justify-start"><Link to="/holidays">Holidays</Link></Button>
+            </>
+          )}
+        </div>
       </SectionCard>
     </div>
   );

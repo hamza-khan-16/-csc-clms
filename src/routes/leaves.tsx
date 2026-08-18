@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,8 +21,8 @@ import {
   type LeaveType,
   type DocStatus,
 } from "@/lib/leave";
-import { useRef, useState } from "react";
-import { CheckCircle2, FileText, Upload } from "lucide-react";
+import { CheckCircle2, FileText, Upload, Calendar, List } from "lucide-react";
+import { MonthCalendar } from "@/components/MonthCalendar";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -61,6 +62,8 @@ const FILTER_OPTIONS: { value: FilterTab; label: string }[] = [
   { value: "with_docs", label: "With Documents" },
 ];
 
+const PENDING_STATUSES: string[] = ["pending_hod", "hod_recommended", "pending_principal"];
+
 function MyLeavesPage() {
   const { profile } = useAuth();
   const qc = useQueryClient();
@@ -69,6 +72,7 @@ function MyLeavesPage() {
   const { data: leaves = [] } = useQuery({
     queryKey: ["my-leaves", profile?.id],
     enabled: !!profile,
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leave_requests")
@@ -96,27 +100,68 @@ function MyLeavesPage() {
     },
   });
 
-  const filteredLeaves = leaves.filter((l) => {
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+
+  // Realtime — invalidate when any of this teacher's leaves change status
+  useEffect(() => {
+    if (!profile?.id) return;
+    const channel = supabase
+      .channel(`leaves-realtime-${profile.id}`)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "leave_requests",
+        filter: `teacher_id=eq.${profile.id}`,
+      }, () => {
+        qc.invalidateQueries({ queryKey: ["my-leaves", profile.id] });
+        toast.info("Leave status updated");
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id, qc]);
+
+  const filteredLeaves = useMemo(() => leaves.filter((l) => {
     if (filter === "all") return true;
-    if (filter === "pending") return l.status === "pending_hod" || l.status === "pending_principal";
+    if (filter === "pending")  return PENDING_STATUSES.includes(l.status);
     if (filter === "approved") return l.status === "approved" || l.status === "hod_approved";
     if (filter === "rejected") return l.status === "rejected";
     if (filter === "with_docs") return !!l.doc_status;
     return true;
-  });
+  }), [leaves, filter]);
+
+  // Memoised counts for filter badges — not recalculated per-item in JSX (#15)
+  const filterCounts = useMemo(() => ({
+    pending:   leaves.filter((l) => PENDING_STATUSES.includes(l.status)).length,
+    approved:  leaves.filter((l) => l.status === "approved" || l.status === "hod_approved").length,
+    rejected:  leaves.filter((l) => l.status === "rejected").length,
+    with_docs: leaves.filter((l) => !!l.doc_status).length,
+  }), [leaves]);
+
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   async function cancel(id: string) {
     const { error } = await supabase.from("leave_requests").delete().eq("id", id);
     if (error) return toast.error(error.message);
+    setConfirmId(null);
+    document.body.style.overflow = "";
     toast.success("Request withdrawn");
     qc.invalidateQueries();
   }
 
+  // Lock body scroll when confirm dialog is open
+  useEffect(() => {
+    if (confirmId) {
+      document.body.style.overflow = "hidden";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [confirmId]);
+
   return (
     <AppShell title="My Leaves" subtitle="All leave requests you have submitted">
       <div className="space-y-4">
-        {/* Filter dropdown */}
-        <div className="flex items-center gap-3">
+        {/* Filter + view mode toggle */}
+        <div className="flex items-center gap-3 flex-wrap">
           <Select value={filter} onValueChange={(v) => setFilter(v as FilterTab)}>
             <SelectTrigger className="w-48">
               <SelectValue placeholder="Filter leaves" />
@@ -127,13 +172,7 @@ function MyLeavesPage() {
                   {opt.label}
                   {opt.value !== "all" && (
                     <span className="ml-2 text-xs text-muted-foreground">
-                      ({leaves.filter((l) => {
-                        if (opt.value === "pending")   return l.status === "pending_hod" || l.status === "pending_principal";
-                        if (opt.value === "approved")  return l.status === "approved" || l.status === "hod_approved";
-                        if (opt.value === "rejected")  return l.status === "rejected";
-                        if (opt.value === "with_docs") return !!l.doc_status;
-                        return false;
-                      }).length})
+                      ({filterCounts[opt.value as keyof typeof filterCounts] ?? 0})
                     </span>
                   )}
                 </SelectItem>
@@ -148,7 +187,29 @@ function MyLeavesPage() {
               Clear filter
             </button>
           )}
+          <div className="ml-auto flex items-center gap-1 rounded-lg border border-border p-0.5">
+            <button
+              onClick={() => setViewMode("list")}
+              className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${viewMode === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <List className="size-3.5" /> List
+            </button>
+            <button
+              onClick={() => setViewMode("calendar")}
+              className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${viewMode === "calendar" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <Calendar className="size-3.5" /> Calendar
+            </button>
+          </div>
         </div>
+
+        {/* Calendar view */}
+        {viewMode === "calendar" && (
+          <MonthCalendar teacherId={profile?.id} />
+        )}
+
+        {/* List view */}
+        {viewMode === "list" && (<>
 
         {leaves.length === 0 && (
           <SectionCard>
@@ -177,8 +238,8 @@ function MyLeavesPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={l.status as LeaveStatus} />
-                  {(l.status === "pending_hod" || l.status === "pending_principal") && (
-                    <Button variant="ghost" size="sm" onClick={() => cancel(l.id)}>
+                  {PENDING_STATUSES.includes(l.status) && (
+                    <Button variant="ghost" size="sm" onClick={() => setConfirmId(l.id)}>
                       Withdraw
                     </Button>
                   )}
@@ -247,7 +308,29 @@ function MyLeavesPage() {
             </SectionCard>
           );
         })}
+        </>)}
       </div>
+
+      {/* Withdraw confirmation dialog */}
+      {confirmId && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-background p-6 shadow-2xl space-y-4 animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 duration-200">
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
+                <span className="text-destructive text-lg">⚠️</span>
+              </div>
+              <div>
+                <p className="font-semibold text-base">Withdraw request?</p>
+                <p className="text-xs text-muted-foreground">This cannot be undone.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setConfirmId(null)}>Cancel</Button>
+              <Button variant="destructive" className="flex-1" onClick={() => cancel(confirmId)}>Yes, withdraw</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

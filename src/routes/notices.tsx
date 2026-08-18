@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2, CalendarClock, CalendarDays } from "lucide-react";
+import { Trash2, CalendarClock, CalendarDays, ChevronDown, ChevronUp, CheckCheck } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { GuardedInput, GuardedTextarea } from "@/components/GuardedField";
 import { supabase } from "@/integrations/supabase/client";
@@ -132,40 +132,22 @@ function NoticesPage() {
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         <SectionCard title="Published notices">
           {notices.length === 0 ? (
-            <Empty>No notices published yet.</Empty>
+            <Empty illustration="inbox">No notices published yet.</Empty>
           ) : (
             <ul className="space-y-3">
               {notices.map((n) => {
                 const hasEvent = n.event_date;
+                const isLong = (n.body?.length ?? 0) > 120;
                 return (
-                  <li key={n.id} className={`rounded-lg border p-4 space-y-2 ${hasEvent ? "border-primary/30 bg-primary/4" : "border-border"}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold leading-snug">{n.title}</p>
-                        {n.body && <p className="mt-1 text-sm text-muted-foreground">{n.body}</p>}
-                      </div>
-                      {n.created_by === profile?.id && (
-                        <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={() => remove(n.id)}>
-                          <Trash2 className="size-4" />
-                        </Button>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span>Posted {fmtDate(new Date(n.created_at))}</span>
-                      <span>·</span>
-                      <span>{(n.departments as { name: string } | null)?.name ?? "All departments"}</span>
-                      {hasEvent && (
-                        <>
-                          <span>·</span>
-                          <span className="flex items-center gap-1 font-medium text-primary">
-                            <CalendarClock className="size-3" />
-                            Event: {fmtDate(n.event_date!)}
-                            {n.event_time && ` at ${fmtTime(n.event_time)}`}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  </li>
+                  <NoticeCard
+                    key={n.id}
+                    notice={n}
+                    hasEvent={!!hasEvent}
+                    isLong={isLong}
+                    canDelete={n.created_by === profile?.id || role === "admin"}
+                    onDelete={() => remove(n.id)}
+                    userId={profile?.id}
+                  />
                 );
               })}
             </ul>
@@ -256,5 +238,73 @@ function NoticesPage() {
         </SectionCard>
       </div>
     </AppShell>
+  );
+}
+
+type NoticeRow = { id: string; title: string; body: string | null; event_date: string | null; event_time: string | null; created_at: string; created_by: string | null; departments: { name: string } | null };
+
+function NoticeCard({ notice: n, hasEvent, isLong, canDelete, onDelete, userId }: {
+  notice: NoticeRow; hasEvent: boolean; isLong: boolean; canDelete: boolean; onDelete: () => void; userId: string | undefined;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const SEEN_KEY = `noticed_${n.id}`;
+  const [acked, setAcked] = useState(() => {
+    try { return !!localStorage.getItem(SEEN_KEY); } catch { return false; }
+  });
+
+  function acknowledge() {
+    try { localStorage.setItem(SEEN_KEY, "1"); } catch {}
+    setAcked(true);
+    toast.success("Notice acknowledged");
+  }
+
+  const fmtDate = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const fmtTime = (t: string) => { const [h, m] = t.split(":"); const hr = Number(h); return `${hr % 12 || 12}:${m} ${hr >= 12 ? "PM" : "AM"}`; };
+
+  return (
+    <li className={`rounded-lg border p-4 space-y-2 ${hasEvent ? "border-primary/30 bg-primary/5" : "border-border"} ${acked ? "opacity-70" : ""}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold leading-snug line-clamp-2">{n.title}</p>
+          {n.body && (
+            <>
+              <p className={`mt-1 text-sm text-muted-foreground ${!expanded && isLong ? "line-clamp-2" : ""}`}>{n.body}</p>
+              {isLong && (
+                <button onClick={() => setExpanded((e) => !e)} className="mt-1 flex items-center gap-0.5 text-xs text-primary font-medium">
+                  {expanded ? <><ChevronUp className="size-3" /> Show less</> : <><ChevronDown className="size-3" /> Read more</>}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {!acked && userId && (
+            <Button variant="ghost" size="icon" className="size-8 text-success" title="Mark as read" onClick={acknowledge}>
+              <CheckCheck className="size-4" />
+            </Button>
+          )}
+          {canDelete && (
+            <Button variant="ghost" size="icon" className="size-8 text-destructive" onClick={onDelete}>
+              <Trash2 className="size-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span>Posted {fmtDate(n.created_at)}</span>
+        <span>·</span>
+        <span>{n.departments?.name ?? "All departments"}</span>
+        {hasEvent && (
+          <>
+            <span>·</span>
+            <span className="flex items-center gap-1 font-medium text-primary">
+              Event: {fmtDate(n.event_date!)}
+              {n.event_time && ` at ${fmtTime(n.event_time)}`}
+            </span>
+          </>
+        )}
+        {acked && <span className="ml-auto text-success flex items-center gap-1"><CheckCheck className="size-3" /> Read</span>}
+      </div>
+    </li>
   );
 }

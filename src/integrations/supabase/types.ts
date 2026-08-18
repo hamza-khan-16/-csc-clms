@@ -256,6 +256,36 @@ export type Database = {
           },
         ]
       }
+      password_reset_requests: {
+        Row: {
+          id: string
+          teacher_id: string
+          full_name: string
+          college_id: string
+          status: "pending" | "completed"
+          created_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          teacher_id: string
+          full_name: string
+          college_id: string
+          status?: "pending" | "completed"
+          created_at?: string
+          completed_at?: string | null
+        }
+        Update: {
+          id?: string
+          teacher_id?: string
+          full_name?: string
+          college_id?: string
+          status?: "pending" | "completed"
+          created_at?: string
+          completed_at?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           account_locked: boolean

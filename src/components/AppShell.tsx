@@ -18,8 +18,10 @@ import {
   Wallet,
   Megaphone,
   ShieldCheck,
+  Moon,
+  Sun,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type AppRole } from "@/lib/auth";
 import { Logo } from "@/components/Logo";
@@ -49,6 +51,17 @@ export function AppShell({
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
+
+  // Dark mode — persist to localStorage
+  const [dark, setDark] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("theme") === "dark" ||
+      (!localStorage.getItem("theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    localStorage.setItem("theme", dark ? "dark" : "light");
+  }, [dark]);
 
   const { data: pendingProxies = 0 } = useQuery({
     queryKey: ["pending-proxy-count", profile?.id],
@@ -112,11 +125,12 @@ export function AppShell({
             key={item.to}
             to={item.to}
             onClick={() => setOpen(false)}
+            aria-current={active ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors relative",
               active
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-sidebar-foreground hover:bg-muted",
+                ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-0.5 before:rounded-r before:bg-primary"
+                : "text-sidebar-foreground hover:bg-muted/60",
             )}
           >
             <Icon className="size-4.5 shrink-0" />
@@ -141,7 +155,7 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex shadow-sm">
         <div className="px-5 pb-6">
           <Logo />
         </div>
@@ -161,7 +175,7 @@ export function AppShell({
       )}
 
       <div className="flex min-w-0 flex-1 flex-col lg:pl-64">
-        <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border bg-background/85 px-3 py-3 backdrop-blur sm:gap-3 sm:px-6 sm:py-4">
+        <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border bg-background/90 px-3 py-3 backdrop-blur-md shadow-sm sm:gap-3 sm:px-6 sm:py-4">
           <Button
             variant="ghost"
             size="icon"
@@ -175,7 +189,10 @@ export function AppShell({
             <h1 className="truncate text-base font-bold tracking-tight sm:text-xl">{title}</h1>
             {subtitle && <p className="truncate text-[11px] text-muted-foreground sm:text-sm">{subtitle}</p>}
           </div>
-          <NoticeBell role={role} />
+          <NoticeBell role={role} userId={profile?.id} />
+          <Button variant="ghost" size="icon" aria-label="Toggle dark mode" onClick={() => setDark((d) => !d)}>
+            {dark ? <Sun className="size-5" /> : <Moon className="size-5" />}
+          </Button>
           <div className="hidden items-center gap-3 sm:flex">
             <div className="text-right">
               <p className="text-sm font-semibold">{profile?.full_name}</p>
@@ -184,14 +201,59 @@ export function AppShell({
                 {(role === "teacher" || role === "hod") && profile?.department_name ? ` · ${profile.department_name}` : ""}
               </p>
             </div>
-            <div className="grid size-10 place-items-center rounded-full bg-accent text-sm font-bold text-accent-foreground">
-              {profile?.full_name?.slice(0, 2).toUpperCase()}
+            <div className="grid size-10 place-items-center rounded-full bg-accent text-sm font-bold text-accent-foreground overflow-hidden">
+              <AvatarCircle name={profile?.full_name} userId={profile?.id} />
             </div>
           </div>
         </header>
-        <main className="flex-1 px-3 py-4 sm:px-6 sm:py-6">{children}</main>
+        <main className="flex-1 px-3 py-4 pb-20 sm:px-6 sm:py-6 lg:pb-6 page-enter">{children}</main>
+
+        {/* Mobile bottom nav — shows 4 key items for current role */}
+        <nav className="fixed bottom-0 inset-x-0 z-30 flex lg:hidden border-t border-border bg-background/95 backdrop-blur-md pb-safe">
+          {visible.slice(0, 5).map((item) => {
+            const active = pathname === item.to;
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium transition-colors",
+                  active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <div className={cn("relative rounded-lg p-1 transition-colors", active && "bg-primary/10")}>
+                  <Icon className="size-5" />
+                  {!!item.badge && (
+                    <span className="absolute -top-1 -right-1.5 rounded-full bg-primary px-1 py-px text-[8px] font-bold text-primary-foreground leading-none">
+                      {item.badge}
+                    </span>
+                  )}
+                </div>
+                <span className="truncate max-w-[56px] text-center leading-tight">{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
       </div>
       <LeaveBot />
     </div>
   );
+}
+
+function AvatarCircle({ name, userId }: { name?: string; userId?: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!userId) return;
+    supabase.storage.from("avatars").createSignedUrl(`${userId}.jpg`, 3600)
+      .then(({ data }) => { if (data?.signedUrl) setSrc(data.signedUrl); })
+      .catch(() => {});
+  }, [userId]);
+
+  if (src) {
+    return <img src={src} alt={name ?? ""} className="size-full object-cover" />;
+  }
+  return <span>{name?.slice(0, 2).toUpperCase()}</span>;
 }

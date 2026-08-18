@@ -31,7 +31,7 @@
  *   <Button disabled={blocked}>Submit</Button>
  */
 
-import { useId, forwardRef } from "react";
+import { useId, forwardRef, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { Input }    from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -66,9 +66,7 @@ export const GuardedInput = forwardRef<HTMLInputElement, GuardProps & InputProps
   ({ fieldName = "Field", value, onChange, onGuardError, className, ...rest }, ref) => {
     const { error, checking } = useTextGuard(value, fieldName);
 
-    // Fire parent callback when guard state changes
-    const prevErrorRef = { current: error };
-    if (prevErrorRef.current !== error) onGuardError?.(error);
+    useEffect(() => { onGuardError?.(error); }, [error, onGuardError]);
 
     return (
       <div className="w-full">
@@ -76,6 +74,7 @@ export const GuardedInput = forwardRef<HTMLInputElement, GuardProps & InputProps
           ref={ref}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          aria-invalid={!!error}
           className={cn(error ? "border-destructive focus-visible:ring-destructive" : "", className)}
           {...rest}
         />
@@ -93,8 +92,7 @@ export const GuardedTextarea = forwardRef<HTMLTextAreaElement, GuardProps & Text
   ({ fieldName = "Field", value, onChange, onGuardError, className, ...rest }, ref) => {
     const { error, checking } = useTextGuard(value, fieldName);
 
-    const prevErrorRef = { current: error };
-    if (prevErrorRef.current !== error) onGuardError?.(error);
+    useEffect(() => { onGuardError?.(error); }, [error, onGuardError]);
 
     return (
       <div className="w-full">
@@ -102,6 +100,7 @@ export const GuardedTextarea = forwardRef<HTMLTextAreaElement, GuardProps & Text
           ref={ref}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          aria-invalid={!!error}
           className={cn(error ? "border-destructive focus-visible:ring-destructive" : "", className)}
           {...rest}
         />

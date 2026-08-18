@@ -9,7 +9,9 @@ import { SectionCard, StatCard, StatusBadge, Empty } from "@/components/ui-bits"
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fmtDate, leaveTypeLabel, money, perDaySalary, LEAVE_TYPES, type LeaveStatus, type LeaveType } from "@/lib/leave";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { jsPDF } from "jspdf";
 
 export const Route = createFileRoute("/payroll")({
   head: () => ({
@@ -89,11 +91,36 @@ function PayrollPage() {
     return { unpaid, paid, deduction, net: Math.max(salary - deduction, 0), fullyApproved };
   }, [leaves, dayRate, salary]);
 
+  const chartData = [
+    { name: "Net Pay", value: totals.net, color: "#22c55e" },
+    { name: "Deduction", value: totals.deduction, color: "#ef4444" },
+  ].filter((d) => d.value > 0);
+
+  function downloadPayslip() {
+    const doc = new jsPDF({ unit: "mm", format: "a5" });
+    const month = effectiveMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+    doc.setFontSize(15); doc.text("Chandrabhan Sharma College", 14, 18);
+    doc.setFontSize(10); doc.text("Payslip", 14, 26);
+    doc.text(`Teacher : ${profile?.full_name ?? ""}`, 14, 34);
+    doc.text(`Period  : ${month}`, 14, 40);
+    doc.line(14, 44, 134, 44);
+    doc.text(`Gross Salary   ${money(salary).padStart(14)}`, 14, 52);
+    doc.text(`Paid Days      ${String(totals.paid).padStart(14)}`, 14, 58);
+    doc.text(`Unpaid Days    ${String(totals.unpaid).padStart(14)}`, 14, 64);
+    doc.text(`Deduction     -${money(totals.deduction).padStart(13)}`, 14, 70);
+    doc.line(14, 74, 134, 74);
+    doc.setFontSize(12);
+    doc.text(`Net Payable    ${money(totals.net).padStart(14)}`, 14, 82);
+    const safeName = (profile?.full_name ?? "payslip").split(" ").join("_");
+    const safePeriod = month.replace(" ", "_");
+    doc.save(`Payslip_${safeName}_${safePeriod}.pdf`);
+  }
+
   return (
     <AppShell title="Payroll" subtitle="Salary and leave deductions">
       <div className="space-y-6">
 
-        {/* Filters */}
+        {/* Filters + download */}
         <div className="flex flex-wrap items-center gap-2">
           <Select value={filterYear} onValueChange={setFilterYear}>
             <SelectTrigger className="w-24 h-9 text-sm"><SelectValue /></SelectTrigger>
@@ -123,6 +150,9 @@ function PayrollPage() {
               {LEAVE_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
             </SelectContent>
           </Select>
+          <Button variant="outline" size="sm" className="ml-auto flex items-center gap-1.5" onClick={downloadPayslip}>
+            <Download className="size-4" /> Download Payslip
+          </Button>
         </div>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -136,6 +166,24 @@ function PayrollPage() {
             hint={totals.deduction > 0 ? `−${money(totals.deduction)}` : "full salary"}
           />
         </div>
+
+        {/* Donut chart — only when there's a deduction */}
+        {totals.deduction > 0 && chartData.length > 1 && (
+          <SectionCard title="Salary split" subtitle="Net pay vs deduction">
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie data={chartData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} dataKey="value" paddingAngle={3}>
+                  {chartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                </Pie>
+                <Tooltip
+                  formatter={(v: number) => money(v)}
+                  contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)" }}
+                />
+                <Legend formatter={(value) => <span className="text-xs text-foreground">{value}</span>} />
+              </PieChart>
+            </ResponsiveContainer>
+          </SectionCard>
+        )}
 
         <SectionCard
           title="Salary breakdown"

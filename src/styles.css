@@ -145,3 +145,48 @@
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-card);
 }
+
+/* ── Page transition ────────────────────────────────────────────────────────── */
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-enter {
+  animation: page-in 0.18s ease-out both;
+}
+
+/* ── Premium global polish ──────────────────────────────────────────────────── */
+
+/* Smooth scrolling */
+html { scroll-behavior: smooth; }
+
+/* Custom scrollbar — webkit */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: oklch(0.75 0.01 78); border-radius: 99px; }
+.dark ::-webkit-scrollbar-thumb { background: oklch(0.38 0.015 60); }
+::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+/* Text selection colour */
+::selection { background: oklch(0.68 0.19 45 / 22%); }
+
+/* Focus ring — consistent, premium */
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 4px; }
+
+/* Smooth transitions on interactive elements */
+button, a, [role="button"] { transition-property: color, background-color, border-color, box-shadow, opacity, transform; transition-duration: 150ms; transition-timing-function: cubic-bezier(0.4,0,0.2,1); }
+
+/* Input hover glow */
+input:not([disabled]):not([readonly]):hover,
+textarea:not([disabled]):not([readonly]):hover {
+  border-color: oklch(0.68 0.19 45 / 40%);
+}
+
+/* Card hover lift for clickable stat cards */
+[role="button"].surface:hover { transform: translateY(-1px); box-shadow: 0 4px 16px oklch(0.2 0.03 60 / 0.10); }
+.dark [role="button"].surface:hover { box-shadow: 0 4px 16px oklch(0 0 0 / 0.4); }
+
+/* Prevent layout shift during page-enter on mobile */
+@media (max-width: 640px) {
+  .page-enter { animation-duration: 0.12s; }
+}

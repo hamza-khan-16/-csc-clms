@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { KeyRound, Eye, EyeOff, CheckCircle2 } from "lucide-react";
+import { KeyRound, Eye, EyeOff, CheckCircle2, Camera, Loader2 } from "lucide-react";
 
 const GENDERS: { value: string; label: string }[] = [
   { value: "male",   label: "Male" },
@@ -120,7 +120,33 @@ function ProfilePage() {
   const [name, setName] = useState(profile?.full_name ?? "");
   const [gender, setGender] = useState(profile?.gender ?? "");
   const [dob, setDob] = useState(profile?.date_of_birth ?? "");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+    supabase.storage.from("avatars").createSignedUrl(`${profile.id}.jpg`, 3600)
+      .then(({ data }) => { if (data?.signedUrl) setAvatarUrl(data.signedUrl); })
+      .catch(() => {});
+  }, [profile?.id]);
+
+  async function uploadAvatar(file: File) {
+    if (!profile?.id) return;
+    if (file.size > 2 * 1024 * 1024) return toast.error("Image must be under 2 MB");
+    setAvatarBusy(true);
+    try {
+      const { error } = await supabase.storage.from("avatars")
+        .upload(`${profile.id}.jpg`, file, { upsert: true, contentType: "image/jpeg" });
+      if (error) { toast.error(error.message); return; }
+      const { data } = await supabase.storage.from("avatars").createSignedUrl(`${profile.id}.jpg`, 3600);
+      if (data?.signedUrl) setAvatarUrl(data.signedUrl + `&t=${Date.now()}`);
+      toast.success("Photo updated");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
 
   // Password change state
   const [oldPw, setOldPw] = useState("");
@@ -149,6 +175,8 @@ function ProfilePage() {
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Profile updated");
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
     qc.invalidateQueries();
   }
 
@@ -218,6 +246,30 @@ function ProfilePage() {
         {/* Details card */}
         <SectionCard title="Details">
           <form onSubmit={save} className="space-y-4">
+
+            {/* Avatar upload */}
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                <div className="size-16 rounded-full bg-accent flex items-center justify-center overflow-hidden text-lg font-bold text-accent-foreground border-2 border-border">
+                  {avatarUrl
+                    ? <img src={avatarUrl} alt="avatar" className="size-full object-cover" />
+                    : profile?.full_name?.slice(0, 2).toUpperCase()
+                  }
+                </div>
+                <label className="absolute -bottom-1 -right-1 flex size-6 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow">
+                  {avatarBusy
+                    ? <Loader2 className="size-3 animate-spin" />
+                    : <Camera className="size-3" />
+                  }
+                  <input type="file" accept="image/*" className="sr-only" disabled={avatarBusy}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAvatar(f); e.target.value = ""; }} />
+                </label>
+              </div>
+              <div>
+                <p className="text-sm font-semibold">{profile?.full_name}</p>
+                <p className="text-xs text-muted-foreground">Click the camera to update photo · Max 2 MB</p>
+              </div>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="name">Full name</Label>
               <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
@@ -271,7 +323,9 @@ function ProfilePage() {
                 </p>
               </div>
             )}
-            <Button type="submit" disabled={busy}>Save changes</Button>
+            <Button type="submit" disabled={busy} className={saved ? "bg-success text-success-foreground hover:bg-success/90" : ""}>
+              {saved ? "✓ Saved" : busy ? "Saving…" : "Save changes"}
+            </Button>
           </form>
         </SectionCard>
 

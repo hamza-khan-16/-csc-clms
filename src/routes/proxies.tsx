@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { GuardedInput } from "@/components/GuardedField";
 import {
   Select,
   SelectContent,
@@ -450,6 +451,7 @@ function CompensationForm({
   const [compDate, setCompDate] = useState("");
   const [lectureId, setLectureId] = useState("");
   const [note, setNote] = useState("");
+  const [noteError, setNoteError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const { data: existingOffer } = useQuery({
@@ -564,7 +566,7 @@ function CompensationForm({
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-48 space-y-1.5">
           <Label className="text-xs text-muted-foreground">Note (optional)</Label>
-          <Input placeholder="Add a message…" value={note} onChange={(e) => setNote(e.target.value)} className="h-9 text-sm" />
+          <GuardedInput placeholder="Add a message…" value={note} onChange={setNote} onGuardError={setNoteError} fieldName="Message" className="h-9 text-sm" />
         </div>
         <Button size="sm" onClick={submit} disabled={busy || !compDate || !lectureId} className="gap-1.5">
           <Gift className="size-3.5" />

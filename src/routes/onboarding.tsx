@@ -237,6 +237,29 @@ function OnboardingPage() {
           </div>
         )}
 
+        {/* Progress indicator */}
+        {(() => {
+          const totalDocs     = DOCS.length;
+          const uploadedCount = DOCS.filter((d) => docs.find((r) => r.doc_type === d.type)).length;
+          const requiredTotal = DOCS.filter((d) => d.required).length;
+          const requiredDone  = DOCS.filter((d) => d.required && docs.find((r) => r.doc_type === d.type)).length;
+          const pct = Math.round((uploadedCount / totalDocs) * 100);
+          return (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{uploadedCount} of {totalDocs} documents uploaded</span>
+                <span className="font-medium text-foreground">{requiredDone}/{requiredTotal} required</span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-500"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Doc cards */}
         <div className="space-y-3">
           {DOCS.map((d) => (

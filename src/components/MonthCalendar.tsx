@@ -74,15 +74,18 @@ const MONTH_NAMES = ["January","February","March","April","May","June","July","A
 
 // ── Hover popover (desktop) ───────────────────────────────────────────────────
 function HoverPopover({ cell, anchorRef }: { cell: DayCell; anchorRef: React.RefObject<HTMLButtonElement | null> }) {
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState({ top: 0, left: 0, above: false });
 
   useEffect(() => {
     if (!anchorRef.current) return;
     const rect = anchorRef.current.getBoundingClientRect();
-    const scrollY = window.scrollY;
+    const popoverH = 120; // estimated popover height
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const above = spaceBelow < popoverH + 12;
     setPos({
-      top:  rect.bottom + scrollY + 6,
-      left: rect.left + rect.width / 2,
+      top:  above ? rect.top - 6 : rect.bottom + 6,
+      left: Math.min(Math.max(rect.left + rect.width / 2, 120), window.innerWidth - 120),
+      above,
     });
   }, [anchorRef]);
 
@@ -92,7 +95,11 @@ function HoverPopover({ cell, anchorRef }: { cell: DayCell; anchorRef: React.Ref
   return (
     <div
       className="fixed z-50 pointer-events-none"
-      style={{ top: pos.top, left: pos.left, transform: "translateX(-50%)" }}
+      style={{
+        top:  pos.above ? pos.top : pos.top,
+        left: pos.left,
+        transform: pos.above ? "translateX(-50%) translateY(-100%)" : "translateX(-50%)",
+      }}
     >
       <div className="bg-popover text-popover-foreground rounded-xl shadow-xl border border-border px-3.5 py-2.5 text-xs min-w-[160px] max-w-[220px] animate-in fade-in-0 zoom-in-95 duration-150">
         <p className="font-semibold text-[11px] text-muted-foreground uppercase tracking-wide mb-1">{dateStr}</p>
@@ -103,8 +110,11 @@ function HoverPopover({ cell, anchorRef }: { cell: DayCell; anchorRef: React.Ref
         {cell.note && cell.kind !== "present" && (
           <p className="mt-1.5 text-muted-foreground leading-snug">{cell.note}</p>
         )}
-        {/* Arrow */}
-        <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-popover border-l border-t border-border" />
+        {/* Arrow — top or bottom */}
+        {pos.above
+          ? <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-popover border-r border-b border-border" />
+          : <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 bg-popover border-l border-t border-border" />
+        }
       </div>
     </div>
   );

@@ -2,7 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2, LayoutGrid, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Trash2, LayoutGrid, X, ChevronLeft, ChevronRight, Printer } from "lucide-react";
+import { jsPDF } from "jspdf";
+import { autoTable } from "jspdf-autotable";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
@@ -279,6 +281,61 @@ function TimetableModal({
   const WEEKDAYS_LIST = [1, 2, 3, 4, 5, 6];
   const [mobileDay, setMobileDay] = useState(1);
 
+  function downloadPDF() {
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const DAY_NAMES_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const WEEKDAYS_LIST   = [1, 2, 3, 4, 5, 6];
+
+    function fmt(t: string) {
+      const [h, m] = t.split(":").map(Number);
+      const ampm = h >= 12 ? "PM" : "AM";
+      return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
+    }
+
+    // Title
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text("Weekly Timetable", 14, 16);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100);
+    doc.text(teacherName, 14, 23);
+    doc.setTextColor(0);
+
+    // Build table data
+    const head = [["Time", ...DAY_NAMES_SHORT]];
+    const body = timeSlots.map((slot) => {
+      const timeLabel = `${fmt(slot.start)} – ${fmt(slot.end)}`;
+      const cells = WEEKDAYS_LIST.map((dow) => {
+        const cell = fixed.find(
+          (l) => l.day_of_week === dow && l.start_time === slot.start && l.end_time === slot.end
+        );
+        if (!cell) return "";
+        return `${cell.subject}\n${cell.class_name}${cell.room ? ` · ${cell.room}` : ""}`;
+      });
+      return [timeLabel, ...cells];
+    });
+
+    if (body.length === 0) {
+      doc.setFontSize(12);
+      doc.text("No fixed lectures in timetable.", 14, 35);
+    } else {
+      autoTable(doc, {
+        head,
+        body,
+        startY: 28,
+        styles: { fontSize: 8, cellPadding: 3, valign: "top", overflow: "linebreak" },
+        headStyles: { fillColor: [30, 30, 30], textColor: 255, fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [248, 248, 248] },
+        columnStyles: { 0: { fontStyle: "bold", cellWidth: 28 } },
+        tableWidth: "auto",
+      });
+    }
+
+    const safeName = teacherName.split(" ").join("_");
+    doc.save(`Timetable_${safeName}.pdf`);
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4">
       <div className="w-full sm:max-w-5xl rounded-t-2xl sm:rounded-2xl bg-[#111] text-white shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
@@ -289,9 +346,14 @@ function TimetableModal({
             <h2 className="text-base sm:text-lg font-bold">Weekly Timetable</h2>
             <p className="text-xs sm:text-sm text-white/50">{teacherName}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-white/10 transition-colors">
-            <X className="size-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={downloadPDF} className="rounded-lg p-2 hover:bg-white/10 transition-colors" title="Download timetable as PDF">
+              <Printer className="size-4" />
+            </button>
+            <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-white/10 transition-colors">
+              <X className="size-5" />
+            </button>
+          </div>
         </div>
 
         {/* Mobile: day tab strip */}
@@ -351,7 +413,7 @@ function TimetableModal({
               <tr>
                 <th className="w-28 pb-2 text-left text-xs text-white/40 font-normal" />
                 {DAY_NAMES_SHORT.map((d) => (
-                  <th key={d} className="pb-2 text-center text-xs font-semibold text-white/70 min-w-[90px]">{d}</th>
+                  <th key={d} className="pb-2 text-center text-xs font-semibold text-white/70 min-w-[100px]">{d}</th>
                 ))}
               </tr>
             </thead>
@@ -372,10 +434,10 @@ function TimetableModal({
                       const cell = fixed.find(
                         (l) => l.day_of_week === dow && l.start_time === slot.start && l.end_time === slot.end,
                       );
-                      if (!cell) return <td key={dow} className="rounded-md bg-white/5 min-w-[90px] h-14" />;
+                      if (!cell) return <td key={dow} className="rounded-md bg-white/5 min-w-[100px] h-16" />;
                       const col = subjectColor[cell.subject];
                       return (
-                        <td key={dow} className={cn("rounded-md px-2 py-1.5 min-w-[90px] h-14 align-top", col.bg)}>
+                        <td key={dow} className={cn("rounded-md px-2 py-1.5 min-w-[100px] h-16 align-top", col.bg)}>
                           <p className={cn("font-bold text-xs leading-tight", col.text)}>{cell.subject}</p>
                           <p className={cn("text-[10px] opacity-80 mt-0.5", col.text)}>
                             {cell.class_name}{cell.room ? ` · ${cell.room}` : ""}

@@ -21,6 +21,7 @@
  */
 
 import { useState, useEffect, useRef } from "react";
+import { validateMeaningfulText } from "@/lib/validateText";
 
 // ── Layer 1: local word blocklist ─────────────────────────────────────────────
 // Words are stored as substrings; we check if any appears in the normalised text.
@@ -59,7 +60,7 @@ export async function groqModerationCheck(text: string): Promise<boolean> {
 
 // ── Layer 2: Groq LLM check ───────────────────────────────────────────────────
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL    = "llama-3.3-70b-versatile";
+const MODEL    = "openai/gpt-oss-120b";
 
 type GroqVerdict = "CLEAN" | "ABUSIVE" | "UNCLEAR";
 
@@ -113,48 +114,76 @@ export interface TextGuardResult {
   checking: boolean;
 }
 
-const DEBOUNCE_MS = 800;
-const MIN_LENGTH  = 4; // don't bother checking very short inputs
+const DEBOUNCE_MS = 600; // ms after typing stops before LLM fires
 
 /**
  * useTextGuard(value, fieldName)
  *
- * Watches `value` and returns { error, checking }.
- * Layer 1 (blocklist) fires synchronously on every change.
- * Layer 2 (Groq) fires 800 ms after the user stops typing.
+ * Three-layer guard — fires on every keystroke, no minimum length:
+ *   Layer 1a: local abusive word blocklist (instant, substring match)
+ *   Layer 1b: gibberish / nonsense check (instant, once ≥ 6 chars)
+ *   Layer 2:  Groq LLM moderation (debounced 600 ms after typing stops,
+ *             only on text that passed layers 1a/1b)
+ *
+ * Key behaviours:
+ *  - A previous error is NEVER cleared just because the user typed one
+ *    more character — it only clears when the new text is explicitly clean.
+ *  - Abusive prefixes ("fu", "fuc", "fuck") are caught as soon as the
+ *    blocked substring appears in the normalised text.
+ *  - The LLM is not called while layer-1 errors are present.
  */
 export function useTextGuard(value: string, fieldName = "Text"): TextGuardResult {
   const [error,    setError]    = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastCheckedRef = useRef<string>("");
+  const llmErrorRef    = useRef<string | null>(null); // last verdict from LLM
 
   useEffect(() => {
     const trimmed = value.trim();
 
-    // Clear error on empty
-    if (trimmed.length < MIN_LENGTH) {
-      setError(null);
-      setChecking(false);
+    // ── Empty / very short ────────────────────────────────────────────────
+    if (trimmed.length === 0) {
       if (timerRef.current) clearTimeout(timerRef.current);
+      setChecking(false);
+      setError(null);
+      llmErrorRef.current = null;
+      lastCheckedRef.current = "";
       return;
     }
 
-    // Layer 1 — instant local check
+    // ── Layer 1a: abusive word blocklist (every keystroke, no min length) ─
     const blocked = localBlocklistCheck(trimmed);
     if (blocked) {
-      setError(`${fieldName} contains inappropriate language. Please use professional wording.`);
-      setChecking(false);
       if (timerRef.current) clearTimeout(timerRef.current);
+      setChecking(false);
+      llmErrorRef.current = null;
+      setError(`${fieldName} contains inappropriate language. Please use professional wording.`);
       return;
     }
 
-    // If layer 1 passes, clear any previous error and start debounce for layer 2
-    setError(null);
+    // ── Layer 1b: gibberish check (once ≥ 6 chars so partial words are ok) ─
+    if (trimmed.length >= 6) {
+      const meaningful = validateMeaningfulText(trimmed, fieldName);
+      if (!meaningful.valid) {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        setChecking(false);
+        llmErrorRef.current = null;
+        setError(meaningful.error ?? `${fieldName} appears to contain random characters. Please write meaningful text.`);
+        return;
+      }
+    }
 
+    // ── Layers 1a + 1b passed — show LLM error from previous check if still
+    //    relevant (don't wipe it just because one more char was typed) ──────
+    if (llmErrorRef.current) {
+      setError(llmErrorRef.current);
+    } else {
+      setError(null);
+    }
+
+    // ── Layer 2: LLM check (debounced, skipped if nothing changed) ─────────
     if (timerRef.current) clearTimeout(timerRef.current);
-
-    // Skip LLM if text hasn't changed since last check
     if (trimmed === lastCheckedRef.current) return;
 
     timerRef.current = setTimeout(async () => {
@@ -164,12 +193,13 @@ export function useTextGuard(value: string, fieldName = "Text"): TextGuardResult
       setChecking(false);
 
       if (verdict === "ABUSIVE") {
-        setError(`${fieldName} contains inappropriate language. Please use professional wording.`);
+        llmErrorRef.current = `${fieldName} contains inappropriate language. Please use professional wording.`;
       } else if (verdict === "UNCLEAR") {
-        setError(`${fieldName} may contain inappropriate content. Please review your wording.`);
+        llmErrorRef.current = `${fieldName} may contain inappropriate content. Please review your wording.`;
       } else {
-        setError(null);
+        llmErrorRef.current = null;
       }
+      setError(llmErrorRef.current);
     }, DEBOUNCE_MS);
 
     return () => {
