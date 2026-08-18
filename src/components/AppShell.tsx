@@ -73,24 +73,28 @@ export function AppShell({
     localStorage.setItem("theme", dark ? "dark" : "light");
   }, [dark]);
 
-  // Mobile bottom nav pinned tabs — persisted per role
-  const storageKey = `mobile-tabs-${role ?? "guest"}`;
-  const [pinnedTabs, setPinnedTabs] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
+  // Mobile bottom nav pinned tabs — persisted per user account (not per role)
+  const storageKey = `mobile-tabs-${profile?.id ?? "guest"}`;
+  const [pinnedTabs, setPinnedTabs] = useState<string[]>([]);
+
+  // Load pinned tabs from localStorage once the user's profile is available
+  useEffect(() => {
+    if (!profile?.id) return;
     try {
       const saved = localStorage.getItem(storageKey);
-      return saved ? JSON.parse(saved) : [];
+      setPinnedTabs(saved ? JSON.parse(saved) : []);
     } catch {
-      return [];
+      setPinnedTabs([]);
     }
-  });
+  }, [profile?.id, storageKey]);
 
-  // Sync pinnedTabs to localStorage whenever they change
+  // Sync pinnedTabs to localStorage whenever they change (only when profile is known)
   useEffect(() => {
+    if (!profile?.id) return;
     if (pinnedTabs.length > 0) {
       localStorage.setItem(storageKey, JSON.stringify(pinnedTabs));
     }
-  }, [pinnedTabs, storageKey]);
+  }, [pinnedTabs, storageKey, profile?.id]);
 
   const { data: pendingProxies = 0 } = useQuery({
     queryKey: ["pending-proxy-count", profile?.id],

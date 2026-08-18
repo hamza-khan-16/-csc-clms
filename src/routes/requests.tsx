@@ -1139,15 +1139,30 @@ function DeptLeaveToday({ deptId }: { deptId: string }) {
     queryKey: ["dept-on-leave-today", deptId, today],
     staleTime: 60_000,
     queryFn: async () => {
+      // leave_requests.teacher_id references auth.users, not public.profiles,
+      // so PostgREST cannot auto-join profiles(full_name). Fetch separately.
       const { data: leaves } = await supabase
         .from("leave_requests")
-        .select("teacher_id, leave_type, from_date, to_date, status, profiles(full_name)")
+        .select("teacher_id, leave_type, from_date, to_date, status")
         .eq("department_id", deptId)
         .in("status", ["approved", "hod_approved"])
         .lte("from_date", today)
         .gte("to_date", today);
-      return (leaves ?? []).map((l) => ({
-        name: ((l as unknown as { profiles: { full_name: string } | null }).profiles)?.full_name ?? "Unknown",
+
+      if (!leaves || leaves.length === 0) return [];
+
+      const teacherIds = [...new Set(leaves.map((l) => l.teacher_id))];
+      const { data: profileRows } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", teacherIds);
+
+      const nameMap = Object.fromEntries(
+        (profileRows ?? []).map((p) => [p.id, p.full_name])
+      );
+
+      return leaves.map((l) => ({
+        name: nameMap[l.teacher_id] ?? "Unknown",
         leave_type: l.leave_type,
         from_date: l.from_date,
         to_date: l.to_date,
