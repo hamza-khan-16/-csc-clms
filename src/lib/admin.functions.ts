@@ -388,3 +388,52 @@ export const directPasswordReset = createServerFn({ method: "POST" })
 
     return { ok: true };
   });
+
+/**
+ * Fetch all pending password reset requests — admin only, uses service role.
+ */
+export const fetchPasswordResetRequests = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Verify caller is admin
+    const { data: roleRow } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (roleRow?.role !== "admin") throw new Error("Admin only");
+
+    const { data, error } = await supabaseAdmin
+      .from("password_reset_requests")
+      .select("id, teacher_id, full_name, college_id, status, created_at")
+      .eq("status", "pending")
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+/**
+ * Mark a password reset request as completed — admin only, uses service role.
+ */
+export const completePasswordResetRequest = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { requestId: string }) => input)
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: roleRow } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (roleRow?.role !== "admin") throw new Error("Admin only");
+
+    const { error } = await supabaseAdmin
+      .from("password_reset_requests")
+      .update({ status: "completed", completed_at: new Date().toISOString() })
+      .eq("id", data.requestId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });

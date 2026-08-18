@@ -1,4 +1,5 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft, ChevronRight, X, Star,
@@ -120,37 +121,47 @@ function HoverPopover({ cell, anchorRef }: { cell: DayCell; anchorRef: React.Ref
   );
 }
 
-// ── Click detail bottom-sheet (mobile) / popover already handles desktop ──────
+// ── Click detail modal (centered) ────────────────────────────────────────────
 function DayDetailCard({ cell, onClose }: { cell: DayCell; onClose: () => void }) {
   const d = new Date(cell.date + "T00:00:00");
   const dayName = DAY_NAMES[d.getDay()];
   const dateStr = `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 
-  return (
+  // Lock body scroll while open
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  return createPortal(
     <>
       <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
-      <div className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl bg-background border-t border-border shadow-2xl p-5 pb-8 animate-in slide-in-from-bottom-4 duration-300">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">{dayName}</p>
-            <p className="text-lg font-extrabold">{dateStr}</p>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+        <div className="pointer-events-auto w-full max-w-sm rounded-2xl bg-background border border-border shadow-2xl p-5 animate-in fade-in-0 zoom-in-95 duration-200">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">{dayName}</p>
+              <p className="text-lg font-extrabold">{dateStr}</p>
+            </div>
+            <button onClick={onClose} className="rounded-full p-1.5 hover:bg-muted transition-colors" aria-label="Close">
+              <X className="size-4" />
+            </button>
           </div>
-          <button onClick={onClose} className="rounded-full p-1.5 hover:bg-muted transition-colors" aria-label="Close">
-            <X className="size-4" />
-          </button>
+          <div className={cn("inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border border-transparent", KIND_CLASS[cell.kind])}>
+            <span>{KIND_ICON[cell.kind]}</span>
+            <span>{KIND_LABEL[cell.kind]}</span>
+          </div>
+          {cell.note && cell.kind !== "present" && (
+            <p className="mt-3 text-sm text-muted-foreground">{cell.note}</p>
+          )}
+          {cell.detail && (
+            <p className="mt-1 text-xs text-muted-foreground">{cell.detail}</p>
+          )}
         </div>
-        <div className={cn("inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border border-transparent", KIND_CLASS[cell.kind])}>
-          <span>{KIND_ICON[cell.kind]}</span>
-          <span>{KIND_LABEL[cell.kind]}</span>
-        </div>
-        {cell.note && cell.kind !== "present" && (
-          <p className="mt-3 text-sm text-muted-foreground">{cell.note}</p>
-        )}
-        {cell.detail && (
-          <p className="mt-1 text-xs text-muted-foreground">{cell.detail}</p>
-        )}
       </div>
-    </>
+    </>,
+    document.body
   );
 }
 
@@ -412,9 +423,7 @@ export function MonthCalendar({
                 cell={c}
                 isToday={c.date === todayISO}
                 onClick={(cell) => {
-                  // On mobile show bottom sheet; on desktop popover handles hover
-                  if (isMobile) setSelectedCell(cell);
-                  else setSelectedCell(selectedCell?.date === cell.date ? null : cell);
+                  setSelectedCell(selectedCell?.date === cell.date ? null : cell);
                 }}
               />
             ))}

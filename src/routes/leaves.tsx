@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useRef, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -150,7 +151,6 @@ function MyLeavesPage() {
   useEffect(() => {
     if (confirmId) {
       document.body.style.overflow = "hidden";
-      window.scrollTo({ top: 0, behavior: "smooth" });
     } else {
       document.body.style.overflow = "";
     }
@@ -312,9 +312,9 @@ function MyLeavesPage() {
       </div>
 
       {/* Withdraw confirmation dialog */}
-      {confirmId && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl border border-border bg-background p-6 shadow-2xl space-y-4 animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 duration-200">
+      {confirmId && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-background p-6 shadow-2xl space-y-4 animate-in fade-in-0 zoom-in-95 duration-200">
             <div className="flex items-center gap-3">
               <div className="size-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
                 <span className="text-destructive text-lg">⚠️</span>
@@ -329,7 +329,8 @@ function MyLeavesPage() {
               <Button variant="destructive" className="flex-1" onClick={() => cancel(confirmId)}>Yes, withdraw</Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </AppShell>
   );

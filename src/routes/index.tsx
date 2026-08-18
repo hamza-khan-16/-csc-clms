@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { signInWithIdentifier, registerStaff, resolvePreviewUserId } from "@/lib/login.functions";
+import { signInWithIdentifier, registerStaff, resolvePreviewUserId, verifyCollegeId, submitForgotPasswordRequest } from "@/lib/login.functions";
 import { Eye, EyeOff, Loader2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -326,40 +326,52 @@ function ForgotPasswordDialog() {
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  async function sendRequest(e: React.FormEvent) {
-    e.preventDefault();
-    const id = collegeId.trim().toUpperCase();
-    if (!id) return;
+  // ID verification state
+  const [verifying, setVerifying] = useState(false);
+  const [verified, setVerified] = useState<{ exists: boolean; maskedName?: string } | null>(null);
+
+  const verify = useServerFn(verifyCollegeId);
+  const submit = useServerFn(submitForgotPasswordRequest);
+
+  // Debounced ID lookup as user types
+  useEffect(() => {
+    const id = collegeId.trim();
+    if (!id) { setVerified(null); return; }
+    setVerifying(true);
+    setVerified(null);
+    const t = setTimeout(async () => {
+      try {
+        const result = await verify({ data: { collegeId: id } });
+        setVerified(result);
+      } catch (err) {
+        toast.error("Verification failed: " + (err instanceof Error ? err.message : String(err)));
+        setVerified(null);
+      } finally {
+        setVerifying(false);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [collegeId]);
+
+  function handleClose() {
+    setOpen(false);
+    setSent(false);
+    setCollegeId("");
+    setVerified(null);
+  }
+
+  async function sendRequest() {
+    if (!verified?.exists) return;
     setBusy(true);
     try {
-      // Look up the teacher by college ID (user_id field in profiles)
-      const { data: profile, error: profileErr } = await supabase
-        .from("profiles")
-        .select("id, full_name, user_id")
-        .eq("user_id", id)
-        .maybeSingle();
-
-      if (profileErr || !profile) {
-        toast.error("No account found with that College ID");
+      const result = await submit({ data: { collegeId: collegeId.trim() } });
+      if ("error" in result) {
+        toast.error(result.error);
         return;
       }
-
-      // Insert a password reset request — admin will see it in admin panel
-      const { error } = await supabase
-        .from("password_reset_requests")
-        .insert({
-          teacher_id: profile.id,
-          full_name:  profile.full_name,
-          college_id: profile.user_id,
-          status:     "pending",
-        });
-
-      if (error && !error.message.includes("duplicate")) {
-        toast.error("Could not submit request. Please contact admin directly.");
-        return;
-      }
-
       setSent(true);
+    } catch (err) {
+      toast.error("Submit failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setBusy(false);
     }
@@ -389,36 +401,49 @@ function ForgotPasswordDialog() {
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Your password reset request has been sent to the admin. Please check with your admin — they will set a temporary password and share it with you directly.
+                  Your password reset request has been sent to the admin. They will set a temporary password and share it with you directly.
                 </p>
-                <Button className="w-full" onClick={() => { setOpen(false); setSent(false); setCollegeId(""); }}>Done</Button>
+                <Button className="w-full" onClick={handleClose}>Done</Button>
               </>
             ) : (
-              <form onSubmit={sendRequest} className="space-y-4">
+              <div className="space-y-4">
                 <div>
                   <p className="font-semibold text-base">Forgot Password?</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Enter your College ID. Your request will be sent to the admin who will set a temporary password for you.
+                    Enter your College ID and we'll verify it before sending a reset request to the admin.
                   </p>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">College ID</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. CSC2024001"
-                    className="w-full rounded-lg border border-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30 bg-background uppercase placeholder:normal-case"
-                    value={collegeId}
-                    onChange={(e) => setCollegeId(e.target.value.toUpperCase())}
-                  />
+                  <div className="flex rounded-lg border border-border overflow-hidden focus-within:ring-2 focus-within:ring-primary/30 bg-background">
+                    <input
+                      type="text"
+                      placeholder="firstname"
+                      className="flex-1 min-w-0 px-3 py-2 text-sm outline-none bg-transparent uppercase placeholder:normal-case placeholder:text-muted-foreground"
+                      value={collegeId}
+                      onChange={(e) => setCollegeId(e.target.value.replace(/@.*/g, "").toUpperCase())}
+                    />
+                    <span className="flex items-center pr-2.5 text-sm text-muted-foreground select-none whitespace-nowrap">
+                      @CSC.COM
+                      {verifying && <Loader2 className="size-3.5 animate-spin ml-2" />}
+                      {!verifying && verified?.exists && <span className="text-green-500 ml-2">✓</span>}
+                      {!verifying && verified && !verified.exists && <span className="text-destructive ml-2">✗</span>}
+                    </span>
+                  </div>
+                  {!verifying && verified?.exists && verified.maskedName && (
+                    <p className="text-xs text-green-600 dark:text-green-400">Account found: {verified.maskedName}</p>
+                  )}
+                  {!verifying && verified && !verified.exists && (
+                    <p className="text-xs text-destructive">No account found with this College ID</p>
+                  )}
                 </div>
                 <div className="flex gap-2">
-                  <Button type="button" variant="outline" className="flex-1" onClick={() => setOpen(false)}>Cancel</Button>
-                  <Button type="submit" className="flex-1" disabled={busy || !collegeId.trim()}>
+                  <Button type="button" variant="outline" className="flex-1" onClick={handleClose}>Cancel</Button>
+                  <Button type="button" className="flex-1" disabled={busy || !verified?.exists} onClick={sendRequest}>
                     {busy && <Loader2 className="size-4 animate-spin mr-1" />} Send Request
                   </Button>
                 </div>
-              </form>
+              </div>
             )}
           </div>
         </div>

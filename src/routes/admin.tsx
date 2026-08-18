@@ -5,7 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Trash2, Check, FileText, Download, BarChart2, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { adminCreateStaff, adminDeleteStaff, directPasswordReset, unlockAccount } from "@/lib/admin.functions";
+import { adminCreateStaff, adminDeleteStaff, directPasswordReset, unlockAccount, fetchPasswordResetRequests, completePasswordResetRequest } from "@/lib/admin.functions";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
@@ -1042,18 +1042,14 @@ function DepartmentsCard({ departments }: { departments: { id: string; name: str
 function PasswordResetRequests() {
   const qc = useQueryClient();
   const resetFn = useServerFn(directPasswordReset);
+  const fetchRequests = useServerFn(fetchPasswordResetRequests);
+  const completeRequest = useServerFn(completePasswordResetRequest);
 
-  const { data: requests = [] } = useQuery({
+  const { data: requests = [], isLoading } = useQuery({
     queryKey: ["password-reset-requests"],
-    staleTime: 30_000,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("password_reset_requests")
-        .select("id, teacher_id, full_name, college_id, status, created_at")
-        .eq("status", "pending")
-        .order("created_at", { ascending: true });
-      return data ?? [];
-    },
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    queryFn: () => fetchRequests(),
   });
 
   const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({});
@@ -1065,10 +1061,7 @@ function PasswordResetRequests() {
     setBusy(req.id);
     try {
       await resetFn({ data: { targetUserId: req.teacher_id, newPassword: pw } });
-      await supabase
-        .from("password_reset_requests")
-        .update({ status: "completed", completed_at: new Date().toISOString() })
-        .eq("id", req.id);
+      await completeRequest({ data: { requestId: req.id } });
       toast.success(`Temporary password set for ${req.full_name}`);
       setTempPasswords((prev) => { const n = { ...prev }; delete n[req.id]; return n; });
       qc.invalidateQueries({ queryKey: ["password-reset-requests"] });
@@ -1079,7 +1072,19 @@ function PasswordResetRequests() {
     }
   }
 
-  if (requests.length === 0) return null;
+  if (isLoading) return (
+    <SectionCard title="Password Reset Requests" subtitle="Loading...">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+        <Loader2 className="size-4 animate-spin" /> Checking for requests...
+      </div>
+    </SectionCard>
+  );
+
+  if (requests.length === 0) return (
+    <SectionCard title="Password Reset Requests" subtitle="No pending requests">
+      <p className="text-sm text-muted-foreground py-1">No staff members have requested a password reset.</p>
+    </SectionCard>
+  );
 
   return (
     <SectionCard

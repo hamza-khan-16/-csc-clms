@@ -292,3 +292,79 @@ export const resolvePreviewUserId = createServerFn({ method: "POST" })
 
     return { userId: candidate };
   });
+
+/**
+ * Verifies a college ID exists in profiles.
+ * Safe to call unauthenticated — returns only existence + masked name.
+ */
+export const verifyCollegeId = createServerFn({ method: "POST" })
+  .inputValidator((data: { collegeId: string }) => {
+    let collegeId = String(data?.collegeId ?? "").trim().toUpperCase();
+    if (!collegeId) throw new Error("College ID is required");
+    // Append domain if user typed only the local part
+    if (!collegeId.includes("@")) collegeId = `${collegeId}@CSC.COM`;
+    return { collegeId };
+  })
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    console.log("[verifyCollegeId] looking up:", data.collegeId);
+    const { data: profile, error } = await supabaseAdmin
+      .from("profiles")
+      .select("id, full_name, user_id")
+      .ilike("user_id", data.collegeId)
+      .maybeSingle();
+    console.log("[verifyCollegeId] result:", profile, "error:", error);
+    if (!profile) return { exists: false as const };
+    const masked = profile.full_name
+      .split(" ")
+      .map((w: string) => w.slice(0, 2) + "*".repeat(Math.max(0, w.length - 2)))
+      .join(" ");
+    return { exists: true as const, maskedName: masked };
+  });
+
+/**
+ * Submits a forgot-password request using service role (bypasses RLS).
+ * Safe to call unauthenticated.
+ */
+export const submitForgotPasswordRequest = createServerFn({ method: "POST" })
+  .inputValidator((data: { collegeId: string }) => {
+    let collegeId = String(data?.collegeId ?? "").trim().toUpperCase();
+    if (!collegeId) throw new Error("College ID is required");
+    if (!collegeId.includes("@")) collegeId = `${collegeId}@CSC.COM`;
+    return { collegeId };
+  })
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    console.log("[submitForgotPw] looking up:", data.collegeId);
+
+    const { data: profile, error: profileErr } = await supabaseAdmin
+      .from("profiles")
+      .select("id, full_name, user_id")
+      .ilike("user_id", data.collegeId)
+      .maybeSingle();
+    console.log("[submitForgotPw] profile:", profile, "error:", profileErr);
+
+    if (!profile) return { error: "No account found with that College ID" as const };
+
+    // Check for existing pending request
+    const { data: existing } = await supabaseAdmin
+      .from("password_reset_requests")
+      .select("id")
+      .eq("teacher_id", profile.id)
+      .eq("status", "pending")
+      .maybeSingle();
+
+    if (existing) return { ok: true as const }; // silently succeed — request already there
+
+    const { error } = await supabaseAdmin
+      .from("password_reset_requests")
+      .insert({
+        teacher_id: profile.id,
+        full_name:  profile.full_name,
+        college_id: profile.user_id,
+        status:     "pending",
+      });
+    console.log("[submitForgotPw] insert error:", error);
+    if (error) return { error: `DB error: ${error.message}` as const };
+    return { ok: true as const };
+  });

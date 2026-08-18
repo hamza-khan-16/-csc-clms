@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Trash2, LayoutGrid, X, ChevronLeft, ChevronRight, Printer } from "lucide-react";
@@ -337,8 +338,8 @@ function TimetableModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4">
-      <div className="w-full sm:max-w-5xl rounded-t-2xl sm:rounded-2xl bg-[#111] text-white shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full sm:max-w-5xl rounded-2xl bg-[#111] text-white shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
 
         {/* Header */}
         <div className="flex items-center justify-between bg-[#0a0a0a] px-4 sm:px-6 py-3 sm:py-4 border-b border-white/10 shrink-0">
@@ -725,12 +726,13 @@ function SchedulePage() {
 
   return (
     <AppShell title="My Schedule" subtitle="Fixed timetable, added lectures and accepted proxy duties">
-      {showTimetable && (
+      {showTimetable && createPortal(
         <TimetableModal
           lectures={lectures}
           teacherName={profile?.full_name ?? ""}
           onClose={() => setShowTimetable(false)}
-        />
+        />,
+        document.body
       )}
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4">
