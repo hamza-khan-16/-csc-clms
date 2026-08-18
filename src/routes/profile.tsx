@@ -127,8 +127,14 @@ function ProfilePage() {
 
   useEffect(() => {
     if (!profile?.id) return;
-    supabase.storage.from("avatars").createSignedUrl(`${profile.id}.jpg`, 3600)
-      .then(({ data }) => { if (data?.signedUrl) setAvatarUrl(data.signedUrl); })
+    supabase.storage.from("avatars").list("", { search: `${profile.id}.jpg` })
+      .then(({ data }) => {
+        if (data && data.some((f) => f.name === `${profile.id}.jpg`)) {
+          return supabase.storage.from("avatars").createSignedUrl(`${profile.id}.jpg`, 3600);
+        }
+        return null;
+      })
+      .then((res) => { if (res?.data?.signedUrl) setAvatarUrl(res.data.signedUrl); })
       .catch(() => {});
   }, [profile?.id]);
 
@@ -252,7 +258,7 @@ function ProfilePage() {
               <div className="relative">
                 <div className="size-16 rounded-full bg-accent flex items-center justify-center overflow-hidden text-lg font-bold text-accent-foreground border-2 border-border">
                   {avatarUrl
-                    ? <img src={avatarUrl} alt="avatar" className="size-full object-cover" />
+                    ? <img src={avatarUrl} alt="avatar" className="size-full object-cover" onError={() => setAvatarUrl(null)} />
                     : profile?.full_name?.slice(0, 2).toUpperCase()
                   }
                 </div>

@@ -247,13 +247,19 @@ function AvatarCircle({ name, userId }: { name?: string; userId?: string }) {
 
   useEffect(() => {
     if (!userId) return;
-    supabase.storage.from("avatars").createSignedUrl(`${userId}.jpg`, 3600)
-      .then(({ data }) => { if (data?.signedUrl) setSrc(data.signedUrl); })
+    supabase.storage.from("avatars").list("", { search: `${userId}.jpg` })
+      .then(({ data }) => {
+        if (data && data.some((f) => f.name === `${userId}.jpg`)) {
+          return supabase.storage.from("avatars").createSignedUrl(`${userId}.jpg`, 3600);
+        }
+        return null;
+      })
+      .then((res) => { if (res?.data?.signedUrl) setSrc(res.data.signedUrl); })
       .catch(() => {});
   }, [userId]);
 
   if (src) {
-    return <img src={src} alt={name ?? ""} className="size-full object-cover" />;
+    return <img src={src} alt={name ?? ""} className="size-full object-cover" onError={() => setSrc(null)} />;
   }
   return <span>{name?.slice(0, 2).toUpperCase()}</span>;
 }
