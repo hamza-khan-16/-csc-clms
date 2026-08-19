@@ -36,33 +36,34 @@ export function useBalances(userId: string | undefined) {
 
       if (error) throw error;
 
+      // Pre-compute date counts once per leave row so eachDate() isn't
+      // called repeatedly inside reduce() on every render (#8)
+      const allRows = data ?? [];
+      const dateCountCache = new Map<string, number>();
+      function cachedDateCount(from: string, to: string): number {
+        const key = `${from}|${to}`;
+        if (!dateCountCache.has(key)) dateCountCache.set(key, eachDate(from, to).length);
+        return dateCountCache.get(key)!;
+      }
+
       return LEAVE_TYPES.map((t) => {
-        const rows = (data ?? []).filter((r) => r.leave_type === t.value);
+        const rows = allRows.filter((r) => r.leave_type === t.value);
 
         // Yearly total — straightforward sum of approved total_days
         const usedYear = rows.reduce((s, r) => s + Number(r.total_days), 0);
 
         // Monthly total — count only days that actually fall within this month.
-        // A leave may start last month and end this month (or vice versa),
-        // so we clamp the range to [monthFirst, monthLastISO] and count
-        // how many of those days are in the month.
         const usedMonth = rows
-          .filter((r) =>
-            // Leave overlaps the current month
-            r.from_date <= monthLastISO && r.to_date >= monthFirst,
-          )
+          .filter((r) => r.from_date <= monthLastISO && r.to_date >= monthFirst)
           .reduce((s, r) => {
             const clampFrom = r.from_date < monthFirst   ? monthFirst   : r.from_date;
             const clampTo   = r.to_date   > monthLastISO ? monthLastISO : r.to_date;
 
-            // Count days in the clamped window
-            const daysInMonth = eachDate(clampFrom, clampTo).length;
-
-            // For half-day leaves the total_days is 0.5 — distribute proportionally
-            const totalDays = Number(r.total_days);
+            const daysInMonth = cachedDateCount(clampFrom, clampTo);
+            const totalDays   = Number(r.total_days);
             if (totalDays === 0) return s;
 
-            const fullRange = eachDate(r.from_date, r.to_date).length;
+            const fullRange = cachedDateCount(r.from_date, r.to_date);
             const ratio     = fullRange > 0 ? daysInMonth / fullRange : 1;
 
             return s + totalDays * ratio;

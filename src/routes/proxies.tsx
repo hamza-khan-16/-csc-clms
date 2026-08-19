@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { fetchPeople } from "@/lib/people";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
-import { Empty } from "@/components/ui-bits";
+import { Empty, ListSkeleton } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -46,7 +46,7 @@ function ProxiesPage() {
   const qc = useQueryClient();
   const today = todayISO();
 
-  const { data: rows = [] } = useQuery({
+  const { data: rows = [], isLoading: rowsLoading } = useQuery({
     queryKey: ["my-proxies", profile?.id],
     enabled: !!profile,
     queryFn: async () => {
@@ -58,21 +58,28 @@ function ProxiesPage() {
       if (error) throw error;
       const raw = data ?? [];
 
-      const rowsWithIds = await Promise.all(
-        raw.map(async (r) => {
-          let absenteeId: string | null = (r as any).absentee_teacher_id ?? null;
-          if (!absenteeId) absenteeId = (r.leave_requests as any)?.teacher_id ?? null;
-          if (!absenteeId && r.leave_request_id) {
-            const { data: lr } = await supabase
-              .from("leave_requests")
-              .select("teacher_id")
-              .eq("id", r.leave_request_id)
-              .maybeSingle();
-            absenteeId = lr?.teacher_id ?? null;
-          }
-          return { ...r, absentee_id: absenteeId };
-        }),
+      // Collect leave_request_ids that don't already have absentee info embedded,
+      // then resolve them all in ONE query instead of one per row (#1 N+1 fix).
+      const needsLookup = raw.filter(
+        (r) => !(r as any).absentee_teacher_id && !(r.leave_requests as any)?.teacher_id && r.leave_request_id,
       );
+      const leaveTeacherMap: Record<string, string> = {};
+      if (needsLookup.length > 0) {
+        const { data: lrRows } = await supabase
+          .from("leave_requests")
+          .select("id, teacher_id")
+          .in("id", needsLookup.map((r) => r.leave_request_id!));
+        for (const lr of lrRows ?? []) leaveTeacherMap[lr.id] = lr.teacher_id;
+      }
+
+      const rowsWithIds = raw.map((r) => {
+        const absenteeId: string | null =
+          (r as any).absentee_teacher_id ??
+          (r.leave_requests as any)?.teacher_id ??
+          (r.leave_request_id ? leaveTeacherMap[r.leave_request_id] : null) ??
+          null;
+        return { ...r, absentee_id: absenteeId };
+      });
 
       const absenteeIds = rowsWithIds.map((r) => r.absentee_id).filter(Boolean) as string[];
       const people = absenteeIds.length ? await fetchPeople([...new Set(absenteeIds)]) : {};
@@ -216,6 +223,14 @@ function ProxiesPage() {
   const totalAccepted = rows.filter((r) => r.status === "accepted").length;
   const totalDeclined = rows.filter((r) => r.status === "rejected").length;
   const totalPending = pending.length;
+
+  if (rowsLoading) {
+    return (
+      <AppShell title="Proxy Duties" subtitle="Lectures your HOD has assigned you to cover">
+        <ListSkeleton rows={4} />
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell title="Proxy Duties" subtitle="Lectures your HOD has assigned you to cover">

@@ -44,11 +44,10 @@ function PayrollPage() {
   const [filterYear, setFilterYear] = useState(String(CURRENT_YEAR));
   const [filterType, setFilterType] = useState("all");
 
-  const fromISO = iso(new Date(Number(filterYear), month.getMonth(), 1));
-  const toISO   = iso(new Date(Number(filterYear), month.getMonth() + 1, 0));
-
-  // Sync month year with filterYear
+  // effectiveMonth always derives from filterYear + month index so they stay in sync
   const effectiveMonth = new Date(Number(filterYear), month.getMonth(), 1);
+  const fromISO = iso(effectiveMonth);
+  const toISO   = iso(new Date(Number(filterYear), month.getMonth() + 1, 0));
 
   const { data: allLeaves = [] } = useQuery({
     queryKey: ["payroll-leaves", profile?.id, fromISO],
@@ -131,14 +130,23 @@ function PayrollPage() {
 
           <div className="flex items-center gap-0.5 rounded-lg border border-border px-1 h-9">
             <Button variant="ghost" size="icon" className="h-7 w-7"
-              onClick={() => setMonth(new Date(effectiveMonth.getFullYear(), effectiveMonth.getMonth() - 1, 1))}>
+              onClick={() => {
+                const prev = new Date(Number(filterYear), month.getMonth() - 1, 1);
+                setMonth(prev);
+                // If navigating across a year boundary, update filterYear too
+                if (prev.getFullYear() !== Number(filterYear)) setFilterYear(String(prev.getFullYear()));
+              }}>
               <ChevronLeft className="size-3.5" />
             </Button>
             <span className="text-sm font-medium w-20 text-center">
               {effectiveMonth.toLocaleDateString("en-GB", { month: "short", year: "2-digit" })}
             </span>
             <Button variant="ghost" size="icon" className="h-7 w-7"
-              onClick={() => setMonth(new Date(effectiveMonth.getFullYear(), effectiveMonth.getMonth() + 1, 1))}>
+              onClick={() => {
+                const next = new Date(Number(filterYear), month.getMonth() + 1, 1);
+                setMonth(next);
+                if (next.getFullYear() !== Number(filterYear)) setFilterYear(String(next.getFullYear()));
+              }}>
               <ChevronRight className="size-3.5" />
             </Button>
           </div>

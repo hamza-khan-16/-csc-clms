@@ -85,8 +85,10 @@ function MyLeavesPage() {
     },
   });
 
+  // Sort IDs so the key is stable regardless of array reference changes (#3)
+  const leaveIdKey = useMemo(() => [...leaves.map((l) => l.id)].sort().join(","), [leaves]);
   const { data: proxies = [] } = useQuery({
-    queryKey: ["my-leave-proxies", profile?.id, leaves.map((l) => l.id).join(",")],
+    queryKey: ["my-leave-proxies", profile?.id, leaveIdKey],
     enabled: leaves.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -111,9 +113,15 @@ function MyLeavesPage() {
       .on("postgres_changes", {
         event: "*", schema: "public", table: "leave_requests",
         filter: `teacher_id=eq.${profile.id}`,
-      }, () => {
+      }, (payload) => {
         qc.invalidateQueries({ queryKey: ["my-leaves", profile.id] });
-        toast.info("Leave status updated");
+        // Only show a toast when the approval *status* changed — not for doc uploads
+        // or other field updates the teacher triggered themselves (#10)
+        const oldStatus = (payload.old as any)?.status;
+        const newStatus = (payload.new as any)?.status;
+        if (newStatus && oldStatus && newStatus !== oldStatus) {
+          toast.info("Your leave status has been updated");
+        }
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };

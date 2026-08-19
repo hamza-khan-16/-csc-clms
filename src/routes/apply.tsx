@@ -97,7 +97,20 @@ function ApplyPage() {
   const { data: balances = [] } = useBalances(profile?.id);
 
   const DRAFT_KEY = `leave_draft_${profile?.id ?? "anon"}`;
-  const draft = (() => { try { const r = sessionStorage.getItem(DRAFT_KEY); return r ? JSON.parse(r) : null; } catch { return null; } })();
+  const DRAFT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+  const draft = (() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      // Discard drafts older than 24 hours
+      if (parsed._savedAt && Date.now() - parsed._savedAt > DRAFT_TTL_MS) {
+        localStorage.removeItem(DRAFT_KEY);
+        return null;
+      }
+      return parsed;
+    } catch { return null; }
+  })();
 
   const [step, setStep] = useState(0);
   const [leaveType, setLeaveType] = useState<LeaveType>(draft?.leaveType ?? "casual");
@@ -117,7 +130,11 @@ function ApplyPage() {
   });
 
   useEffect(() => {
-    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ leaveType, fromDate, toDate, session, reason })); } catch {}
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        leaveType, fromDate, toDate, session, reason, _savedAt: Date.now(),
+      }));
+    } catch {}
   }, [DRAFT_KEY, leaveType, fromDate, toDate, session, reason]);
 
   const isMedical = leaveType === "medical";
@@ -228,7 +245,7 @@ function ApplyPage() {
     } else {
       toast.success("Leave request sent to your HOD");
     }
-    try { sessionStorage.removeItem(DRAFT_KEY); } catch {}
+    try { localStorage.removeItem(DRAFT_KEY); } catch {}
     navigate({ to: "/leaves" });
   }
 
@@ -243,7 +260,7 @@ function ApplyPage() {
           {hasDraft && step === 0 && (
             <div className="flex items-center gap-2 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2.5 text-xs text-orange-800 font-medium shadow-sm">
               <span>📝 Draft restored — your previous selections have been loaded.</span>
-              <button type="button" className="ml-auto shrink-0 underline underline-offset-2 hover:text-orange-600" onClick={() => { try { sessionStorage.removeItem(DRAFT_KEY); } catch {} window.location.reload(); }}>Clear draft</button>
+              <button type="button" className="ml-auto shrink-0 underline underline-offset-2 hover:text-orange-600" onClick={() => { try { localStorage.removeItem(DRAFT_KEY); } catch {} window.location.reload(); }}>Clear draft</button>
             </div>
           )}
 

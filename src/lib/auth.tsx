@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -40,7 +40,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<AppRole | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function loadProfile(userId: string) {
+  // useCallback keeps loadProfile reference stable so realtime listeners and
+  // auth event handlers don't close over a stale version (#4)
+  const loadProfile = useCallback(async (userId: string) => {
     const [{ data: p }, { data: r }] = await Promise.all([
       supabase
         .from("profiles")
@@ -69,12 +71,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         hr_rejection_reason: (p as any).hr_rejection_reason ?? null,
         failed_login_attempts: Number((p as any).failed_login_attempts ?? 0),
       });
-
     } else {
       setProfile(null);
     }
     setRole((r?.role as AppRole | undefined) ?? null);
-  }
+  }, []);
 
   useEffect(() => {
     let initialised = false;
@@ -154,7 +155,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session) await loadProfile(session.user.id);
     },
     signOut: async () => {
-      await supabase.auth.signOut();
+      // scope:"global" calls /logout?scope=global which requires a service-role
+      // key and returns 403 with an anon/publishable key. scope:"local" simply
+      // clears the local session without any server round-trip, which is correct
+      // for a frontend-only logout.
+      await supabase.auth.signOut({ scope: "local" });
     },
   };
 
