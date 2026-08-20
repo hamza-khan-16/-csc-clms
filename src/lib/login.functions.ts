@@ -255,8 +255,6 @@ export const registerStaff = createServerFn({ method: "POST" })
       };
     }
 
-    return { role: data.role as "teacher" | "hod" | "hr", collegeUserId };
-
     // Notify admins of the new registration (fire-and-forget)
     try {
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -264,13 +262,15 @@ export const registerStaff = createServerFn({ method: "POST" })
         .from("user_roles").select("user_id").eq("role", "admin");
       const adminUserIds = (adminRoles ?? []).map((r: any) => r.user_id);
       const { data: adminProfiles } = await supabaseAdmin
-        .from("profiles").select("id").eq("approved", true).in("id", adminUserIds);
+        .from("profiles").select("id").in("id", adminUserIds);
       const adminIds = (adminProfiles ?? []).map((p: any) => p.id);
       if (adminIds.length > 0) {
         const { notifyNewRegistration } = await import("@/lib/push.functions");
         notifyNewRegistration(adminIds, data.fullName, data.role).catch(() => {});
       }
     } catch {}
+
+    return { role: data.role as "teacher" | "hod" | "hr", collegeUserId };
   });
 
 /**

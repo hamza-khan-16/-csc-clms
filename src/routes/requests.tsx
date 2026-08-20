@@ -927,6 +927,8 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Leave approved");
+    // Notify teacher their leave was approved by principal
+    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved ✓", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch(() => {});
     qc.invalidateQueries();
   }
 
