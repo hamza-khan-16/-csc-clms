@@ -5,40 +5,44 @@
  * the two-layer content moderation check (local blocklist + Groq LLM).
  *
  * Usage — GuardedInput:
+ *   const guardRef = useRef<GuardHandle>(null);
+ *   ...
  *   <GuardedInput
+ *     ref={guardRef}
  *     fieldName="Reason"
  *     value={reason}
  *     onChange={(v) => setReason(v)}
- *     onGuardError={(err) => setHasError(!!err)}   // optional
  *     placeholder="Enter reason…"
  *   />
+ *   ...
+ *   // In submit handler:
+ *   const err = await guardRef.current?.validateNow();
+ *   if (err) return; // already shown inline
  *
  * Usage — GuardedTextarea:
- *   <GuardedTextarea
- *     fieldName="Note"
- *     value={note}
- *     onChange={(v) => setNote(v)}
- *     rows={3}
- *   />
+ *   <GuardedTextarea ref={guardRef} fieldName="Note" value={note} onChange={...} rows={3} />
  *
- * Both components forward all standard HTML props (except onChange which
- * is adapted to return the string value directly for convenience).
- *
- * The `onGuardError` callback fires whenever the error state changes — use
- * it to disable a submit button in the parent:
- *   const [blocked, setBlocked] = useState(false);
- *   ...
- *   <Button disabled={blocked}>Submit</Button>
+ * GuardHandle is exported so parents can type the ref correctly.
  */
 
-import { useId, forwardRef, useEffect } from "react";
+import { useId, forwardRef, useEffect, useImperativeHandle } from "react";
 import { Loader2 } from "lucide-react";
 import { Input }    from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useTextGuard } from "@/lib/textGuard";
 import { cn } from "@/lib/utils";
 
-// ── shared props ──────────────────────────────────────────────────────────────
+// ── Public handle exposed via ref ─────────────────────────────────────────────
+export interface GuardHandle {
+  /**
+   * Run all three layers synchronously + await LLM.
+   * Call this in your form's submit handler before proceeding.
+   * Returns null if clean, or an error string (already shown inline).
+   */
+  validateNow: () => Promise<string | null>;
+}
+
+// ── Shared props ──────────────────────────────────────────────────────────────
 interface GuardProps {
   fieldName?: string;
   value: string;
@@ -47,7 +51,7 @@ interface GuardProps {
   className?: string;
 }
 
-// ── error + spinner row displayed below the field ─────────────────────────────
+// ── Error + spinner row ───────────────────────────────────────────────────────
 function GuardFeedback({ error, checking }: { error: string | null; checking: boolean }) {
   if (!error && !checking) return null;
   return (
@@ -62,16 +66,18 @@ function GuardFeedback({ error, checking }: { error: string | null; checking: bo
 // ── GuardedInput ──────────────────────────────────────────────────────────────
 type InputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange" | "value">;
 
-export const GuardedInput = forwardRef<HTMLInputElement, GuardProps & InputProps>(
+export const GuardedInput = forwardRef<GuardHandle, GuardProps & InputProps>(
   ({ fieldName = "Field", value, onChange, onGuardError, className, ...rest }, ref) => {
-    const { error, checking } = useTextGuard(value, fieldName);
+    const { error, checking, validateNow } = useTextGuard(value, fieldName);
 
     useEffect(() => { onGuardError?.(error); }, [error, onGuardError]);
+
+    // Expose validateNow to parent via ref
+    useImperativeHandle(ref, () => ({ validateNow }), [validateNow]);
 
     return (
       <div className="w-full">
         <Input
-          ref={ref}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           aria-invalid={!!error}
@@ -88,16 +94,17 @@ GuardedInput.displayName = "GuardedInput";
 // ── GuardedTextarea ───────────────────────────────────────────────────────────
 type TextareaProps = Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "value">;
 
-export const GuardedTextarea = forwardRef<HTMLTextAreaElement, GuardProps & TextareaProps>(
+export const GuardedTextarea = forwardRef<GuardHandle, GuardProps & TextareaProps>(
   ({ fieldName = "Field", value, onChange, onGuardError, className, ...rest }, ref) => {
-    const { error, checking } = useTextGuard(value, fieldName);
+    const { error, checking, validateNow } = useTextGuard(value, fieldName);
 
     useEffect(() => { onGuardError?.(error); }, [error, onGuardError]);
+
+    useImperativeHandle(ref, () => ({ validateNow }), [validateNow]);
 
     return (
       <div className="w-full">
         <Textarea
-          ref={ref}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           aria-invalid={!!error}

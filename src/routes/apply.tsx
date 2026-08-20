@@ -14,7 +14,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { validateMeaningfulText } from "@/lib/validateText";
-import { GuardedTextarea } from "@/components/GuardedField";
+import { GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
+import { sendPushNotification } from "@/lib/push.functions";
+import { useRef } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { AlertTriangle, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
 import {
   Select,
@@ -120,6 +123,8 @@ function ApplyPage() {
   const [reason, setReason] = useState(draft?.reason ?? "");
   const [busy, setBusy] = useState(false);
   const [reasonError, setReasonError] = useState<string | null>(null);
+  const reasonGuardRef = useRef<GuardHandle>(null);
+  const sendPush = useServerFn(sendPushNotification);
   const [hasDraft] = useState(() => {
     if (!draft) return false;
     // Only show the banner if the draft has non-default content
@@ -213,14 +218,15 @@ function ApplyPage() {
 
   async function submit() {
     if (reasonError) return toast.error(reasonError);
+    // Pre-submit guard: re-run all layers (including awaiting any in-flight LLM)
+    if (reason.trim() && reasonGuardRef.current) {
+      const guardErr = await reasonGuardRef.current.validateNow();
+      if (guardErr) return toast.error(guardErr);
+    }
     const parsed = schema.safeParse({ leaveType, fromDate, toDate, session, reason });
     if (!parsed.success) return toast.error(parsed.error.issues[0].message);
     const err = validateStep(1);
     if (err) return toast.error(err);
-    if (reason.trim()) {
-      const reasonCheck = validateMeaningfulText(reason, "Reason");
-      if (!reasonCheck.valid) return toast.error(reasonCheck.error!);
-    }
     setBusy(true);
     const docStatus = (isMedical && medFlow?.docRequired) ? "required" : undefined;
     const { error } = await supabase.from("leave_requests").insert({
@@ -236,6 +242,15 @@ function ApplyPage() {
     setBusy(false);
     if (error) return toast.error(error.message);
     qc.invalidateQueries();
+    // Notify HOD — use __hod__ sentinel so server resolves the right HOD by department
+    if (profile?.department_id) {
+      sendPush({ data: {
+        userIds:   [`__hod_dept_${profile.department_id}__`],
+        title:     "New Leave Request",
+        body:      `${profile.full_name ?? "A teacher"} applied for ${preview?.total ?? 1} day(s) of ${leaveType} leave`,
+        targetUrl: "/requests",
+      }}).catch(() => {});
+    }
     if (isMedical) {
       toast.success(medFlow?.hodFinal
         ? "Medical leave sent to HOD — upload certificate after HOD approves"
@@ -407,7 +422,7 @@ function ApplyPage() {
               {/* Reason input — below review so it's clearly an optional addition */}
               <div className="space-y-2">
                 <Label htmlFor="reason">Reason <span className="text-xs text-muted-foreground">(optional)</span></Label>
-                <GuardedTextarea id="reason" fieldName="Reason" rows={3} maxLength={500}
+                <GuardedTextarea ref={reasonGuardRef} id="reason" fieldName="Reason" rows={3} maxLength={500}
                   placeholder="Enter reason (optional)..." value={reason} onChange={setReason}
                   onGuardError={setReasonError} />
               </div>

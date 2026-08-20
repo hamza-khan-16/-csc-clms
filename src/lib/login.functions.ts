@@ -20,38 +20,42 @@ export const signInWithIdentifier = createServerFn({ method: "POST" })
     let email = data.identifier;
     let profileId: string | null = null;
 
-    // Resolve college ID (firstname@CSC.COM) → real auth email
     if (/@csc\.com$/i.test(email)) {
+      // College ID path: fetch profile + auth user in parallel
       const { data: profile } = await supabaseAdmin
         .from("profiles")
-        .select("id")
+        .select("id, account_locked, failed_login_attempts")
         .ilike("user_id", email)
         .maybeSingle();
+
       if (!profile) return { error: "Invalid user ID or password" as const };
       profileId = profile.id;
+
+      // Check lockout immediately — no need to hit auth if locked
+      if (profile.account_locked) {
+        return { error: "Your account has been locked due to too many failed login attempts. Please contact your HOD or Admin to reset your password." as const };
+      }
+
+      // Fetch real auth email in parallel with nothing else needed now
       const { data: user } = await supabaseAdmin.auth.admin.getUserById(profile.id);
       if (!user?.user?.email) return { error: "Invalid user ID or password" as const };
       email = user.user.email;
+
     } else {
-      // Plain email login — find profileId for lockout tracking
-      const { data: profile } = await supabaseAdmin
-        .from("profiles")
-        .select("id")
-        .eq("id", (await supabaseAdmin.auth.admin.listUsers()).data.users.find(u => u.email === email.toLowerCase())?.id ?? "")
-        .maybeSingle();
-      profileId = profile?.id ?? null;
-    }
+      // Plain email path: use getUserByEmail instead of listing ALL users
+      const { data: authUser } = await supabaseAdmin.auth.admin.getUserByEmail(email.toLowerCase());
+      if (authUser?.user?.id) {
+        // Fetch profile + lockout check in one query
+        const { data: profile } = await supabaseAdmin
+          .from("profiles")
+          .select("id, account_locked, failed_login_attempts")
+          .eq("id", authUser.user.id)
+          .maybeSingle();
 
-    // Check lockout status before attempting sign-in
-    if (profileId) {
-      const { data: prof } = await supabaseAdmin
-        .from("profiles")
-        .select("account_locked, failed_login_attempts")
-        .eq("id", profileId)
-        .maybeSingle();
-
-      if (prof?.account_locked) {
-        return { error: "Your account has been locked due to too many failed login attempts. Please contact your HOD or Admin to reset your password." as const };
+        profileId = profile?.id ?? null;
+        if (profile?.account_locked) {
+          return { error: "Your account has been locked due to too many failed login attempts. Please contact your HOD or Admin to reset your password." as const };
+        }
       }
     }
 
@@ -66,9 +70,9 @@ export const signInWithIdentifier = createServerFn({ method: "POST" })
     });
 
     if (error || !signIn?.session) {
-      // Increment failed attempts if we have a profileId
       if (profileId) {
         const MAX_ATTEMPTS = 5;
+        // Re-read current attempts (we may not have it for the plain-email path)
         const { data: prof } = await supabaseAdmin
           .from("profiles")
           .select("failed_login_attempts")
@@ -93,12 +97,13 @@ export const signInWithIdentifier = createServerFn({ method: "POST" })
       return { error: "Invalid user ID or password" as const };
     }
 
-    // Successful login — reset failed attempts
+    // Successful login — reset failed attempts (fire-and-forget, don't block the response)
     if (profileId) {
-      await supabaseAdmin
+      supabaseAdmin
         .from("profiles")
         .update({ failed_login_attempts: 0, account_locked: false })
-        .eq("id", profileId);
+        .eq("id", profileId)
+        .then(() => {});
     }
 
     return {
@@ -251,6 +256,21 @@ export const registerStaff = createServerFn({ method: "POST" })
     }
 
     return { role: data.role as "teacher" | "hod" | "hr", collegeUserId };
+
+    // Notify admins of the new registration (fire-and-forget)
+    try {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { data: adminRoles } = await supabaseAdmin
+        .from("user_roles").select("user_id").eq("role", "admin");
+      const adminUserIds = (adminRoles ?? []).map((r: any) => r.user_id);
+      const { data: adminProfiles } = await supabaseAdmin
+        .from("profiles").select("id").eq("approved", true).in("id", adminUserIds);
+      const adminIds = (adminProfiles ?? []).map((p: any) => p.id);
+      if (adminIds.length > 0) {
+        const { notifyNewRegistration } = await import("@/lib/push.functions");
+        notifyNewRegistration(adminIds, data.fullName, data.role).catch(() => {});
+      }
+    } catch {}
   });
 
 /**

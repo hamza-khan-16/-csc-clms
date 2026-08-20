@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { initPush, logoutPush, registerNotificationTapHandler } from "@/lib/push";
 
 export type AppRole = "teacher" | "hod" | "principal" | "admin" | "hr";
 
@@ -80,6 +81,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let initialised = false;
 
+    // Register the global notification tap handler for Median bridge
+    registerNotificationTapHandler();
+
     const profileLoadEvents = new Set([
       'INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED', 'PASSWORD_RECOVERY',
     ]);
@@ -91,12 +95,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRole(null);
         setLoading(false);
         initialised = true;
+        logoutPush(); // unlink device from OneSignal on logout
       } else if (profileLoadEvents.has(event)) {
         setLoading(true);
         setTimeout(() => {
           loadProfile(next.user.id).finally(() => {
             setLoading(false);
             initialised = true;
+            // Register device for push notifications after profile loads
+            if (event === 'SIGNED_IN') initPush(next.user.id);
           });
         }, 0);
       } else {

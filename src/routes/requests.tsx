@@ -43,6 +43,7 @@ import { AlertCircle, LockKeyhole, Lightbulb, FileText, CheckCircle2, Clock, Che
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { GuardedTextarea } from "@/components/GuardedField";
 import { useServerFn } from "@tanstack/react-start";
+import { sendPushNotification } from "@/lib/push.functions";
 import { unlockAccount } from "@/lib/admin.functions";
 
 export const Route = createFileRoute("/requests")({
@@ -490,6 +491,7 @@ function LockedAccountsPanel({ role, deptId }: { role: "hod" | "principal"; dept
 
 // ── Requests page ─────────────────────────────────────────────────────────────
 function RequestsPage() {
+  const sendPush = useServerFn(sendPushNotification);
   const { profile, role } = useAuth();
   const isHod = role === "hod";
   const qc = useQueryClient();
@@ -726,6 +728,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [choices, setChoices] = useState<Record<string, string>>({});
+  const sendPush = useServerFn(sendPushNotification);
   const isHodFinal = isHodFinalLeave(request.leave_type as LeaveType);
   const isMedical = request.leave_type === "medical";
   const requiredDoc = docLabel(request.leave_type as LeaveType);
@@ -823,6 +826,16 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       }),
     );
     if (pErr) { toast.error(pErr.message); return false; }
+
+    // Notify each unique proxy teacher (fire-and-forget)
+    const uniqueProxyTeachers = [...new Set(allSlots.map((s) => choices[s.key]).filter(Boolean))];
+    const absenteeName = request.teacher_name ?? "a colleague";
+    for (const proxyId of uniqueProxyTeachers) {
+      const slot = allSlots.find((s) => choices[s.key] === proxyId);
+      if (slot) {
+        sendPush({ data: { userIds: [proxyId], title: "Proxy Lecture Assigned", body: `Cover ${slot.subject} for ${absenteeName} on ${slot.date}`, targetUrl: "/proxies" } }).catch(() => {});
+      }
+    }
     return true;
   }
 
@@ -842,6 +855,11 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Recommended to the principal");
+    // Notify principal a leave is awaiting their approval
+    if (profile?.department_id) {
+      // Notify principal (fire-and-forget) — they need to find principal by role server-side
+      sendPush({ data: { userIds: ["__principal__"], title: "Leave Awaiting Your Approval", body: `${request.teacher?.full_name ?? "A teacher"}'s ${request.leave_type} leave has been approved by HOD`, targetUrl: "/requests" } }).catch(() => {});
+    }
     qc.invalidateQueries();
   }
 
@@ -854,6 +872,8 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success(`Leave approved — teacher must upload ${requiredDoc}`);
+    // Notify teacher their leave was approved
+    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved ✓", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch(() => {});
     qc.invalidateQueries();
   }
 
@@ -877,6 +897,8 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Leave rejected");
+    // Notify teacher their leave was rejected
+    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Rejected", body: note.trim() ? `Your ${request.leave_type} leave was rejected: ${note.trim()}` : `Your ${request.leave_type} leave request has been rejected`, targetUrl: "/leaves" } }).catch(() => {});
     qc.invalidateQueries();
   }
 

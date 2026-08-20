@@ -3,10 +3,11 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { signInWithIdentifier, registerStaff, resolvePreviewUserId, verifyCollegeId, submitForgotPasswordRequest } from "@/lib/login.functions";
-import { Eye, EyeOff, Loader2, UserRound } from "lucide-react";
+import { Eye, EyeOff, Loader2, Moon, Sun, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
+import { useTheme } from "@/lib/theme";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/")(({
   head: () => ({
     meta: [
       { title: "Sign In — CSC Leave Management System" },
@@ -30,81 +31,43 @@ export const Route = createFileRoute("/")({
     ],
   }),
   component: SignInPage,
-});
+}));
 
 const SALUTATIONS = [
-  "Mr.",
-  "Mrs.",
-  "Ms.",
-  "Miss",
-  "Master",
-  "Shri",
-  "Smt.",
-  "Kumari",
-  "Sushri",
-  "M/S",
-  "Dr.",
-  "Prof.",
-  "Er.",
-  "Adv.",
-  "CA",
-  "Ar.",
-  "CS",
-  "Hon'ble",
-  "Justice",
-  "Excellency",
-  "Gen.",
-  "Lt. Gen.",
-  "Maj. Gen.",
-  "Brig.",
-  "Col.",
-  "Lt. Col.",
-  "Maj.",
-  "Capt.",
-  "Lt.",
-  "Adm.",
-  "Cdr.",
-  "ACM",
-  "Air Mshl",
-  "Wg. Cdr.",
-  "Sqn. Ldr.",
-];
-const GENDERS: { value: string; label: string }[] = [
-  { value: "male",   label: "Male" },
-  { value: "female", label: "Female" },
-  { value: "other",  label: "Other" },
+  "Mr.", "Mrs.", "Ms.", "Miss", "Master", "Shri", "Smt.", "Kumari", "Sushri",
+  "M/S", "Dr.", "Prof.", "Er.", "Adv.", "CA", "Ar.", "CS", "Hon'ble", "Justice",
+  "Excellency", "Gen.", "Lt. Gen.", "Maj. Gen.", "Brig.", "Col.", "Lt. Col.",
+  "Maj.", "Capt.", "Lt.", "Adm.", "Cdr.", "ACM", "Air Mshl", "Wg. Cdr.", "Sqn. Ldr.",
 ];
 
-// ── DOB helpers ───────────────────────────────────────────────────────────────
+const GENDERS: { value: string; label: string }[] = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "other", label: "Other" },
+];
+
 const MONTHS = [
   "January","February","March","April","May","June",
   "July","August","September","October","November","December",
 ];
 const DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"));
 
-/** Parses stored "DD-MM" or "DD-MM-YYYY" back into parts */
 function parseDob(val: string): { day: string; month: string; year: string } {
   if (!val) return { day: "", month: "", year: "" };
   const parts = val.split("-");
-  return {
-    day:   parts[0] ?? "",
-    month: parts[1] ?? "",
-    year:  parts[2] ?? "",
-  };
+  return { day: parts[0] ?? "", month: parts[1] ?? "", year: parts[2] ?? "" };
 }
 
-/** Builds "DD-MM" or "DD-MM-YYYY" from parts */
 function buildDob(day: string, month: string, year: string): string {
   if (!day || !month) return "";
   return year ? `${day}-${month}-${year}` : `${day}-${month}`;
 }
 
-/** Day/Month picker with optional year for DOB entry */
 function DobPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const parsed = parseDob(value);
-  const [day,   setDay]   = useState(parsed.day);
+  const [day, setDay] = useState(parsed.day);
   const [month, setMonth] = useState(parsed.month);
-  const [year,  setYear]  = useState(parsed.year);
+  const [year, setYear] = useState(parsed.year);
 
   function update(d: string, m: string, y: string) {
     setDay(d); setMonth(m); setYear(y);
@@ -115,14 +78,10 @@ function DobPicker({ value, onChange }: { value: string; onChange: (v: string) =
     <div className="space-y-2">
       <Label>Date of Birth <span className="text-muted-foreground text-xs">(optional — year is optional)</span></Label>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-[80px_1fr_100px]">
-        {/* Day */}
         <Select value={day} onValueChange={(v) => update(v, month, year)}>
           <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
-          <SelectContent>
-            {DAYS.map((d) => <SelectItem key={d} value={d}>{parseInt(d)}</SelectItem>)}
-          </SelectContent>
+          <SelectContent>{DAYS.map((d) => <SelectItem key={d} value={d}>{parseInt(d)}</SelectItem>)}</SelectContent>
         </Select>
-        {/* Month */}
         <Select value={month} onValueChange={(v) => update(day, v, year)}>
           <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
           <SelectContent>
@@ -131,16 +90,12 @@ function DobPicker({ value, onChange }: { value: string; onChange: (v: string) =
             ))}
           </SelectContent>
         </Select>
-        {/* Year — optional free text */}
         <Input
           placeholder="Year (opt.)"
           value={year}
           maxLength={4}
           inputMode="numeric"
-          onChange={(e) => {
-            const y = e.target.value.replace(/\D/g, "");
-            update(day, month, y);
-          }}
+          onChange={(e) => update(day, month, e.target.value.replace(/\D/g, ""))}
         />
       </div>
       {day && month && (
@@ -153,7 +108,6 @@ function DobPicker({ value, onChange }: { value: string; onChange: (v: string) =
   );
 }
 
-// 12-char minimum + all complexity rules
 const PW_RULES = [
   { re: /.{12,}/, label: "At least 12 characters" },
   { re: /[A-Z]/, label: "At least 1 uppercase letter" },
@@ -185,6 +139,19 @@ function PasswordStrength({ password }: { password: string }) {
   );
 }
 
+function ThemeToggle() {
+  const { theme, toggle } = useTheme();
+  return (
+    <button
+      onClick={toggle}
+      aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+    >
+      {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+    </button>
+  );
+}
+
 function SignInPage() {
   const navigate = useNavigate();
   const { session, role, loading } = useAuth();
@@ -197,26 +164,39 @@ function SignInPage() {
   }, [loading, session, role, navigate]);
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-[minmax(0,480px)_1fr]">
-      <div className="flex flex-col justify-center px-6 py-12 sm:px-10 overflow-y-auto">
+    <div className="grid min-h-screen lg:grid-cols-[minmax(0,480px)_1fr] bg-background transition-colors duration-200">
+      {/* Left panel */}
+      <div className="flex flex-col justify-center px-6 py-12 sm:px-10 overflow-y-auto relative">
+        {/* Theme toggle — top right of the left panel */}
+        <div className="absolute top-4 right-4">
+          <ThemeToggle />
+        </div>
+
         <div className="max-w-sm w-full mx-auto">
-        <Logo />
-        <h1 className="mt-10 text-2xl font-extrabold tracking-tight">Leave Management System</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {mode === "signin" ? "Sign in to continue" : "Register your staff account"}
-        </p>
-        <div className="mt-8">{mode === "signin" ? <SignInForm /> : <RegisterForm onBackToSignIn={() => setMode("signin")} />}</div>
-        <button
-          className="mt-6 text-sm font-medium text-primary hover:underline"
-          onClick={() => setMode(mode === "signin" ? "register" : "signin")}
-        >
-          {mode === "signin" ? "New staff member? Register an account" : "Already registered? Sign in"}
-        </button>
+          <Logo />
+          <h1 className="mt-10 text-2xl font-extrabold tracking-tight text-foreground">
+            Leave Management System
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {mode === "signin" ? "Sign in to continue" : "Register your staff account"}
+          </p>
+
+          <div className="mt-8">
+            {mode === "signin" ? <SignInForm /> : <RegisterForm onBackToSignIn={() => setMode("signin")} />}
+          </div>
+
+          <button
+            className="mt-6 text-sm font-medium text-primary hover:underline"
+            onClick={() => setMode(mode === "signin" ? "register" : "signin")}
+          >
+            {mode === "signin" ? "New staff member? Register an account" : "Already registered? Sign in"}
+          </button>
         </div>
       </div>
 
+      {/* Right decorative panel */}
       <div className="relative hidden overflow-hidden lg:block">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-accent/20 to-background" />
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-accent/20 to-background transition-colors duration-200" />
         <div className="absolute inset-0 grid place-items-center p-16">
           <div className="max-w-md space-y-6">
             <p className="text-4xl font-extrabold leading-tight tracking-tight text-foreground">
@@ -281,6 +261,7 @@ function SignInForm() {
             id="userid"
             type="text"
             required
+            autoComplete="username"
             placeholder="firstname@CSC.COM"
             value={email}
             onChange={(e) => { setEmail(e.target.value); setAuthError(null); }}
@@ -296,18 +277,24 @@ function SignInForm() {
             id="password"
             type={show ? "text" : "password"}
             required
+            autoComplete="current-password"
             placeholder="Enter your password"
             value={password}
             onChange={(e) => { setPassword(e.target.value); setAuthError(null); }}
             className={authError ? "pr-10 border-destructive focus-visible:ring-destructive" : "pr-10"}
           />
-          <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-2.5 text-muted-foreground" aria-label="Toggle password visibility">
+          <button
+            type="button"
+            onClick={() => setShow(!show)}
+            className="absolute right-3 top-2.5 text-muted-foreground"
+            aria-label="Toggle password visibility"
+          >
             {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
           </button>
         </div>
         {authError && (
           <p className="text-xs text-destructive flex items-center gap-1.5 mt-1">
-            <span className="inline-block size-3.5 rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold flex items-center justify-center shrink-0">!</span>
+            <span className="inline-flex size-3.5 rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold items-center justify-center shrink-0">!</span>
             {authError}
           </p>
         )}
@@ -325,15 +312,12 @@ function ForgotPasswordDialog() {
   const [collegeId, setCollegeId] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  // ID verification state
   const [verifying, setVerifying] = useState(false);
   const [verified, setVerified] = useState<{ exists: boolean; maskedName?: string } | null>(null);
 
   const verify = useServerFn(verifyCollegeId);
   const submit = useServerFn(submitForgotPasswordRequest);
 
-  // Debounced ID lookup as user types
   useEffect(() => {
     const id = collegeId.trim();
     if (!id) { setVerified(null); return; }
@@ -354,10 +338,7 @@ function ForgotPasswordDialog() {
   }, [collegeId]);
 
   function handleClose() {
-    setOpen(false);
-    setSent(false);
-    setCollegeId("");
-    setVerified(null);
+    setOpen(false); setSent(false); setCollegeId(""); setVerified(null);
   }
 
   async function sendRequest() {
@@ -365,10 +346,7 @@ function ForgotPasswordDialog() {
     setBusy(true);
     try {
       const result = await submit({ data: { collegeId: collegeId.trim() } });
-      if ("error" in result) {
-        toast.error(result.error);
-        return;
-      }
+      if ("error" in result) { toast.error(result.error); return; }
       setSent(true);
     } catch (err) {
       toast.error("Submit failed: " + (err instanceof Error ? err.message : String(err)));
@@ -400,9 +378,6 @@ function ForgotPasswordDialog() {
                     <p className="text-xs text-muted-foreground">Admin will set a temporary password for you</p>
                   </div>
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  Your password reset request has been sent to the admin. They will set a temporary password and share it with you directly.
-                </p>
                 <Button className="w-full" onClick={handleClose}>Done</Button>
               </>
             ) : (
@@ -453,14 +428,14 @@ function ForgotPasswordDialog() {
 }
 
 const REGISTER_ROLES = [
-  { value: "teacher", label: "Teacher",   desc: "Apply for leaves, view schedule, payroll" },
-  { value: "hod",     label: "HOD",       desc: "Head of Department — approve department leaves" },
-  { value: "hr",      label: "HR Admin",  desc: "Manage teacher onboarding and documents" },
+  { value: "teacher", label: "Teacher",  desc: "Apply for leaves, view schedule, payroll" },
+  { value: "hod",    label: "HOD",       desc: "Head of Department — approve department leaves" },
+  { value: "hr",     label: "HR Admin",  desc: "Manage teacher onboarding and documents" },
 ] as const;
 
 function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
-  const { refresh } = useAuth();
   const register = useServerFn(registerStaff);
+  const resolveId = useServerFn(resolvePreviewUserId);
 
   const [registerRole, setRegisterRole] = useState<"teacher" | "hod" | "hr">("teacher");
   const [salutation, setSalutation] = useState("");
@@ -474,14 +449,13 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
   const [departmentId, setDepartmentId] = useState("");
   const [pending, setPending] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  const isHR = registerRole === "hr";
-  const needsDept = registerRole === "teacher" || registerRole === "hod";
-
-  // Live uniqueness check: preview the actual ID that will be assigned (server-side, bypasses RLS)
   const [previewUserId, setPreviewUserId] = useState("");
   const [idChecking, setIdChecking] = useState(false);
-  const resolveId = useServerFn(resolvePreviewUserId);
+
+  const needsDept = registerRole === "teacher" || registerRole === "hod";
+  const pwValid = PW_RULES.every((r) => r.re.test(password));
+  const fullName = [salutation, firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
+
   useEffect(() => {
     const clean = firstName.trim();
     if (!clean) { setPreviewUserId(""); return; }
@@ -508,12 +482,6 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
     },
   });
 
-  // Derived full name
-  const fullName = [salutation, firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
-
-  // Password validation — 12-char minimum
-  const pwValid = PW_RULES.every((r) => r.re.test(password));
-
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!salutation) return toast.error("Please select a salutation");
@@ -523,20 +491,10 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
     if (!pwValid) return toast.error("Password does not meet the requirements");
 
     const email = `${firstName.trim().toLowerCase()}.csc@csc.edu`;
-
     setBusy(true);
     try {
       const result = await register({
-        data: {
-          email,
-          password,
-          fullName,
-          designation,
-          departmentId: needsDept ? departmentId : null,
-          role: registerRole,
-          gender,
-          dob: dob || null,
-        },
+        data: { email, password, fullName, designation, departmentId: needsDept ? departmentId : null, role: registerRole, gender, dob: dob || null },
       });
       if ("error" in result && result.error) return toast.error(result.error);
       setPending(true);
@@ -563,16 +521,13 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
             </p>
           )}
         </div>
-        <Button variant="outline" className="w-full" onClick={onBackToSignIn}>
-          ← Back to Sign In
-        </Button>
+        <Button variant="outline" className="w-full" onClick={onBackToSignIn}>← Back to Sign In</Button>
       </div>
     );
   }
 
   return (
     <form onSubmit={submit} className="space-y-4">
-
       {/* Role selection */}
       <div className="space-y-2">
         <Label>Registering as</Label>
@@ -595,31 +550,16 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         </div>
       </div>
 
-      {/* Salutation + First name + Last name */}
+      {/* Name */}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[130px_1fr_1fr]">
         <Select value={salutation} onValueChange={setSalutation}>
-          <SelectTrigger>
-            <SelectValue placeholder="Salutation" />
-          </SelectTrigger>
+          <SelectTrigger><SelectValue placeholder="Salutation" /></SelectTrigger>
           <SelectContent>
-            {SALUTATIONS.map((s) => (
-              <SelectItem key={s} value={s}>{s}</SelectItem>
-            ))}
+            {SALUTATIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
           </SelectContent>
         </Select>
-        <GuardedInput
-          required
-          fieldName="First name"
-          placeholder="First name"
-          value={firstName}
-          onChange={setFirstName}
-        />
-        <GuardedInput
-          fieldName="Last name"
-          placeholder="Last name"
-          value={lastName}
-          onChange={setLastName}
-        />
+        <GuardedInput required fieldName="First name" placeholder="First name" value={firstName} onChange={setFirstName} />
+        <GuardedInput fieldName="Last name" placeholder="Last name" value={lastName} onChange={setLastName} />
       </div>
       {fullName && (
         <p className="text-xs text-muted-foreground">Full name: <span className="font-medium text-foreground">{fullName}</span></p>
@@ -629,18 +569,13 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
       <div className="space-y-2">
         <Label>Gender</Label>
         <Select value={gender} onValueChange={setGender}>
-          <SelectTrigger>
-            <SelectValue placeholder="Select gender" />
-          </SelectTrigger>
+          <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
           <SelectContent>
-            {GENDERS.map((g) => (
-              <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
-            ))}
+            {GENDERS.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
 
-      {/* Date of Birth (optional) */}
       <DobPicker value={dob} onChange={setDob} />
 
       {/* Auto-generated User ID */}
@@ -669,6 +604,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
             id="reg-pass"
             type={showPw ? "text" : "password"}
             required
+            autoComplete="new-password"
             placeholder="Create a strong password (min 12 characters)"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -681,19 +617,15 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         <PasswordStrength password={password} />
       </div>
 
-      {/* Department + Designation — department hidden for HR */}
+      {/* Department + Designation */}
       <div className={`grid gap-4 ${needsDept ? "sm:grid-cols-2" : "grid-cols-1"}`}>
         {needsDept && (
           <div className="space-y-2">
             <Label>Department</Label>
             <Select value={departmentId} onValueChange={setDepartmentId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select department" />
-              </SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Select department" /></SelectTrigger>
               <SelectContent>
-                {departments.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                ))}
+                {departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -701,28 +633,13 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         <div className="space-y-2">
           <Label htmlFor="desig">Designation</Label>
           <Select value={designation} onValueChange={setDesignation}>
-            <SelectTrigger id="desig">
-              <SelectValue placeholder="Select designation" />
-            </SelectTrigger>
+            <SelectTrigger id="desig"><SelectValue placeholder="Select designation" /></SelectTrigger>
             <SelectContent>
               {[
-                "Assistant Professor",
-                "Associate Professor",
-                "Professor",
-                "Senior Professor",
-                "Head of Department",
-                "Principal",
-                "Vice Principal",
-                "Lecturer",
-                "Senior Lecturer",
-                "Lab Assistant",
-                "Teaching Assistant",
-                "HR Manager",
-                "HR Executive",
-                "HR Officer",
-              ].map((d) => (
-                <SelectItem key={d} value={d}>{d}</SelectItem>
-              ))}
+                "Assistant Professor","Associate Professor","Professor","Senior Professor",
+                "Head of Department","Principal","Vice Principal","Lecturer","Senior Lecturer",
+                "Lab Assistant","Teaching Assistant","HR Manager","HR Executive","HR Officer",
+              ].map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>

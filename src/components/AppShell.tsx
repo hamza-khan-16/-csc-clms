@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type AppRole } from "@/lib/auth";
+import { useTheme } from "@/lib/theme";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -62,16 +63,9 @@ export function AppShell({
   const [open, setOpen] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
-  // Dark mode — persist to localStorage
-  const [dark, setDark] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("theme") === "dark" ||
-      (!localStorage.getItem("theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  });
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem("theme", dark ? "dark" : "light");
-  }, [dark]);
+  // Dark mode — use shared ThemeProvider so login page and app stay in sync
+  const { theme, toggle: toggleTheme } = useTheme();
+  const dark = theme === "dark";
 
   // Mobile bottom nav pinned tabs — persisted per user account (not per role)
   const storageKey = `mobile-tabs-${profile?.id ?? "guest"}`;
@@ -255,7 +249,7 @@ export function AppShell({
             {subtitle && <p className="truncate text-[11px] text-muted-foreground sm:text-sm">{subtitle}</p>}
           </div>
           <NoticeBell role={role} userId={profile?.id} />
-          <Button variant="ghost" size="icon" aria-label="Toggle dark mode" onClick={() => setDark((d) => !d)}>
+          <Button variant="ghost" size="icon" aria-label="Toggle dark mode" onClick={toggleTheme}>
             {dark ? <Sun className="size-5" /> : <Moon className="size-5" />}
           </Button>
           <div className="hidden items-center gap-3 sm:flex">

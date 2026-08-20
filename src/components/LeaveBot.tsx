@@ -6,7 +6,7 @@
  * proxy assignments, payroll, schedules, notices, etc.
  *
  * Powered by Groq (llama-3.1-8b-instant, free tier).
- * Requires VITE_GROQ_API_KEY in .env
+ * Requires GROQ_API_KEY in server environment (.env — no VITE_ prefix)
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -17,6 +17,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { leaveTypeLabel, type LeaveType } from "@/lib/leave";
 import { localBlocklistCheck, groqModerationCheck } from "@/lib/textGuard";
+import { leaveBotChat } from "@/lib/moderation.functions";
+import { useServerFn } from "@tanstack/react-start";
 import { validateMeaningfulText } from "@/lib/validateText";
 
 // ── System prompt — full app knowledge ────────────────────────────────────────
@@ -216,45 +218,6 @@ interface Message {
   content: string;
 }
 
-const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL    = "openai/gpt-oss-120b";
-
-// ── API call ──────────────────────────────────────────────────────────────────
-async function askGroq(messages: Message[], userContext: string): Promise<string> {
-  const key = import.meta.env.VITE_GROQ_API_KEY;
-  if (!key) return "LeaveBot is not configured yet. Please ask your admin to add the VITE_GROQ_API_KEY to the environment.";
-
-  const systemWithContext = userContext
-    ? `${SYSTEM_PROMPT}\n\n═══════════════════════════════════════\nTHIS USER'S ACTUAL LIVE DATA (use this to answer personal questions — never make up numbers)\n═══════════════════════════════════════\n${userContext}\n\nIMPORTANT: Only quote numbers from the above live data. If the user asks about their specific counts/balances and you don't see it above, say "I don't have that detail right now — please check your Dashboard or My Leaves page."`
-    : SYSTEM_PROMPT;
-
-  const res = await fetch(GROQ_API, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 512,
-      temperature: 0.3,
-      messages: [
-        { role: "system", content: systemWithContext },
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    console.error("Groq error:", err);
-    return "Sorry, I couldn't reach the server right now. Please try again in a moment.";
-  }
-
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content?.trim() ?? "I didn't get a response. Please try again.";
-}
-
 // ── Suggested starter questions ───────────────────────────────────────────────
 const TEACHER_STARTERS = [
   "How many casual leaves do I have left this year?",
@@ -323,6 +286,7 @@ function Bubble({ msg }: { msg: Message }) {
 export function LeaveBot() {
   const { profile, role } = useAuth();
   const [open, setOpen]       = useState(false);
+  const callLeaveBotChat      = useServerFn(leaveBotChat);
 
   const CHAT_KEY = `leavebot_chat_${profile?.id ?? "anon"}`;
   const INITIAL_MSG: Message = {
@@ -773,7 +737,14 @@ export function LeaveBot() {
         }]);
         return;
       }
-      const answer = await askGroq(next, userContext);
+      const answer = await callLeaveBotChat({
+        data: {
+          messages: next,
+          systemPrompt: userContext
+            ? `${SYSTEM_PROMPT}\n\n═══════════════════════════════════════\nTHIS USER'S ACTUAL LIVE DATA (use this to answer personal questions — never make up numbers)\n═══════════════════════════════════════\n${userContext}\n\nIMPORTANT: Only quote numbers from the above live data. If the user asks about their specific counts/balances and you don't see it above, say "I don't have that detail right now — please check your Dashboard or My Leaves page."`
+            : SYSTEM_PROMPT,
+        },
+      }).then((r) => r.reply);
       setMessages([...next, { role: "assistant", content: answer }]);
     } catch {
       setMessages([...next, { role: "assistant", content: "Something went wrong. Please try again." }]);

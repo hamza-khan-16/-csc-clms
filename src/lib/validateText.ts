@@ -5,22 +5,18 @@
  * random keyboard-mashing (e.g. "jdbrivxkduf", "asdfghjkl", "zzzzz").
  *
  * Strategy — a token passes if ANY of these are true:
- *   1. It is a known common word (from a 500+ word English + common
- *      Indian-English vocabulary list).
- *   2. It is a number, date fragment, or common abbreviation.
- *   3. It has a plausible consonant-vowel pattern (vowel ratio 20–75 %,
- *      no run of 4+ consonants that doesn't appear in the known list,
- *      no run of the same letter 3+ times).
+ *   1. It is a known common word (500+ word English + Indian-English vocab).
+ *   2. It is a number, date fragment, or short abbreviation (≤ 3 chars).
+ *   3. It has a plausible consonant-vowel pattern:
+ *        - vowel ratio 20–75 %
+ *        - no run of 3+ same character
+ *        - no keyboard-row pattern of 4+ chars
+ *        - no run of 4+ consonants that isn't a known English cluster
  *
- * The full text passes if at least 60 % of its tokens (words) pass.
- * Single-word inputs need the word itself to pass.
- *
- * Returns: null if valid, or a string error message if invalid.
+ * The full text passes if at least 70 % of its tokens pass.
  */
 
 // ── Vocabulary ────────────────────────────────────────────────────────────────
-// Common English words + Indian-English academic / HR / leave context words.
-// Lowercase only.
 const KNOWN_WORDS = new Set([
   // Articles / prepositions / conjunctions
   "a","an","the","in","on","at","by","for","of","to","and","or","but","nor",
@@ -41,21 +37,21 @@ const KNOWN_WORDS = new Set([
   "does","did","will","would","shall","should","may","might","must","can",
   "could","need","dare","ought","used","get","got","make","made","take",
   "took","come","came","go","went","see","saw","know","knew","think","thought",
-  "feel","felt","want","wanted","use","used","try","tried","call","called",
+  "feel","felt","want","wanted","use","try","tried","call","called",
   "keep","kept","let","put","seem","seemed","leave","left","turn","turned",
   "ask","asked","work","worked","move","moved","live","lived","give","gave",
   "tell","told","hold","held","bring","brought","begin","began","show","showed",
   "hear","heard","play","played","run","ran","stand","stood","lose","lost",
   "pay","paid","meet","met","include","apply","applied","appear","attend",
   "request","requested","inform","informed","submit","submitted","provide",
-  "need","required","granted","approved","rejected","noted","kindly","please",
+  "required","granted","approved","rejected","noted","kindly","please",
   // Adjectives / adverbs
   "good","better","best","bad","worse","worst","new","old","first","last",
   "long","great","little","own","right","high","small","large","next","early",
   "young","important","public","private","real","only","same","able","due",
-  "far","few","full","just","late","medical","personal","official","urgent",
+  "far","full","just","late","medical","personal","official","urgent",
   "serious","severe","sudden","immediate","unavoidable","unforeseen","prior",
-  "sudden","scheduled","unscheduled","annual","monthly","weekly","daily",
+  "scheduled","unscheduled","annual","monthly","weekly","daily",
   // Leave / HR vocabulary
   "leave","leaves","casual","sick","medical","maternity","paternity","earned",
   "privilege","bereavement","duty","compensatory","emergency","half","day","days",
@@ -70,22 +66,20 @@ const KNOWN_WORDS = new Set([
   "mother","sister","brother","son","daughter","spouse","wife","husband","child",
   "children","grandparent","grandfather","grandmother","uncle","aunt","cousin",
   "function","ceremony","wedding","marriage","ritual","prayer","puja","pooja",
-  "festival","celebration","event","occasion","religious","personal","domestic",
-  "emergency","urgent","unforeseen","unavoidable","sudden","immediate","prior",
+  "festival","celebration","event","occasion","religious","domestic",
   "travel","travelling","traveling","trip","journey","hometown","native","place",
   "village","city","town","district","state","station","outstation","onsite",
   "visit","visiting","home","office","college","school","university","campus",
   "exam","examination","test","interview","conference","seminar","workshop",
-  "training","development","course","program","programme","duty","official",
+  "training","development","course","program","programme","official",
   "government","department","ministry","authority","committee","board","council",
-  // Academic subjects context
   "class","classes","lecture","lectures","lab","laboratory","practical","subject",
   "assignment","project","research","thesis","dissertation","paper","report",
   "presentation","session","semester","term","academic","syllabus","curriculum",
-  // Common Indian names / places (just a few to avoid false positives)
+  // Common Indian names / places
   "delhi","mumbai","pune","chennai","bengaluru","bangalore","hyderabad","kolkata",
   "india","maharashtra","gujarat","rajasthan","karnataka","kerala",
-  // College course names & abbreviations (won't be flagged as gibberish)
+  // Course abbreviations
   "bsc","bca","bcom","baf","bbi","bfm","bammc","bms","btech","msc","mca",
   "it","ds","ai","ml","cs","df","vfx","fy","sy","ty","fybsc","sybsc","tybsc",
   "fybcom","sybcom","tybcom","fybca","sybca","tybca",
@@ -96,62 +90,71 @@ const KNOWN_WORDS = new Set([
   "network","networks","computer","applications","digital",
   "eleven","twelve","thirteen","fourteen","fifteen","twenty","thirty",
   "forty","fifty","hundred","thousand",
-  // Misc
+  // Misc / formal language
   "etc","approximately","regarding","reference","hereby","herewith","enclosed",
-  "attached","mentioned","above","below","sincerely","respectfully","thanking",
-  "kindly","humbly","request","requested","granted","noted","acknowledged",
-  "confirmed","verified","checked","approved","rejected","pending","forwarded",
+  "attached","mentioned","sincerely","respectfully","thanking",
+  "humbly","acknowledged","confirmed","verified","checked","pending","forwarded",
   "available","unavailable","possible","impossible","necessary","unnecessary",
-  "following","enclosed","attached","concerned","responsible","required",
-  "informed","intimated","communicated","mentioned","specified","stated",
+  "following","concerned","responsible","informed","intimated","communicated",
+  "specified","stated",
 ]);
 
-// Known 4+ consecutive consonant clusters that appear in real English words
+// Known consonant clusters that appear in real English words
 const KNOWN_CLUSTERS = new Set([
-  "str","spr","scr","thr","shr","sch","chr","phr","whr",
+  "str","spr","scr","thr","shr","sch","chr","phr",
   "nths","ngth","rkng","rths","lths","sts","nds","rds","lts","nts",
-  "rst","nst","rks","lps","mps","ngs","rns","lls","rms","rds",
+  "rst","nst","rks","lps","mps","ngs","rns","lls","rms",
   "ght","dth","fth","xth","lth","nth","rth","mth",
+  "ck","sk","sp","st","sw","sc","sm","sn","sl",
+  "bl","cl","fl","gl","pl","sl","br","cr","dr","fr","gr","pr","tr","wr",
 ]);
 
 const VOWELS = new Set(["a","e","i","o","u"]);
 
-function isConsonant(ch: string) {
-  return /[a-z]/.test(ch) && !VOWELS.has(ch);
+function hasKnownCluster(run: string): boolean {
+  if (KNOWN_CLUSTERS.has(run)) return true;
+  for (const k of KNOWN_CLUSTERS) {
+    if (run.includes(k)) return true;
+  }
+  return false;
 }
 
 /** Returns true if the token looks like a plausible word (not gibberish). */
 function tokenIsPlausible(raw: string): boolean {
   const t = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (!t) return true; // punctuation-only token, skip
+  if (!t) return true; // punctuation-only token — skip
 
-  // Numbers, dates, abbreviations (2-3 uppercase chars = OK)
+  // Numbers and date fragments
   if (/^\d+$/.test(t)) return true;
   if (/^\d{1,2}[\/\-]\d{1,2}([\/\-]\d{2,4})?$/.test(raw)) return true;
-  if (/^[a-z]{1,3}\.?$/.test(t)) return true; // short abbrev like "dr", "mr", "st", "no"
 
-  // Known word
+  // Short abbreviations (≤ 3 chars) — allow freely; only block via whole-word list
+  if (/^[a-z]{1,3}\.?$/.test(t)) return true;
+
+  // Known vocabulary word
   if (KNOWN_WORDS.has(t)) return true;
 
   // Length sanity
-  if (t.length > 20) return false;
+  if (t.length > 22) return false;
 
-  // Vowel ratio check (real words are 20–78 % vowels)
+  // Must have at least one vowel
   const vowelCount = [...t].filter((c) => VOWELS.has(c)).length;
+  if (vowelCount === 0) return false;
+
+  // Vowel ratio 20–75 % (tightened upper bound to 75)
   const ratio = vowelCount / t.length;
-  if (ratio < 0.18 || ratio > 0.78) return false;
+  if (ratio < 0.20 || ratio > 0.75) return false;
 
-  // Repeated character run of 2+ same letters (e.g. "aaa", "bbb", "ssss") — gibberish
-  if (/(.)\1\1/.test(t)) return false; // 3+ same in a row
-  // Pure keyboard-row patterns (qwerty / asdf runs of 5+)
-  if (/[qwert]{5,}|[asdfg]{5,}|[zxcvb]{5,}|[yuiop]{5,}|[hjkl]{4,}/i.test(t)) return false;
+  // 3+ same character in a row (e.g. "aaa", "zzz")
+  if (/(.)(\1){2}/.test(t)) return false;
 
-  // Consecutive consonant run > 3 — check against known clusters
+  // Keyboard-row runs of 4+ chars (tightened from 5)
+  if (/[qwert]{4,}|[asdfg]{4,}|[zxcvb]{4,}|[yuiop]{4,}|[hjkl]{4,}/i.test(t)) return false;
+
+  // Consecutive consonant run of 4+ — must match a known cluster
   const consonantRuns = t.match(/[^aeiou]{4,}/g) ?? [];
   for (const run of consonantRuns) {
-    const ok = KNOWN_CLUSTERS.has(run) ||
-               [...KNOWN_CLUSTERS].some((k) => run.includes(k));
-    if (!ok) return false;
+    if (!hasKnownCluster(run)) return false;
   }
 
   return true;
@@ -164,10 +167,6 @@ export interface TextValidationResult {
 
 /**
  * Validates that `text` contains meaningful natural language.
- *
- * @param text      The input string to validate.
- * @param fieldName Label used in the error message (e.g. "Reason", "Note").
- * @param required  If true, empty string returns an error. Default false.
  */
 export function validateMeaningfulText(
   text: string,
@@ -181,19 +180,16 @@ export function validateMeaningfulText(
     return { valid: true };
   }
 
-  // Too short to evaluate properly — allow anything 1-2 chars (could be "OK", "NA")
-  if (trimmed.length < 3) return { valid: true };
+  // Too short to meaningfully evaluate — only skip for 1–2 chars
+  if (trimmed.length <= 2) return { valid: true };
 
-  // Split into tokens by whitespace
   const tokens = trimmed.split(/\s+/).filter((t) => t.length > 0);
-
   if (tokens.length === 0) return { valid: true };
 
-  // Count how many tokens pass the plausibility check
   const passing = tokens.filter(tokenIsPlausible).length;
   const ratio = passing / tokens.length;
 
-  // Single-token input: the token itself must pass
+  // Single-token: must itself pass
   if (tokens.length === 1) {
     if (!tokenIsPlausible(tokens[0])) {
       return {
@@ -204,22 +200,17 @@ export function validateMeaningfulText(
     return { valid: true };
   }
 
-  // Multi-token: require at least 70 % of words to be plausible
-  if (ratio < 0.7) {
+  // Multi-token: require 70 % of words to be plausible
+  if (ratio < 0.70) {
     return {
       valid: false,
-      error: `${fieldName} contains unrecognizable words. Please write a clear, meaningful ${fieldName.toLowerCase()}.`,
+      error: `${fieldName} contains unrecognisable words. Please write a clear, meaningful ${fieldName.toLowerCase()}.`,
     };
   }
 
   return { valid: true };
 }
 
-/**
- * Live feedback for a text field — returns a warning string while the user
- * is typing (after 6+ chars), or null if the text looks fine.
- * Designed for use in onChange handlers to show inline hints.
- */
 export function liveTextHint(text: string): string | null {
   if (text.trim().length < 6) return null;
   const result = validateMeaningfulText(text, "Text");
