@@ -5,6 +5,9 @@
  * Required env vars (server-only, no VITE_ prefix):
  *   ONESIGNAL_APP_ID=<your_app_id>
  *   ONESIGNAL_API_KEY=<your_rest_api_key>
+ *
+ * Targeting strategy: looks up onesignal_id values from the push_tokens table
+ * and uses include_subscription_ids — works on all OneSignal plans including free.
  */
 
 import { createServerFn } from "@tanstack/react-start";
@@ -12,7 +15,7 @@ import { createServerFn } from "@tanstack/react-start";
 const OS_API = "https://onesignal.com/api/v1/notifications";
 
 export interface PushPayload {
-  /** OneSignal external user IDs (profile IDs) to target */
+  /** Supabase profile IDs to target (resolved to OneSignal subscription IDs via push_tokens) */
   userIds: string[];
   title: string;
   body: string;
@@ -20,11 +23,54 @@ export interface PushPayload {
   targetUrl?: string;
 }
 
+/**
+ * Resolve Supabase user IDs (including __role__ sentinels) to
+ * OneSignal subscription IDs via the push_tokens table.
+ */
+async function resolveSubscriptionIds(userIds: string[]): Promise<string[]> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  // 1. Separate plain IDs from sentinels
+  let profileIds = userIds.filter((id) => !id.startsWith("__"));
+  const sentinels = userIds.filter((id) => id.startsWith("__"));
+
+  // 2. Resolve sentinels → profile IDs
+  for (const sentinel of sentinels) {
+    const deptMatch = sentinel.match(/^__hod_dept_(.+)__$/);
+    if (deptMatch) {
+      const deptId = deptMatch[1];
+      const { data: hodRoles } = await supabaseAdmin
+        .from("user_roles").select("user_id").eq("role", "hod");
+      const hodUserIds = (hodRoles ?? []).map((r: any) => r.user_id);
+      const { data: deptHods } = await supabaseAdmin
+        .from("profiles").select("id")
+        .eq("department_id", deptId).eq("approved", true)
+        .in("id", hodUserIds);
+      profileIds = [...profileIds, ...(deptHods ?? []).map((r: any) => r.id)];
+    } else {
+      const role = sentinel.replace(/__/g, "");
+      const { data: rows } = await supabaseAdmin
+        .from("user_roles").select("user_id").eq("role", role);
+      profileIds = [...profileIds, ...(rows ?? []).map((r: any) => r.user_id)];
+    }
+  }
+
+  if (profileIds.length === 0) return [];
+
+  // 3. Look up OneSignal subscription IDs from push_tokens
+  const { data: tokens } = await supabaseAdmin
+    .from("push_tokens")
+    .select("onesignal_id")
+    .in("user_id", [...new Set(profileIds)]);
+
+  return (tokens ?? []).map((t: any) => t.onesignal_id).filter(Boolean);
+}
+
 export const sendPushNotification = createServerFn({ method: "POST" })
   .inputValidator((data: PushPayload) => ({
-    userIds: (data?.userIds ?? []).filter(Boolean).slice(0, 100) as string[],
-    title:   String(data?.title  ?? "").slice(0, 100),
-    body:    String(data?.body   ?? "").slice(0, 200),
+    userIds:   (data?.userIds ?? []).filter(Boolean).slice(0, 100) as string[],
+    title:     String(data?.title  ?? "").slice(0, 100),
+    body:      String(data?.body   ?? "").slice(0, 200),
     targetUrl: data?.targetUrl ? String(data.targetUrl).slice(0, 300) : undefined,
   }))
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
@@ -37,50 +83,30 @@ export const sendPushNotification = createServerFn({ method: "POST" })
     }
     if (data.userIds.length === 0) return { ok: false, error: "No recipients" };
 
-    // Resolve role sentinels to real user IDs:
-    //   __principal__          → all users with role=principal
-    //   __admin__              → all users with role=admin
-    //   __hod__                → all users with role=hod
-    //   __hod_dept_<deptId>__  → HODs in a specific department
-    let resolvedIds = data.userIds.filter((id) => !id.startsWith("__"));
-    const sentinels = data.userIds.filter((id) => id.startsWith("__"));
-    if (sentinels.length > 0) {
-      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-      for (const sentinel of sentinels) {
-        const deptMatch = sentinel.match(/^__hod_dept_(.+)__$/);
-        if (deptMatch) {
-          // Resolve HODs in a specific department
-          const deptId = deptMatch[1];
-          const { data: hodRoles } = await supabaseAdmin
-            .from("user_roles").select("user_id").eq("role", "hod");
-          const hodUserIds = (hodRoles ?? []).map((r: any) => r.user_id);
-          const { data: deptHods } = await supabaseAdmin
-            .from("profiles").select("id")
-            .eq("department_id", deptId).eq("approved", true)
-            .in("id", hodUserIds);
-          resolvedIds = [...resolvedIds, ...(deptHods ?? []).map((r: any) => r.id)];
-        } else {
-          const role = sentinel.replace(/__/g, "");
-          const { data: rows } = await supabaseAdmin
-            .from("user_roles").select("user_id").eq("role", role);
-          resolvedIds = [...resolvedIds, ...(rows ?? []).map((r: any) => r.user_id)];
-        }
-      }
+    // Resolve user IDs → OneSignal subscription IDs
+    let subscriptionIds: string[];
+    try {
+      subscriptionIds = await resolveSubscriptionIds(data.userIds);
+    } catch (err) {
+      console.error("Push: failed to resolve subscription IDs:", err);
+      return { ok: false, error: "Failed to resolve recipients" };
     }
-    if (resolvedIds.length === 0) return { ok: false, error: "No resolved recipients" };
+
+    if (subscriptionIds.length === 0) {
+      console.warn("Push: no push_tokens found for userIds:", data.userIds);
+      return { ok: false, error: "No device tokens found — users may not have granted notification permission yet" };
+    }
 
     const payload: Record<string, unknown> = {
-      app_id:                           appId,
-      include_aliases:                  { external_id: resolvedIds },
-      target_channel:                   "push",
-      headings:                         { en: data.title },
-      contents:                         { en: data.body },
-      android_channel_id:               "csc-clms",   // set this up in OneSignal dashboard
-      android_accent_color:             "FF2563EB",
-      small_icon:                       "ic_stat_notification",
+      app_id:                    appId,
+      include_subscription_ids:  subscriptionIds,
+      headings:                  { en: data.title },
+      contents:                  { en: data.body },
+      android_channel_id:        "csc-clms",
+      android_accent_color:      "FF2563EB",
+      small_icon:                "ic_stat_notification",
     };
 
-    // Deep-link: Median reads targetUrl from additional_data
     if (data.targetUrl) {
       payload.data = { targetUrl: data.targetUrl };
     }
@@ -107,29 +133,21 @@ export const sendPushNotification = createServerFn({ method: "POST" })
     }
   });
 
-// ── Convenience wrappers for each notification event ─────────────────────────
+// ── Convenience wrappers ──────────────────────────────────────────────────────
 
-/** Teacher submitted a leave → look up HOD for their department and notify them */
 export async function notifyLeaveSubmitted(departmentId: string, teacherName: string, leaveType: string, days: number) {
   try {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: hodRoles } = await supabaseAdmin
-      .from("user_roles")
-      .select("user_id")
-      .eq("role", "hod");
+      .from("user_roles").select("user_id").eq("role", "hod");
     const hodUserIds = (hodRoles ?? []).map((r: any) => r.user_id);
     if (hodUserIds.length === 0) return;
-
     const { data: hods } = await supabaseAdmin
-      .from("profiles")
-      .select("id")
-      .eq("department_id", departmentId)
-      .eq("approved", true)
+      .from("profiles").select("id")
+      .eq("department_id", departmentId).eq("approved", true)
       .in("id", hodUserIds);
-
     const hodIds = (hods ?? []).map((h: any) => h.id);
     if (hodIds.length === 0) return;
-
     return sendPushNotification({
       data: {
         userIds:   hodIds,
@@ -143,7 +161,6 @@ export async function notifyLeaveSubmitted(departmentId: string, teacherName: st
   }
 }
 
-/** HOD/principal approved a leave → notify teacher */
 export async function notifyLeaveApproved(teacherId: string, leaveType: string, days: number) {
   return sendPushNotification({
     data: {
@@ -155,7 +172,6 @@ export async function notifyLeaveApproved(teacherId: string, leaveType: string, 
   });
 }
 
-/** HOD/principal rejected a leave → notify teacher */
 export async function notifyLeaveRejected(teacherId: string, leaveType: string, reason?: string) {
   return sendPushNotification({
     data: {
@@ -167,7 +183,6 @@ export async function notifyLeaveRejected(teacherId: string, leaveType: string, 
   });
 }
 
-/** HOD assigned a proxy lecture → notify proxy teacher */
 export async function notifyProxyAssigned(proxyTeacherId: string, absenteeName: string, subject: string, date: string) {
   return sendPushNotification({
     data: {
@@ -179,7 +194,6 @@ export async function notifyProxyAssigned(proxyTeacherId: string, absenteeName: 
   });
 }
 
-/** New staff registered → notify admin and HR */
 export async function notifyNewRegistration(adminIds: string[], staffName: string, role: string) {
   return sendPushNotification({
     data: {
@@ -191,7 +205,6 @@ export async function notifyNewRegistration(adminIds: string[], staffName: strin
   });
 }
 
-/** New notice posted → notify all recipients */
 export async function notifyNewNotice(recipientIds: string[], noticeTitle: string) {
   return sendPushNotification({
     data: {
@@ -203,7 +216,6 @@ export async function notifyNewNotice(recipientIds: string[], noticeTitle: strin
   });
 }
 
-/** HOD approved a leave and it needs principal approval → notify principal */
 export async function notifyHodApproved(principalId: string, teacherName: string, leaveType: string) {
   return sendPushNotification({
     data: {

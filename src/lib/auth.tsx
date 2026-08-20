@@ -102,8 +102,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           loadProfile(next.user.id).finally(() => {
             setLoading(false);
             initialised = true;
-            // Register device for push notifications after profile loads
-            if (event === 'SIGNED_IN') initPush(next.user.id);
+            // Register device for push notifications after profile loads.
+            // Run on INITIAL_SESSION too so token is refreshed on every app open.
+            if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') initPush(next.user.id);
           });
         }, 0);
       } else {

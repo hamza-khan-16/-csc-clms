@@ -4,12 +4,12 @@
  * Client-side OneSignal / Median JavaScript Bridge helpers.
  *
  * Flow:
- *  1. After login, call initPush(userId) — registers the device with OneSignal
- *     and saves the OneSignal subscription ID to Supabase push_tokens table.
+ *  1. After login (and on every INITIAL_SESSION), call initPush(userId).
+ *     This links the device to the user in OneSignal and saves the
+ *     OneSignal subscription ID to the push_tokens table.
  *  2. On logout, call logoutPush() — unlinks the device from the user.
  *
  * The actual notification sending happens server-side (push.functions.ts).
- * This file only handles the device registration side.
  */
 
 import { supabase } from "@/integrations/supabase/client";
@@ -19,29 +19,61 @@ export function isMedianApp(): boolean {
   return typeof window !== "undefined" && typeof (window as any).median !== "undefined";
 }
 
-/** Prompt for notification permission and register with OneSignal via Median bridge */
+/** Save OneSignal subscription ID to Supabase push_tokens */
+async function saveToken(userId: string, onesignalId: string): Promise<void> {
+  try {
+    await supabase.from("push_tokens").upsert(
+      { user_id: userId, onesignal_id: onesignalId, updated_at: new Date().toISOString() },
+      { onConflict: "user_id,onesignal_id" },
+    );
+  } catch (err) {
+    console.warn("Push: failed to save token:", err);
+  }
+}
+
+/** Get OneSignal subscription info and save token */
+function fetchAndSaveToken(median: any, userId: string): void {
+  median?.onesignal?.info?.({
+    callback: async (info: { oneSignalUserId?: string; subscriptionId?: string }) => {
+      const onesignalId = info?.subscriptionId ?? info?.oneSignalUserId;
+      if (onesignalId) {
+        await saveToken(userId, onesignalId);
+      }
+    },
+  });
+}
+
+/**
+ * Register device with OneSignal and save subscription ID.
+ * Safe to call on every app open — handles already-subscribed devices too.
+ */
 export async function initPush(userId: string): Promise<void> {
   if (!isMedianApp()) return;
 
   const median = (window as any).median;
 
   try {
-    // Link this device to the user's identity in OneSignal
+    // 1. Link this device to the user's identity in OneSignal
     median?.onesignal?.login?.({ externalId: userId });
 
-    // Request permission (iOS shows system dialog; Android 13+ shows dialog)
-    median?.onesignal?.promptNotification?.({
-      callback: async (result: { granted: boolean }) => {
-        if (!result?.granted) return;
-        // Retrieve OneSignal subscription info and save to DB
-        median?.onesignal?.info?.({
-          callback: async (info: { oneSignalUserId?: string; subscriptionId?: string }) => {
-            const onesignalId = info?.subscriptionId ?? info?.oneSignalUserId;
-            if (!onesignalId) return;
-            await supabase.from("push_tokens").upsert(
-              { user_id: userId, onesignal_id: onesignalId, updated_at: new Date().toISOString() },
-              { onConflict: "user_id,onesignal_id" },
-            );
+    // 2. Check if already subscribed — if so, just re-save the token
+    //    (covers the "app resume" case where permission was already granted)
+    median?.onesignal?.info?.({
+      callback: async (info: { oneSignalUserId?: string; subscriptionId?: string; isSubscribed?: boolean }) => {
+        const onesignalId = info?.subscriptionId ?? info?.oneSignalUserId;
+
+        if (onesignalId && info?.isSubscribed !== false) {
+          // Already subscribed — save/refresh token and done
+          await saveToken(userId, onesignalId);
+          return;
+        }
+
+        // 3. Not yet subscribed — prompt for permission
+        median?.onesignal?.promptNotification?.({
+          callback: async (result: { granted: boolean }) => {
+            if (!result?.granted) return;
+            // Permission granted — now get the subscription ID
+            fetchAndSaveToken(median, userId);
           },
         });
       },
@@ -62,7 +94,6 @@ export function logoutPush(): void {
 /**
  * Handle notification tap — Median calls this global function when
  * user taps a push notification that has a targetUrl in its data.
- * We register it on window so the Median bridge can invoke it.
  */
 export function registerNotificationTapHandler(): void {
   if (typeof window === "undefined") return;
@@ -73,7 +104,6 @@ export function registerNotificationTapHandler(): void {
   }) => {
     const url = data?.targetUrl ?? data?.openUrl ?? data?.additionalData?.targetUrl;
     if (url) {
-      // Strip origin so we navigate within the app (not open external browser)
       const path = url.startsWith("http") ? new URL(url).pathname + new URL(url).search : url;
       window.location.href = path;
     }
