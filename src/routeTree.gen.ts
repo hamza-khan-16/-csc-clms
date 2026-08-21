@@ -31,6 +31,7 @@ import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TeachersRouteImport } from './routes/teachers'
 import { Route as ApiPushTokenRouteImport } from './routes/api.push-token'
 import { Route as ApiPushDebugRouteImport } from './routes/api.push-debug'
+import { Route as ApiPushSyncAllRouteImport } from './routes/api.push-sync-all'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -142,6 +143,11 @@ const ApiPushDebugRoute = ApiPushDebugRouteImport.update({
   path: '/api/push-debug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPushSyncAllRoute = ApiPushSyncAllRouteImport.update({
+  id: '/api/push-sync-all',
+  path: '/api/push-sync-all',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -166,6 +172,7 @@ export interface FileRoutesByFullPath {
   '/teachers': typeof TeachersRoute
   '/api/push-token': typeof ApiPushTokenRoute
   '/api/push-debug': typeof ApiPushDebugRoute
+  '/api/push-sync-all': typeof ApiPushSyncAllRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -190,6 +197,7 @@ export interface FileRoutesByTo {
   '/teachers': typeof TeachersRoute
   '/api/push-token': typeof ApiPushTokenRoute
   '/api/push-debug': typeof ApiPushDebugRoute
+  '/api/push-sync-all': typeof ApiPushSyncAllRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -215,6 +223,7 @@ export interface FileRoutesById {
   '/teachers': typeof TeachersRoute
   '/api/push-token': typeof ApiPushTokenRoute
   '/api/push-debug': typeof ApiPushDebugRoute
+  '/api/push-sync-all': typeof ApiPushSyncAllRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -476,6 +485,7 @@ const rootRouteChildren: RootRouteChildren = {
   TeachersRoute: TeachersRoute,
   ApiPushTokenRoute: ApiPushTokenRoute,
   ApiPushDebugRoute: ApiPushDebugRoute,
+  ApiPushSyncAllRoute: ApiPushSyncAllRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
