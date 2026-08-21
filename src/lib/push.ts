@@ -1,6 +1,10 @@
 /**
- * push.ts — Pure client-side Median / OneSignal bridge
- * No TanStack imports — token saving via plain fetch to /api/push-token
+ * push.ts — Client-side push registration
+ *
+ * Strategy:
+ * 1. Try Median bridge to get subscription ID directly (fastest)
+ * 2. Always also call /api/push-token?userId=X as fallback (server-side sync from OneSignal)
+ *    This works even if the Median bridge callbacks never fire.
  */
 
 export function isMedianApp(): boolean {
@@ -11,46 +15,38 @@ function getOS(): any {
   return (window as any).median?.onesignal;
 }
 
-async function saveTokenViaApi(userId: string, onesignalId: string): Promise<void> {
+async function saveTokenViaPost(userId: string, onesignalId: string): Promise<void> {
   try {
-    const res = await fetch("/api/push-token", {
+    await fetch("/api/push-token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId, onesignalId }),
     });
-    const data = await res.json();
-    if (data.ok) console.log("[Push] Token saved via POST:", onesignalId);
-    else console.warn("[Push] POST failed:", data.error);
-  } catch (err) {
-    console.warn("[Push] POST fetch error:", err);
-  }
+  } catch {}
 }
 
-async function syncTokenFromOneSignal(userId: string): Promise<void> {
+async function syncFromServer(userId: string): Promise<void> {
   try {
-    const res = await fetch(`/api/push-token?userId=${encodeURIComponent(userId)}`);
-    const data = await res.json();
-    if (data.ok) console.log("[Push] Synced", data.synced, "token(s) from OneSignal");
-    else console.warn("[Push] Sync failed:", data.error);
-  } catch (err) {
-    console.warn("[Push] Sync fetch error:", err);
-  }
+    await fetch(`/api/push-token?userId=${encodeURIComponent(userId)}`);
+  } catch {}
 }
 
 export function initPush(userId: string): void {
   if (!isMedianApp()) return;
-  const os = getOS();
-  if (!os) {
-    // Median bridge not ready yet — retry after 2s
-    setTimeout(() => initPush(userId), 2000);
-    return;
-  }
 
-  // Step 1: Link this device to the user in OneSignal
+  const os = getOS();
+
+  // Always sync from server after a short delay — this is the reliable fallback
+  // Works even if Median bridge is not ready or callbacks never fire
+  setTimeout(() => syncFromServer(userId), 3000);
+  setTimeout(() => syncFromServer(userId), 10000); // retry once more
+
+  if (!os) return;
+
+  // Also try Median bridge directly (faster when it works)
   os.setExternalUserId?.(userId);
   os.login?.({ externalId: userId });
 
-  // Step 2: Try to get subscription ID from Median bridge
   os.info?.({
     callback: async (info: {
       oneSignalUserId?: string;
@@ -60,53 +56,32 @@ export function initPush(userId: string): void {
       const onesignalId = info?.subscriptionId ?? info?.oneSignalUserId;
 
       if (onesignalId && info?.isSubscribed !== false) {
-        // Got it directly — save via POST
-        await saveTokenViaApi(userId, onesignalId);
+        await saveTokenViaPost(userId, onesignalId);
         return;
       }
 
-      if (!onesignalId) {
-        // Bridge didn't return an ID — prompt for permission first
-        os.promptNotification?.({
-          callback: async (result: { granted: boolean }) => {
-            if (!result?.granted) {
-              console.log("[Push] Permission denied");
-              return;
-            }
-            // After permission, wait a moment then try bridge again
-            setTimeout(async () => {
-              os.info?.({
-                callback: async (info2: { oneSignalUserId?: string; subscriptionId?: string }) => {
-                  const id = info2?.subscriptionId ?? info2?.oneSignalUserId;
-                  if (id) {
-                    await saveTokenViaApi(userId, id);
-                  } else {
-                    // Bridge still not returning ID — sync from OneSignal server-side
-                    await syncTokenFromOneSignal(userId);
-                  }
-                },
-              });
-            }, 3000);
-          },
-        });
-        return;
-      }
-
-      // isSubscribed is false — user disabled notifications
-      console.log("[Push] User has notifications disabled");
+      // Not subscribed — prompt
+      os.promptNotification?.({
+        callback: async (result: { granted: boolean }) => {
+          if (!result?.granted) return;
+          setTimeout(() => {
+            os.info?.({
+              callback: async (info2: { oneSignalUserId?: string; subscriptionId?: string }) => {
+                const id = info2?.subscriptionId ?? info2?.oneSignalUserId;
+                if (id) await saveTokenViaPost(userId, id);
+                else await syncFromServer(userId);
+              },
+            });
+          }, 3000);
+        },
+      });
     },
   });
-
-  // Step 3: Also always attempt a server-side sync after login
-  // This is the most reliable fallback — works even if the bridge callbacks fail
-  setTimeout(() => syncTokenFromOneSignal(userId), 5000);
 }
 
 export function logoutPush(): void {
   if (!isMedianApp()) return;
-  try {
-    getOS()?.logout?.();
-  } catch {}
+  try { getOS()?.logout?.(); } catch {}
 }
 
 export function registerNotificationTapHandler(): void {

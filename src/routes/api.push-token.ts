@@ -6,18 +6,18 @@ export const Route = createFileRoute("/api/push-token")({
     handlers: {
       POST: async ({ request }: { request: Request }) => {
         try {
-          const body = await request.json() as { userId?: string; onesignalId?: string };
-          const { userId, onesignalId } = body;
+          const { userId, onesignalId } = await request.json() as { userId?: string; onesignalId?: string };
           if (!userId || !onesignalId) return json({ ok: false, error: "Missing fields" }, 400);
           await upsertToken(userId, onesignalId);
           return json({ ok: true });
         } catch (err) {
-          console.error("[Push] POST error:", err);
           return json({ ok: false, error: String(err) }, 500);
         }
       },
 
-      // GET /api/push-token?userId=xxx  — syncs from OneSignal by external_id
+      // GET /api/push-token?userId=xxx
+      // Scans all OneSignal players and saves matching tokens for this user.
+      // Called on every login as a reliable fallback for the Median bridge.
       GET: async ({ request }: { request: Request }) => {
         try {
           const url = new URL(request.url);
@@ -28,44 +28,45 @@ export const Route = createFileRoute("/api/push-token")({
           const apiKey = process.env.ONESIGNAL_API_KEY;
           if (!appId || !apiKey) return json({ ok: false, error: "Push not configured" }, 500);
 
-          // Fetch all players and find ones matching this userId
-          // We scan all players because external_user_id may be stored as garbled JSON
-          const res = await fetch(
-            `https://onesignal.com/api/v1/players?app_id=${appId}&limit=300`,
-            { headers: { "Authorization": `Key ${apiKey}` } }
-          );
-
-          if (!res.ok) {
-            const err = await res.text();
-            return json({ ok: false, error: err }, 500);
-          }
-
-          const data = await res.json() as any;
-          const players: any[] = data?.players ?? [];
-
-          // Parse external_user_id — handles both plain UUID and garbled JSON string
           function parseExternalId(raw: string | null | undefined): string | null {
             if (!raw) return null;
-            // Plain UUID
             if (!raw.startsWith("{") && !raw.startsWith("\"")) return raw;
-            // Garbled: "{\"externalId\":\"uuid\"}" or "\"uuid\""
             try {
               const parsed = JSON.parse(raw);
               if (typeof parsed === "string") return parsed;
               if (parsed?.externalId) return parsed.externalId;
             } catch {}
-            // Try regex fallback
             const match = raw.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
             return match ? match[0] : null;
           }
 
-          const matchingIds = players
-            .filter((p: any) => parseExternalId(p.external_user_id) === userId)
-            .map((p: any) => p.id)
-            .filter(Boolean);
+          // Fetch players — paginate in case of many users
+          let offset = 0;
+          const matchingIds: string[] = [];
+
+          while (true) {
+            const res = await fetch(
+              `https://onesignal.com/api/v1/players?app_id=${appId}&limit=300&offset=${offset}`,
+              { headers: { "Authorization": `Key ${apiKey}` } }
+            );
+            if (!res.ok) break;
+
+            const data = await res.json() as any;
+            const players: any[] = data?.players ?? [];
+
+            for (const p of players) {
+              if (parseExternalId(p.external_user_id) === userId) {
+                matchingIds.push(p.id);
+              }
+            }
+
+            if (players.length < 300) break;
+            offset += 300;
+          }
 
           if (matchingIds.length === 0) {
-            return json({ ok: false, error: "No matching players found", userId, totalPlayers: players.length }, 404);
+            // User hasn't opened the Median app yet — nothing to save
+            return json({ ok: false, error: "No OneSignal subscription found for this user yet" }, 404);
           }
 
           for (const id of matchingIds) {
@@ -73,9 +74,9 @@ export const Route = createFileRoute("/api/push-token")({
           }
 
           console.log(`[Push] Synced ${matchingIds.length} token(s) for user ${userId}`);
-          return json({ ok: true, synced: matchingIds.length, ids: matchingIds });
+          return json({ ok: true, synced: matchingIds.length });
         } catch (err) {
-          console.error("[Push] GET sync error:", err);
+          console.error("[Push] sync error:", err);
           return json({ ok: false, error: String(err) }, 500);
         }
       },
@@ -87,7 +88,7 @@ async function upsertToken(userId: string, onesignalId: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { error } = await supabaseAdmin.from("push_tokens").upsert(
     { user_id: userId, onesignal_id: onesignalId, updated_at: new Date().toISOString() },
-    { onConflict: "user_id,onesignal_id" },
+    { onConflict: "user_id,onesignal_id" }
   );
   if (error) throw new Error(error.message);
 }
