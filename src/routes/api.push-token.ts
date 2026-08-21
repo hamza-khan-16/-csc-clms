@@ -4,16 +4,11 @@ import type {} from "@tanstack/react-start";
 export const Route = createFileRoute("/api/push-token")({
   server: {
     handlers: {
-      // Called from client (Median bridge) with a known onesignalId
       POST: async ({ request }: { request: Request }) => {
         try {
           const body = await request.json() as { userId?: string; onesignalId?: string };
           const { userId, onesignalId } = body;
-
-          if (!userId || !onesignalId) {
-            return json({ ok: false, error: "Missing fields" }, 400);
-          }
-
+          if (!userId || !onesignalId) return json({ ok: false, error: "Missing fields" }, 400);
           await upsertToken(userId, onesignalId);
           return json({ ok: true });
         } catch (err) {
@@ -22,8 +17,7 @@ export const Route = createFileRoute("/api/push-token")({
         }
       },
 
-      // Called server-side to sync tokens from OneSignal by externalId (userId)
-      // GET /api/push-token?userId=xxx
+      // GET /api/push-token?userId=xxx  — syncs from OneSignal by external_id
       GET: async ({ request }: { request: Request }) => {
         try {
           const url = new URL(request.url);
@@ -34,37 +28,52 @@ export const Route = createFileRoute("/api/push-token")({
           const apiKey = process.env.ONESIGNAL_API_KEY;
           if (!appId || !apiKey) return json({ ok: false, error: "Push not configured" }, 500);
 
-          // Query OneSignal for subscriptions linked to this externalId
+          // Fetch all players and find ones matching this userId
+          // We scan all players because external_user_id may be stored as garbled JSON
           const res = await fetch(
-            `https://onesignal.com/api/v1/apps/${appId}/users/by/external_id/${encodeURIComponent(userId)}`,
+            `https://onesignal.com/api/v1/players?app_id=${appId}&limit=300`,
             { headers: { "Authorization": `Key ${apiKey}` } }
           );
 
           if (!res.ok) {
             const err = await res.text();
-            console.warn("[Push] OneSignal lookup failed:", err);
-            return json({ ok: false, error: "User not found in OneSignal" }, 404);
+            return json({ ok: false, error: err }, 500);
           }
 
           const data = await res.json() as any;
-          // subscriptions is an array of device subscriptions
-          const subscriptions: any[] = data?.subscriptions ?? [];
-          const ids = subscriptions
-            .filter((s: any) => s.type === "AndroidPush" || s.type === "iOSPush")
-            .map((s: any) => s.id)
-            .filter(Boolean);
+          const players: any[] = data?.players ?? [];
 
-          if (ids.length === 0) {
-            return json({ ok: false, error: "No push subscriptions found for this user in OneSignal" }, 404);
+          // Parse external_user_id — handles both plain UUID and garbled JSON string
+          function parseExternalId(raw: string | null | undefined): string | null {
+            if (!raw) return null;
+            // Plain UUID
+            if (!raw.startsWith("{") && !raw.startsWith("\"")) return raw;
+            // Garbled: "{\"externalId\":\"uuid\"}" or "\"uuid\""
+            try {
+              const parsed = JSON.parse(raw);
+              if (typeof parsed === "string") return parsed;
+              if (parsed?.externalId) return parsed.externalId;
+            } catch {}
+            // Try regex fallback
+            const match = raw.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+            return match ? match[0] : null;
           }
 
-          // Save all found subscription IDs
-          for (const id of ids) {
+          const matchingIds = players
+            .filter((p: any) => parseExternalId(p.external_user_id) === userId)
+            .map((p: any) => p.id)
+            .filter(Boolean);
+
+          if (matchingIds.length === 0) {
+            return json({ ok: false, error: "No matching players found", userId, totalPlayers: players.length }, 404);
+          }
+
+          for (const id of matchingIds) {
             await upsertToken(userId, id);
           }
 
-          console.log(`[Push] Synced ${ids.length} token(s) for user ${userId}`);
-          return json({ ok: true, synced: ids.length });
+          console.log(`[Push] Synced ${matchingIds.length} token(s) for user ${userId}`);
+          return json({ ok: true, synced: matchingIds.length, ids: matchingIds });
         } catch (err) {
           console.error("[Push] GET sync error:", err);
           return json({ ok: false, error: String(err) }, 500);

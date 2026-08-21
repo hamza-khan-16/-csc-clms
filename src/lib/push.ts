@@ -47,6 +47,7 @@ export function initPush(userId: string): void {
   }
 
   // Step 1: Link this device to the user in OneSignal
+  os.setExternalUserId?.(userId);
   os.login?.({ externalId: userId });
 
   // Step 2: Try to get subscription ID from Median bridge
