@@ -1,6 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import type {} from "@tanstack/react-start";
 
+<<<<<<< HEAD
+=======
+// One-time endpoint to sync ALL OneSignal players into push_tokens
+// Visit /api/push-sync-all once after deploy — never needs to be run again
+// (initPush handles new users automatically after this)
+
+>>>>>>> 3164c9ba938a1da163e21c2fb526d93d8a624e28
 export const Route = createFileRoute("/api/push-sync-all")({
   server: {
     handlers: {
@@ -12,6 +19,10 @@ export const Route = createFileRoute("/api/push-sync-all")({
           return json({ ok: false, error: "Push env vars not set" }, 500);
         }
 
+<<<<<<< HEAD
+=======
+        // Parse garbled external_user_id back to plain UUID
+>>>>>>> 3164c9ba938a1da163e21c2fb526d93d8a624e28
         function parseExternalId(raw: string | null | undefined): string | null {
           if (!raw) return null;
           if (!raw.startsWith("{") && !raw.startsWith("\"")) return raw;
@@ -32,6 +43,10 @@ export const Route = createFileRoute("/api/push-sync-all")({
         let totalSkipped = 0;
         const errors: string[] = [];
 
+<<<<<<< HEAD
+=======
+        // Page through all players
+>>>>>>> 3164c9ba938a1da163e21c2fb526d93d8a624e28
         while (true) {
           const res = await fetch(
             `https://onesignal.com/api/v1/players?app_id=${appId}&limit=${limit}&offset=${offset}`,
@@ -57,6 +72,7 @@ export const Route = createFileRoute("/api/push-sync-all")({
               continue;
             }
 
+<<<<<<< HEAD
             const { error } = await supabaseAdmin.from("push_tokens").upsert(
               { user_id: userId, onesignal_id: onesignalId, updated_at: new Date().toISOString() },
               { onConflict: "user_id,onesignal_id" }
@@ -88,3 +104,5 @@ function json(data: unknown, status = 200) {
     headers: { "Content-Type": "application/json" },
   });
 }
+=======
+>>>>>>> 3164c9ba938a1da163e21c2fb526d93d8a624e28
