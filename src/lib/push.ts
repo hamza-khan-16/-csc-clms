@@ -1,8 +1,6 @@
 /**
- * push.ts — Client-side Median / OneSignal bridge helpers (no server code here)
- *
- * After login (SIGNED_IN or INITIAL_SESSION), call initPush(userId).
- * Token saving goes through push.server.ts to use service role.
+ * push.ts — Pure client-side Median / OneSignal bridge
+ * No TanStack imports here — token saving goes via plain fetch to /api/push-token
  */
 
 export function isMedianApp(): boolean {
@@ -15,9 +13,11 @@ function getOS(): any {
 
 async function saveToken(userId: string, onesignalId: string): Promise<void> {
   try {
-    // Dynamic import so the server fn is only pulled in when needed
-    const { savePushToken } = await import("@/lib/push.server");
-    await savePushToken({ data: { userId, onesignalId } });
+    await fetch("/api/push-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, onesignalId }),
+    });
     console.log("[Push] Token saved:", onesignalId);
   } catch (err) {
     console.warn("[Push] Failed to save token:", err);
@@ -42,7 +42,7 @@ export function initPush(userId: string): void {
       const onesignalId = info?.subscriptionId ?? info?.oneSignalUserId;
 
       if (onesignalId && info?.isSubscribed !== false) {
-        // Already subscribed — refresh token in DB
+        // Already subscribed — refresh token
         await saveToken(userId, onesignalId);
         return;
       }
@@ -54,7 +54,7 @@ export function initPush(userId: string): void {
             console.log("[Push] Permission denied");
             return;
           }
-          // Permission granted — get subscription ID and save
+          // Get subscription ID after permission granted
           os.info?.({
             callback: async (info2: { oneSignalUserId?: string; subscriptionId?: string }) => {
               const id = info2?.subscriptionId ?? info2?.oneSignalUserId;
