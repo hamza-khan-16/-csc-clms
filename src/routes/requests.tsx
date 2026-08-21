@@ -833,7 +833,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     for (const proxyId of uniqueProxyTeachers) {
       const slot = allSlots.find((s) => choices[s.key] === proxyId);
       if (slot) {
-        sendPush({ data: { userIds: [proxyId], title: "Proxy Lecture Assigned", body: `Cover ${slot.subject} for ${absenteeName} on ${slot.date}`, targetUrl: "/proxies" } }).catch(() => {});
+        sendPush({ data: { userIds: [proxyId], title: "Proxy Lecture Assigned", body: `Cover ${slot.subject} for ${absenteeName} on ${slot.date}`, targetUrl: "/proxies" } }).catch((e) => console.error("[Push] proxy:", e));
       }
     }
     return true;
@@ -858,7 +858,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     // Notify principal a leave is awaiting their approval
     if (profile?.department_id) {
       // Notify principal (fire-and-forget) — they need to find principal by role server-side
-      sendPush({ data: { userIds: ["__principal__"], title: "Leave Awaiting Your Approval", body: `${request.teacher?.full_name ?? "A teacher"}'s ${request.leave_type} leave has been approved by HOD`, targetUrl: "/requests" } }).catch(() => {});
+      sendPush({ data: { userIds: ["__principal__"], title: "Leave Awaiting Your Approval", body: `${request.teacher?.full_name ?? "A teacher"}'s ${request.leave_type} leave has been approved by HOD`, targetUrl: "/requests" } }).catch((e) => console.error("[Push] hod→principal:", e));
     }
     qc.invalidateQueries();
   }
@@ -873,7 +873,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     if (error) return toast.error(error.message);
     toast.success(`Leave approved — teacher must upload ${requiredDoc}`);
     // Notify teacher their leave was approved
-    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved ✓", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch(() => {});
+    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved ✓", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch((e) => console.error("[Push] hodDirectApprove:", e));
     qc.invalidateQueries();
   }
 
@@ -898,7 +898,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     if (error) return toast.error(error.message);
     toast.success("Leave rejected");
     // Notify teacher their leave was rejected
-    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Rejected", body: note.trim() ? `Your ${request.leave_type} leave was rejected: ${note.trim()}` : `Your ${request.leave_type} leave request has been rejected`, targetUrl: "/leaves" } }).catch(() => {});
+    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Rejected", body: note.trim() ? `Your ${request.leave_type} leave was rejected: ${note.trim()}` : `Your ${request.leave_type} leave request has been rejected`, targetUrl: "/leaves" } }).catch((e) => console.error("[Push] reject:", e));
     qc.invalidateQueries();
   }
 
@@ -928,7 +928,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     if (error) return toast.error(error.message);
     toast.success("Leave approved");
     // Notify teacher their leave was approved by principal
-    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved ✓", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch(() => {});
+    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved ✓", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch((e) => console.error("[Push] principalApprove:", e));
     qc.invalidateQueries();
   }
 

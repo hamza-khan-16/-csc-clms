@@ -29,6 +29,9 @@ import { Route as RequestsRouteImport } from './routes/requests'
 import { Route as ScheduleRouteImport } from './routes/schedule'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TeachersRouteImport } from './routes/teachers'
+import { Route as ApiPushTokenRouteImport } from './routes/api.push-token'
+import { Route as ApiPushDebugRouteImport } from './routes/api.push-debug'
+import { Route as ApiPushSyncAllRouteImport } from './routes/api.push-sync-all'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -130,6 +133,21 @@ const TeachersRoute = TeachersRouteImport.update({
   path: '/teachers',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPushTokenRoute = ApiPushTokenRouteImport.update({
+  id: '/api/push-token',
+  path: '/api/push-token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPushDebugRoute = ApiPushDebugRouteImport.update({
+  id: '/api/push-debug',
+  path: '/api/push-debug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPushSyncAllRoute = ApiPushSyncAllRouteImport.update({
+  id: '/api/push-sync-all',
+  path: '/api/push-sync-all',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -152,6 +170,9 @@ export interface FileRoutesByFullPath {
   '/schedule': typeof ScheduleRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/teachers': typeof TeachersRoute
+  '/api/push-token': typeof ApiPushTokenRoute
+  '/api/push-debug': typeof ApiPushDebugRoute
+  '/api/push-sync-all': typeof ApiPushSyncAllRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -174,6 +195,9 @@ export interface FileRoutesByTo {
   '/schedule': typeof ScheduleRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/teachers': typeof TeachersRoute
+  '/api/push-token': typeof ApiPushTokenRoute
+  '/api/push-debug': typeof ApiPushDebugRoute
+  '/api/push-sync-all': typeof ApiPushSyncAllRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -197,6 +221,9 @@ export interface FileRoutesById {
   '/schedule': typeof ScheduleRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/teachers': typeof TeachersRoute
+  '/api/push-token': typeof ApiPushTokenRoute
+  '/api/push-debug': typeof ApiPushDebugRoute
+  '/api/push-sync-all': typeof ApiPushSyncAllRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -456,6 +483,9 @@ const rootRouteChildren: RootRouteChildren = {
   ScheduleRoute: ScheduleRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   TeachersRoute: TeachersRoute,
+  ApiPushTokenRoute: ApiPushTokenRoute,
+  ApiPushDebugRoute: ApiPushDebugRoute,
+  ApiPushSyncAllRoute: ApiPushSyncAllRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

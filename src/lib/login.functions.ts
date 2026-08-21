@@ -266,7 +266,7 @@ export const registerStaff = createServerFn({ method: "POST" })
       const adminIds = (adminProfiles ?? []).map((p: any) => p.id);
       if (adminIds.length > 0) {
         const { notifyNewRegistration } = await import("@/lib/push.functions");
-        notifyNewRegistration(adminIds, data.fullName, data.role).catch(() => {});
+        notifyNewRegistration(adminIds, data.fullName, data.role).catch((e) => console.error("[Push] notifyNewRegistration:", e));
       }
     } catch {}
 
