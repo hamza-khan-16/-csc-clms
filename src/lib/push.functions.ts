@@ -93,7 +93,7 @@ export async function dispatchPush(payload: PushPayload): Promise<{ ok: boolean;
 
   const body: Record<string, unknown> = {
     app_id:                   appId,
-    include_subscription_ids: subscriptionIds,
+    include_player_ids: subscriptionIds,
     headings:                 { en: payload.title },
     contents:                 { en: payload.body },
     android_channel_id:       "csc-clms",
