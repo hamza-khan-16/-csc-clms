@@ -149,7 +149,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
   });
 
   const { data: deptPeople = [] } = useQuery({
-    queryKey: ["dept-all-for-proxy", deptId, teacherId],
+    queryKey: ["dept-all-for-proxy", deptId, teacherId, fromDate, toDate],
     enabled: !!deptId,
     queryFn: async () => {
       const { data: excludedRoles } = await supabase.from("user_roles").select("user_id")
@@ -157,8 +157,27 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
       const excludedIds = new Set((excludedRoles ?? []).map((r) => r.user_id));
 
       const { data } = await supabase.from("profiles").select("id, full_name")
-        .eq("department_id", deptId).eq("approved", true).order("full_name");
-      return (data ?? []).filter((p) => p.id !== teacherId && !excludedIds.has(p.id));
+        .eq("department_id", deptId).eq("approved", true).eq("hr_approved", true).order("full_name");
+
+      // Exclude teachers whose documents have not been approved
+      const { data: approvedDocs } = await supabase
+        .from("teacher_documents").select("teacher_id").eq("status", "approved");
+      const approvedDocIds = new Set((approvedDocs ?? []).map((d: any) => d.teacher_id));
+
+      const candidates = (data ?? []).filter((p) => p.id !== teacherId && !excludedIds.has(p.id) && approvedDocIds.has(p.id));
+      const candidateIds = candidates.map((p) => p.id);
+
+      // Exclude teachers who have active/pending leaves overlapping the selected dates
+      const { data: activeLeaves } = candidateIds.length && fromDate && toDate ? await supabase
+        .from("leave_requests")
+        .select("teacher_id")
+        .in("teacher_id", candidateIds)
+        .not("status", "in", "(rejected,cancelled)")
+        .lte("from_date", toDate)
+        .gte("to_date", fromDate) : { data: [] };
+      const teachersOnLeave = new Set((activeLeaves ?? []).map((l: any) => l.teacher_id));
+
+      return candidates.filter((p) => !teachersOnLeave.has(p.id));
     },
   });
 
@@ -791,16 +810,46 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         .in("role", ["admin", "principal"]);
       const excludedIds = new Set((excludedRoles ?? []).map((r) => r.user_id));
 
-      let pq = supabase.from("profiles").select("id, full_name, designation").eq("approved", true);
+      let pq = supabase.from("profiles").select("id, full_name, designation")
+        .eq("approved", true)
+        .eq("hr_approved", true);
       if (request.department_id) pq = pq.eq("department_id", request.department_id);
       const { data: people, error } = await pq.neq("id", request.teacher_id).order("full_name");
       if (error) throw error;
 
-      const filteredPeople = (people ?? []).filter((p) => !excludedIds.has(p.id));
+      // Also exclude teachers whose documents have not been approved yet
+      const { data: approvedDocs } = await supabase
+        .from("teacher_documents")
+        .select("teacher_id")
+        .eq("status", "approved");
+      const approvedDocTeacherIds = new Set((approvedDocs ?? []).map((d: any) => d.teacher_id));
+
+      const filteredPeople = (people ?? []).filter(
+        (p) => !excludedIds.has(p.id) && approvedDocTeacherIds.has(p.id)
+      );
       const teacherIds = filteredPeople.map((p) => p.id);
       const { data: lectures } = teacherIds.length ? await supabase.from("lectures").select("teacher_id, day_of_week, start_time, end_time").in("teacher_id", teacherIds).is("lecture_date", null) : { data: [] };
       const { data: existingProxies } = teacherIds.length ? await supabase.from("proxy_assignments").select("proxy_teacher_id, proxy_date, start_time, end_time").in("proxy_teacher_id", teacherIds).in("status", ["pending", "accepted"]).gte("proxy_date", request.from_date).lte("proxy_date", request.to_date) : { data: [] };
-      return { people: filteredPeople, lectures: lectures ?? [], existingProxies: existingProxies ?? [] };
+
+      // Fetch active/pending leaves for all candidates during the leave period
+      // A teacher on leave (approved, pending, or hod_approved) cannot be a proxy
+      const { data: activeLeaves } = teacherIds.length ? await supabase
+        .from("leave_requests")
+        .select("teacher_id, from_date, to_date, status")
+        .in("teacher_id", teacherIds)
+        .not("status", "in", "(rejected,cancelled)")
+        .lte("from_date", request.to_date)
+        .gte("to_date", request.from_date) : { data: [] };
+
+      const teachersOnLeave = new Set(
+        (activeLeaves ?? []).map((l: any) => l.teacher_id)
+      );
+
+      return {
+        people: filteredPeople.filter((p) => !teachersOnLeave.has(p.id)),
+        lectures: lectures ?? [],
+        existingProxies: existingProxies ?? [],
+      };
     },
   });
 
