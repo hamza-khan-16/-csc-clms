@@ -68,6 +68,7 @@ type StaffRow = {
   designation: string;
   department_id: string | null;
   monthly_salary: number;
+  cl_quota: number | null;
   approved: boolean;
   account_locked: boolean;
   role: "teacher" | "hod" | "principal" | "admin" | null;
@@ -92,7 +93,7 @@ function AdminPage() {
       const [{ data: profiles, error }, { data: roles }, { data: depts }] = await Promise.all([
         supabase
           .from("profiles")
-          .select("id, full_name, user_id, designation, department_id, monthly_salary, approved, account_locked")
+          .select("id, full_name, user_id, designation, department_id, monthly_salary, cl_quota, approved, account_locked")
           .order("full_name"),
         supabase.from("user_roles").select("user_id, role"),
         supabase.from("departments").select("id, name"),
@@ -101,6 +102,7 @@ function AdminPage() {
       return (profiles ?? []).map((p) => ({
         ...p,
         monthly_salary: Number(p.monthly_salary ?? 0),
+        cl_quota: (p as any).cl_quota != null ? Number((p as any).cl_quota) : null,
         account_locked: Boolean((p as any).account_locked),
         role: ((roles ?? []).find((r) => r.user_id === p.id)?.role ?? null) as StaffRow["role"],
         deptName: (depts ?? []).find((d) => d.id === p.department_id)?.name ?? "—",
@@ -385,7 +387,7 @@ function StaffRowCard({
   const [designation, setDesignation] = useState(row.designation);
   const [dept, setDept] = useState(row.department_id ?? "none");
   const [role, setRole] = useState<StaffRow["role"]>(row.role);
-  const [clQuota, setClQuota] = useState<string>((row as any).cl_quota != null ? String((row as any).cl_quota) : "12");
+  const [clQuota, setClQuota] = useState<string>(row.cl_quota != null ? String(row.cl_quota) : "12");
   const [resetPw, setResetPw] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
   const resetFn = useServerFn(directPasswordReset);
@@ -417,7 +419,7 @@ function StaffRowCard({
   }
 
   const departmentId = dept === "none" ? null : dept;
-  const originalClQuota = (row as any).cl_quota != null ? String((row as any).cl_quota) : "12";
+  const originalClQuota = row.cl_quota != null ? String(row.cl_quota) : "12";
   const dirtyProfile =
     Number(salary) !== row.monthly_salary ||
     designation !== row.designation ||
