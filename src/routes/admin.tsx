@@ -58,6 +58,7 @@ type ProfilePatch = {
   designation?: string;
   department_id?: string | null;
   monthly_salary?: number;
+  cl_quota?: number | null;
 };
 
 type StaffRow = {
@@ -153,7 +154,7 @@ function AdminPage() {
     if (!approvalSalary || isNaN(salary) || salary <= 0) return toast.error("Enter a valid monthly salary");
     if (isNaN(clQuota) || clQuota < 0 || clQuota > 365) return toast.error("Casual leave quota must be between 0 and 365");
     setApprovalDialog(null);
-    patch.mutate({ id: approvalDialog.id, values: { approved: true, monthly_salary: salary, cl_quota: clQuota } as any });
+    patch.mutate({ id: approvalDialog.id, values: { approved: true, monthly_salary: salary, cl_quota: clQuota } });
     // Set CL quota via RPC so current year balance is recalculated
     await supabase.rpc("set_teacher_cl_quota", { _teacher_id: approvalDialog.id, _quota: clQuota });
   }
@@ -418,10 +419,12 @@ function StaffRowCard({
   }
 
   const departmentId = dept === "none" ? null : dept;
+  const originalClQuota = (row as any).cl_quota != null ? String((row as any).cl_quota) : "12";
   const dirtyProfile =
     Number(salary) !== row.monthly_salary ||
     designation !== row.designation ||
-    departmentId !== row.department_id;
+    departmentId !== row.department_id ||
+    clQuota !== originalClQuota;
   const dirtyRole = role !== row.role;
 
   return (
@@ -518,8 +521,9 @@ function StaffRowCard({
               monthly_salary: Number(salary) || 0,
               designation,
               department_id: departmentId,
+              cl_quota: !isNaN(quota) && quota >= 0 ? quota : null,
             });
-            // Update CL quota separately via RPC to recalculate balance
+            // Also call RPC to recalculate current year's balance
             if (!isNaN(quota) && quota >= 0) {
               await supabase.rpc("set_teacher_cl_quota", { _teacher_id: row.id, _quota: quota });
             }
