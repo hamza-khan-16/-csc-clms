@@ -159,12 +159,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
       const { data } = await supabase.from("profiles").select("id, full_name")
         .eq("department_id", deptId).eq("approved", true).eq("hr_approved", true).order("full_name");
 
-      // Exclude teachers whose documents have not been approved
-      const { data: approvedDocs } = await supabase
-        .from("teacher_documents").select("teacher_id").eq("status", "approved");
-      const approvedDocIds = new Set((approvedDocs ?? []).map((d: any) => d.teacher_id));
-
-      const candidates = (data ?? []).filter((p) => p.id !== teacherId && !excludedIds.has(p.id) && approvedDocIds.has(p.id));
+      const candidates = (data ?? []).filter((p) => p.id !== teacherId && !excludedIds.has(p.id));
       const candidateIds = candidates.map((p) => p.id);
 
       // Exclude teachers who have active/pending leaves overlapping the selected dates
@@ -817,16 +812,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       const { data: people, error } = await pq.neq("id", request.teacher_id).order("full_name");
       if (error) throw error;
 
-      // Also exclude teachers whose documents have not been approved yet
-      const { data: approvedDocs } = await supabase
-        .from("teacher_documents")
-        .select("teacher_id")
-        .eq("status", "approved");
-      const approvedDocTeacherIds = new Set((approvedDocs ?? []).map((d: any) => d.teacher_id));
-
-      const filteredPeople = (people ?? []).filter(
-        (p) => !excludedIds.has(p.id) && approvedDocTeacherIds.has(p.id)
-      );
+      const filteredPeople = (people ?? []).filter((p) => !excludedIds.has(p.id));
       const teacherIds = filteredPeople.map((p) => p.id);
       const { data: lectures } = teacherIds.length ? await supabase.from("lectures").select("teacher_id, day_of_week, start_time, end_time").in("teacher_id", teacherIds).is("lecture_date", null) : { data: [] };
       const { data: existingProxies } = teacherIds.length ? await supabase.from("proxy_assignments").select("proxy_teacher_id, proxy_date, start_time, end_time").in("proxy_teacher_id", teacherIds).in("status", ["pending", "accepted"]).gte("proxy_date", request.from_date).lte("proxy_date", request.to_date) : { data: [] };
