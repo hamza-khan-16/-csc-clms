@@ -123,9 +123,7 @@ function NoticesPage() {
     });
     setBusy(false);
     if (error) return toast.error(error.message);
-    // Notify recipients about the new notice
-    // For dept notices: notify all teachers + HODs in that dept (exclude the poster)
-    // For college-wide: notify all teachers, HODs, HR
+    // Notify recipients — exclude the poster themselves
     const recipientIds = departmentId
       ? [`__dept_teachers_${departmentId}__`, `__hod_dept_${departmentId}__`]
       : ["__teacher__", "__hod__", "__hr__"];
@@ -134,6 +132,7 @@ function NoticesPage() {
       title: "📢 New Notice",
       body: title.trim(),
       targetUrl: "/dashboard",
+      excludeUserIds: profile?.id ? [profile.id] : [],
     }}).catch((e) => console.error("[Push] notice:", e));
     setTitle("");
     setBody("");

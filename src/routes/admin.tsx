@@ -155,7 +155,7 @@ function AdminPage() {
     const clQuota = Number(approvalClQuota);
     if (!approvalSalary || isNaN(salary) || salary <= 0) return toast.error("Enter a valid monthly salary");
     if (isNaN(clQuota) || clQuota < 0 || clQuota > 365) return toast.error("Casual leave quota must be between 0 and 365");
-    setApprovalDialog(null);
+    // Don't close dialog until patch succeeds — let onSuccess close it
     patch.mutate({ id: approvalDialog.id, values: { approved: true, monthly_salary: salary, cl_quota: clQuota } });
   }
 
@@ -177,9 +177,9 @@ function AdminPage() {
     },
     onSuccess: (result, { id }) => {
       invalidate();
+      setApprovalDialog(null);
       if (result?.approved && result.collegeId) {
         toast.success(`Approved — college ID ${result.collegeId}`);
-        // Notify the teacher their account has been approved
         sendPush({ data: {
           userIds: [id],
           title: "Account Approved ✓",

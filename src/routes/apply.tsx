@@ -295,7 +295,7 @@ function ApplyPage() {
                 {leaveType === "casual" && casualBal && (
                   <p className="text-xs text-muted-foreground pl-0.5">
                     Balance: <span className="font-medium text-foreground">{Math.max(casualBal.monthlyCap! - casualBal.usedMonth, 0)}/{casualBal.monthlyCap} this month</span>
-                    {" · "}<span className="font-medium text-foreground">{Math.max(casualBal.yearlyCap - casualBal.usedYear, 0)}/12 this year</span>
+                    {" · "}<span className="font-medium text-foreground">{Math.max(casualBal.yearlyCap - casualBal.usedYear, 0)}/{casualBal.yearlyCap} this year</span>
                   </p>
                 )}
               </div>

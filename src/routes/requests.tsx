@@ -864,7 +864,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
 
     // Notify each unique proxy teacher (fire-and-forget)
     const uniqueProxyTeachers = [...new Set(allSlots.map((s) => choices[s.key]).filter(Boolean))];
-    const absenteeName = request.teacher_name ?? "a colleague";
+    const absenteeName = request.teacher?.full_name ?? "a colleague";
     for (const proxyId of uniqueProxyTeachers) {
       const slot = allSlots.find((s) => choices[s.key] === proxyId);
       if (slot) {

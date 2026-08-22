@@ -19,13 +19,14 @@ export interface PushPayload {
   title: string;
   body: string;
   targetUrl?: string;
+  excludeUserIds?: string[]; // user IDs to exclude (e.g. the sender)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function resolvePlayerIds(userIds: string[]): Promise<string[]> {
+async function resolvePlayerIds(userIds: string[], excludeUserIds: string[] = []): Promise<string[]> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
   let profileIds: string[] = userIds.filter((id) => !id.startsWith("__"));
@@ -67,7 +68,7 @@ async function resolvePlayerIds(userIds: string[]): Promise<string[]> {
 
   if (profileIds.length === 0) return [];
 
-  const unique = [...new Set(profileIds)];
+  const unique = [...new Set(profileIds)].filter((id) => !excludeUserIds.includes(id));
   const { data: tokens, error } = await supabaseAdmin
     .from("push_tokens")
     .select("onesignal_id")
@@ -102,7 +103,7 @@ export async function dispatchPush(
     return { ok: false, error: "No recipients" };
   }
 
-  const playerIds = await resolvePlayerIds(payload.userIds).catch((err) => {
+  const playerIds = await resolvePlayerIds(payload.userIds, payload.excludeUserIds ?? []).catch((err) => {
     console.error("[Push] resolvePlayerIds threw:", err);
     return [] as string[];
   });
@@ -159,10 +160,11 @@ export async function dispatchPush(
 
 export const sendPushNotification = createServerFn({ method: "POST" })
   .inputValidator((raw: PushPayload) => ({
-    userIds:   (raw?.userIds ?? []).filter(Boolean).slice(0, 100) as string[],
-    title:     String(raw?.title  ?? "").slice(0, 100),
-    body:      String(raw?.body   ?? "").slice(0, 200),
-    targetUrl: raw?.targetUrl ? String(raw.targetUrl).slice(0, 300) : undefined,
+    userIds:        (raw?.userIds ?? []).filter(Boolean).slice(0, 100) as string[],
+    title:          String(raw?.title  ?? "").slice(0, 100),
+    body:           String(raw?.body   ?? "").slice(0, 200),
+    targetUrl:      raw?.targetUrl ? String(raw.targetUrl).slice(0, 300) : undefined,
+    excludeUserIds: (raw?.excludeUserIds ?? []).filter(Boolean).slice(0, 50) as string[],
   }))
   .handler(async ({ data }) => {
     const result = await dispatchPush(data);
