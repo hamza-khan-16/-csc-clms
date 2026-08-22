@@ -56,7 +56,7 @@ async function syncPushTokenForUser(userId: string): Promise<void> {
   }
 }
 
-
+/**
  * Resolves a college ID (e.g. priya@CSC.COM) to the account's real login email
  * and signs in. Plain email addresses are passed through unchanged.
  *
