@@ -155,8 +155,6 @@ function AdminPage() {
     if (isNaN(clQuota) || clQuota < 0 || clQuota > 365) return toast.error("Casual leave quota must be between 0 and 365");
     setApprovalDialog(null);
     patch.mutate({ id: approvalDialog.id, values: { approved: true, monthly_salary: salary, cl_quota: clQuota } });
-    // Set CL quota via RPC so current year balance is recalculated
-    await supabase.rpc("set_teacher_cl_quota", { _teacher_id: approvalDialog.id, _quota: clQuota });
   }
 
   const invalidate = () => {
@@ -523,10 +521,7 @@ function StaffRowCard({
               department_id: departmentId,
               cl_quota: !isNaN(quota) && quota >= 0 ? quota : null,
             });
-            // Also call RPC to recalculate current year's balance
-            if (!isNaN(quota) && quota >= 0) {
-              await supabase.rpc("set_teacher_cl_quota", { _teacher_id: row.id, _quota: quota });
-            }
+
           }}
         >
           Save details
