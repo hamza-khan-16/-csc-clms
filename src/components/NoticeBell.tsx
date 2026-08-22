@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCircle2, ClipboardCheck, FileText, CalendarDays } from "lucide-react";
@@ -18,14 +18,28 @@ type ActivityItem =
   | { kind: "proxy";   id: string; title: string; date: string; created_at: string }
   | { kind: "doc";     id: string; title: string; status: string; created_at: string };
 
-const SEEN_KEY = "notif_seen_at";
+const SEEN_KEY = "notif_seen_ids";
+
+function getSeenIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch { return new Set(); }
+}
+
+function saveSeenIds(ids: Set<string>) {
+  try {
+    // Keep only last 200 to avoid unbounded growth
+    const arr = [...ids].slice(-200);
+    localStorage.setItem(SEEN_KEY, JSON.stringify(arr));
+  } catch {}
+}
 
 export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: string }) {
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
-  const [seenAt, setSeenAt] = useState<number>(() => {
-    try { return Number(localStorage.getItem(SEEN_KEY) ?? "0"); } catch { return 0; }
-  });
+  const [seenIds, setSeenIds] = useState<Set<string>>(() => getSeenIds());
+  const prevCountRef = useRef(0);
 
   // Notices
   const { data: notices = [] } = useQuery({
@@ -41,7 +55,7 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
     },
   });
 
-  // My recent leave status changes (teachers/hod)
+  // My recent leave status changes
   const { data: leaveActivity = [] } = useQuery({
     queryKey: ["notif-leaves", userId],
     enabled: !!userId && (role === "teacher" || role === "hod"),
@@ -49,22 +63,22 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
     queryFn: async () => {
       const { data } = await supabase
         .from("leave_requests")
-        .select("id, leave_type, status, from_date")
+        .select("id, leave_type, status, from_date, updated_at")
         .eq("teacher_id", userId!)
         .in("status", ["approved", "hod_approved", "rejected", "hod_recommended"])
-        .order("from_date", { ascending: false })
+        .order("updated_at", { ascending: false })
         .limit(8);
       return (data ?? []).map((l) => ({
         kind: "leave" as const,
-        id: l.id,
+        id: `leave-${l.id}-${l.status}`,
         title: `Leave ${l.status.replace(/_/g, " ")} — ${fmtDate(l.from_date)}`,
         status: l.status,
-        created_at: l.from_date,
+        created_at: (l as any).updated_at ?? l.from_date,
       }));
     },
   });
 
-  // Proxy assignments (teachers/hod)
+  // Proxy assignments
   const { data: proxyActivity = [] } = useQuery({
     queryKey: ["notif-proxies", userId],
     enabled: !!userId && (role === "teacher" || role === "hod"),
@@ -78,7 +92,7 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
         .limit(5);
       return (data ?? []).map((p) => ({
         kind: "proxy" as const,
-        id: p.id,
+        id: `proxy-${p.id}`,
         title: `Proxy assigned — ${p.subject ?? "lecture"} on ${fmtDate(p.proxy_date)}`,
         date: p.proxy_date,
         created_at: p.created_at,
@@ -86,7 +100,7 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
     },
   });
 
-  // Doc status changes (teachers)
+  // Doc status changes
   const { data: docActivity = [] } = useQuery({
     queryKey: ["notif-docs", userId],
     enabled: !!userId && role === "teacher",
@@ -101,7 +115,7 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
         .limit(5);
       return (data ?? []).map((d) => ({
         kind: "doc" as const,
-        id: d.id,
+        id: `doc-${d.id}-${d.status}`,
         title: `Document ${d.status} — ${d.doc_type.replace(/_/g, " ")}`,
         status: d.status,
         created_at: d.reviewed_at ?? "",
@@ -109,7 +123,7 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
     },
   });
 
-  // Realtime: refresh activity on leave_requests changes for this user
+  // Realtime leave updates
   useEffect(() => {
     if (!userId) return;
     const channel = supabase
@@ -120,10 +134,10 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
     return () => { supabase.removeChannel(channel); };
   }, [userId, qc]);
 
-  // Merge + sort all activities
+  // Merge + sort all items
   const noticeItems: ActivityItem[] = notices.map((n) => ({
     kind: "notice" as const,
-    id: n.id,
+    id: `notice-${n.id}`,
     title: n.title,
     body: n.body,
     dept: (n.departments as { name: string } | null)?.name ?? null,
@@ -138,18 +152,40 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
   ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
    .slice(0, 20);
 
-  const unreadCount = allItems.filter((i) => new Date(i.created_at).getTime() > seenAt).length;
+  const unreadCount = allItems.filter((i) => !seenIds.has(i.id)).length;
 
+  // Mark a single item as read
+  function markRead(id: string) {
+    setSeenIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      saveSeenIds(next);
+      return next;
+    });
+  }
+
+  // Mark all as read
   function markAllRead() {
-    const now = Date.now();
-    setSeenAt(now);
-    try { localStorage.setItem(SEEN_KEY, String(now)); } catch {}
+    setSeenIds((prev) => {
+      const next = new Set(prev);
+      allItems.forEach((i) => next.add(i.id));
+      saveSeenIds(next);
+      return next;
+    });
   }
 
   function handleOpen(v: boolean) {
     setOpen(v);
-    if (v) markAllRead();
+    // Don't auto-mark-all-read — user dismisses each item individually
   }
+
+  // Notify badge when count changes (new items arrived via realtime)
+  useEffect(() => {
+    if (unreadCount > prevCountRef.current && !open) {
+      // New unread items arrived — badge will show automatically
+    }
+    prevCountRef.current = unreadCount;
+  }, [unreadCount, open]);
 
   const iconFor = (item: ActivityItem) => {
     if (item.kind === "notice") return <Bell className="size-3.5 text-info" />;
@@ -175,37 +211,47 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <p className="text-sm font-bold">Notifications</p>
           <div className="flex items-center gap-1">
+            {unreadCount > 0 && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={markAllRead}>
+                Mark all read
+              </Button>
+            )}
             {(role === "hod" || role === "principal" || role === "admin") && (
               <Button asChild variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setOpen(false)}>
-                <Link to="/notices">Manage notices</Link>
+                <Link to="/notices">Manage</Link>
               </Button>
             )}
           </div>
         </div>
-        {allItems.length === 0 ? (
+        {allItems.filter((item) => !seenIds.has(item.id)).length === 0 ? (
           <p className="px-3 py-6 text-center text-sm text-muted-foreground">All caught up!</p>
         ) : (
           <ul className="max-h-[420px] overflow-y-auto divide-y divide-border">
-            {allItems.map((item) => {
-              const isNew = new Date(item.created_at).getTime() > seenAt;
-              return (
-                <li key={`${item.kind}-${item.id}`}
-                    className={`px-3 py-2.5 flex items-start gap-2.5 transition-colors hover:bg-muted/50 ${isNew ? "bg-primary/5" : ""}`}>
-                  <div className="mt-0.5 shrink-0">{iconFor(item)}</div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold leading-snug line-clamp-2">{item.title}</p>
-                    {item.kind === "notice" && item.body && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{item.body}</p>
-                    )}
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      {item.created_at ? fmtDate(item.created_at.slice(0, 10)) : ""}
-                      {item.kind === "notice" && item.dept ? ` · ${item.dept}` : ""}
-                    </p>
-                  </div>
-                  {isNew && <span className="mt-1.5 size-2 rounded-full bg-primary shrink-0" />}
-                </li>
-              );
-            })}
+            {allItems.filter((item) => !seenIds.has(item.id)).map((item) => (
+              <li
+                key={item.id}
+                className="px-3 py-2.5 flex items-start gap-2.5 bg-primary/5 hover:bg-primary/10 transition-colors"
+              >
+                <div className="mt-0.5 shrink-0">{iconFor(item)}</div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs leading-snug line-clamp-2 font-semibold">{item.title}</p>
+                  {item.kind === "notice" && item.body && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{item.body}</p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {item.created_at ? fmtDate(item.created_at.slice(0, 10)) : ""}
+                    {item.kind === "notice" && item.dept ? ` · ${item.dept}` : ""}
+                  </p>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); markRead(item.id); }}
+                  className="mt-0.5 shrink-0 rounded-full p-1 hover:bg-primary/20 text-muted-foreground hover:text-primary transition-colors"
+                  title="Mark as read"
+                >
+                  <CheckCircle2 className="size-4" />
+                </button>
+              </li>
+            ))}
           </ul>
         )}
       </DropdownMenuContent>

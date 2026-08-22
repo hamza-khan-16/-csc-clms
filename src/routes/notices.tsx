@@ -1,12 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Trash2, CalendarClock, CalendarDays, ChevronDown, ChevronUp, CheckCheck } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { GuardedInput, GuardedTextarea } from "@/components/GuardedField";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
+import { sendPushNotification } from "@/lib/push.functions";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, Empty } from "@/components/ui-bits";
@@ -48,6 +50,7 @@ function NoticesPage() {
   const { profile, role } = useAuth();
   const qc = useQueryClient();
   const isPrincipal = role === "principal";
+  const sendPush = useServerFn(sendPushNotification);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [scope, setScope] = useState<string>("all");
@@ -68,6 +71,15 @@ function NoticesPage() {
   const { data: notices = [] } = useQuery({
     queryKey: ["notices"],
     queryFn: async () => {
+      const today = new Date().toISOString().slice(0, 10);
+
+      // Auto-delete notices whose event_date has passed
+      await supabase
+        .from("notices")
+        .delete()
+        .not("event_date", "is", null)
+        .lt("event_date", today);
+
       const { data, error } = await supabase
         .from("notices")
         .select("id, title, body, department_id, created_by, created_at, event_date, event_time, departments(name)")
@@ -85,6 +97,13 @@ function NoticesPage() {
     if (body.trim()) {
       const bodyCheck = validateMeaningfulText(body, "Details");
       if (!bodyCheck.valid) return toast.error(bodyCheck.error!);
+    }
+    // Validate event date is not in the past
+    if (eventDate) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const chosen = new Date(eventDate);
+      if (chosen < today) return toast.error("Event date cannot be in the past");
     }
     const departmentId = isPrincipal
       ? scope === "all"
@@ -104,6 +123,18 @@ function NoticesPage() {
     });
     setBusy(false);
     if (error) return toast.error(error.message);
+    // Notify recipients about the new notice
+    // For dept notices: notify all teachers + HODs in that dept (exclude the poster)
+    // For college-wide: notify all teachers, HODs, HR
+    const recipientIds = departmentId
+      ? [`__dept_teachers_${departmentId}__`, `__hod_dept_${departmentId}__`]
+      : ["__teacher__", "__hod__", "__hr__"];
+    sendPush({ data: {
+      userIds: recipientIds,
+      title: "📢 New Notice",
+      body: title.trim(),
+      targetUrl: "/dashboard",
+    }}).catch((e) => console.error("[Push] notice:", e));
     setTitle("");
     setBody("");
     setEventDate("");
@@ -191,6 +222,7 @@ function NoticesPage() {
                   <Input
                     type="date"
                     value={eventDate}
+                    min={new Date().toISOString().slice(0, 10)}
                     onChange={(e) => setEventDate(e.target.value)}
                     className="h-8 text-sm"
                   />

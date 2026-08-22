@@ -1,11 +1,16 @@
 /**
  * push.ts — Client-side push registration
  *
- * Strategy:
- * 1. Try Median bridge to get subscription ID directly (fastest)
- * 2. Always also call /api/push-token?userId=X as fallback (server-side sync from OneSignal)
- *    This works even if the Median bridge callbacks never fire.
+ * Key design decisions:
+ * - logoutPush() is called BEFORE initPush() to ensure the device is cleanly
+ *   unlinked from the previous user before being linked to the new one.
+ * - The server-side sync (/api/push-token GET) is the primary registration method.
+ *   The Median bridge callbacks are unreliable, so we don't depend on them.
+ * - A debounce prevents initPush from firing multiple times during session restore.
  */
+
+let pendingInit: ReturnType<typeof setTimeout> | null = null;
+let lastUserId: string | null = null;
 
 export function isMedianApp(): boolean {
   return typeof window !== "undefined" && typeof (window as any).median !== "undefined";
@@ -34,53 +39,78 @@ async function syncFromServer(userId: string): Promise<void> {
 export function initPush(userId: string): void {
   if (!isMedianApp()) return;
 
-  const os = getOS();
+  // Debounce — if called multiple times quickly (session restore flash),
+  // only run for the final userId
+  if (pendingInit) clearTimeout(pendingInit);
 
-  // Always sync from server after a short delay — this is the reliable fallback
-  // Works even if Median bridge is not ready or callbacks never fire
-  setTimeout(() => syncFromServer(userId), 3000);
-  setTimeout(() => syncFromServer(userId), 10000); // retry once more
+  pendingInit = setTimeout(async () => {
+    pendingInit = null;
 
-  if (!os) return;
+    // If same user as last time, no need to re-link
+    if (lastUserId === userId) {
+      // Still sync in case token changed
+      await syncFromServer(userId);
+      return;
+    }
 
-  // Also try Median bridge directly (faster when it works)
-  os.setExternalUserId?.(userId);
-  os.login?.({ externalId: userId });
+    // New user — unlink previous device association first
+    if (lastUserId) {
+      const os = getOS();
+      os?.logout?.();
+      await new Promise((r) => setTimeout(r, 500));
+    }
 
-  os.info?.({
-    callback: async (info: {
-      oneSignalUserId?: string;
-      subscriptionId?: string;
-      isSubscribed?: boolean;
-    }) => {
-      const onesignalId = info?.subscriptionId ?? info?.oneSignalUserId;
+    lastUserId = userId;
 
-      if (onesignalId && info?.isSubscribed !== false) {
-        await saveTokenViaPost(userId, onesignalId);
-        return;
-      }
+    const os = getOS();
+    if (os) {
+      // Re-link device to new user in OneSignal
+      os.login?.({ externalId: userId });
+      await new Promise((r) => setTimeout(r, 1000));
 
-      // Not subscribed — prompt
-      os.promptNotification?.({
-        callback: async (result: { granted: boolean }) => {
-          if (!result?.granted) return;
-          setTimeout(() => {
-            os.info?.({
-              callback: async (info2: { oneSignalUserId?: string; subscriptionId?: string }) => {
-                const id = info2?.subscriptionId ?? info2?.oneSignalUserId;
-                if (id) await saveTokenViaPost(userId, id);
-                else await syncFromServer(userId);
+      // Try getting subscription ID directly from bridge
+      os.info?.({
+        callback: async (info: {
+          oneSignalUserId?: string;
+          subscriptionId?: string;
+          isSubscribed?: boolean;
+        }) => {
+          const onesignalId = info?.subscriptionId ?? info?.oneSignalUserId;
+
+          if (onesignalId && info?.isSubscribed !== false) {
+            await saveTokenViaPost(userId, onesignalId);
+          } else if (!onesignalId) {
+            // Prompt for permission if not subscribed
+            os.promptNotification?.({
+              callback: async (result: { granted: boolean }) => {
+                if (!result?.granted) return;
+                await new Promise((r) => setTimeout(r, 2000));
+                os.info?.({
+                  callback: async (info2: { oneSignalUserId?: string; subscriptionId?: string }) => {
+                    const id = info2?.subscriptionId ?? info2?.oneSignalUserId;
+                    if (id) await saveTokenViaPost(userId, id);
+                  },
+                });
               },
             });
-          }, 3000);
+          }
         },
       });
-    },
-  });
+    }
+
+    // Always also sync server-side — most reliable path
+    await syncFromServer(userId);
+
+  }, 1500); // 1.5s debounce — waits for session restore to settle
 }
 
 export function logoutPush(): void {
   if (!isMedianApp()) return;
+  lastUserId = null;
+  if (pendingInit) {
+    clearTimeout(pendingInit);
+    pendingInit = null;
+  }
   try { getOS()?.logout?.(); } catch {}
 }
 

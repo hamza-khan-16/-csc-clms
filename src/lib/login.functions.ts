@@ -1,6 +1,62 @@
 import { createServerFn } from "@tanstack/react-start";
 
 /**
+ * Syncs the latest OneSignal push token for a user from OneSignal's player list.
+ * Called automatically on every login — no manual sync needed.
+ */
+async function syncPushTokenForUser(userId: string): Promise<void> {
+  const appId  = process.env.ONESIGNAL_APP_ID;
+  const apiKey = process.env.ONESIGNAL_API_KEY;
+  if (!appId || !apiKey) return;
+
+  function parseExternalId(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    if (!raw.startsWith("{") && !raw.startsWith("\"")) return raw;
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === "string") return parsed;
+      if (parsed?.externalId) return parsed.externalId;
+    } catch {}
+    const match = raw.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    return match ? match[0] : null;
+  }
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  let offset = 0;
+
+  while (true) {
+    const res = await fetch(
+      `https://onesignal.com/api/v1/players?app_id=${appId}&limit=300&offset=${offset}`,
+      { headers: { "Authorization": `Key ${apiKey}` } }
+    );
+    if (!res.ok) break;
+
+    const data = await res.json() as any;
+    const players: any[] = data?.players ?? [];
+
+    for (const player of players) {
+      if (parseExternalId(player.external_user_id) !== userId) continue;
+      const onesignalId = player.id;
+
+      // Remove this device from other users + remove other devices from this user
+      await supabaseAdmin.from("push_tokens").delete()
+        .eq("onesignal_id", onesignalId).neq("user_id", userId);
+      await supabaseAdmin.from("push_tokens").delete()
+        .eq("user_id", userId).neq("onesignal_id", onesignalId);
+
+      await supabaseAdmin.from("push_tokens").upsert(
+        { user_id: userId, onesignal_id: onesignalId, updated_at: new Date().toISOString() },
+        { onConflict: "user_id,onesignal_id" }
+      );
+      console.log(`[Push] Auto-synced token for user ${userId}: ${onesignalId}`);
+    }
+
+    if (players.length < 300) break;
+    offset += 300;
+  }
+}
+
+
  * Resolves a college ID (e.g. priya@CSC.COM) to the account's real login email
  * and signs in. Plain email addresses are passed through unchanged.
  *
@@ -104,6 +160,10 @@ export const signInWithIdentifier = createServerFn({ method: "POST" })
         .update({ failed_login_attempts: 0, account_locked: false })
         .eq("id", profileId)
         .then(() => {});
+
+      // Auto-sync push token from OneSignal for this user (fire-and-forget)
+      // This replaces needing to manually visit /api/push-sync-all
+      syncPushTokenForUser(profileId).catch(() => {});
     }
 
     return {

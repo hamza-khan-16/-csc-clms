@@ -6,6 +6,7 @@ import { Loader2, Trash2, Check, FileText, Download, BarChart2, ChevronRight } f
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { adminCreateStaff, adminDeleteStaff, directPasswordReset, unlockAccount, fetchPasswordResetRequests, completePasswordResetRequest } from "@/lib/admin.functions";
+import { sendPushNotification } from "@/lib/push.functions";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
@@ -14,6 +15,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -125,6 +133,30 @@ function AdminPage() {
 
   const pending = staff.filter((s) => !s.approved);
   const payroll = staff.filter((s) => s.role !== "admin").reduce((s, r) => s + r.monthly_salary, 0);
+  const sendPush = useServerFn(sendPushNotification);
+
+  // Approval dialog state
+  const [approvalDialog, setApprovalDialog] = useState<{ id: string; name: string; currentSalary: number } | null>(null);
+  const [approvalSalary, setApprovalSalary] = useState("");
+  const [approvalClQuota, setApprovalClQuota] = useState("12");
+
+  function openApprovalDialog(p: StaffRow) {
+    setApprovalSalary(p.monthly_salary > 0 ? String(p.monthly_salary) : "");
+    setApprovalClQuota("12");
+    setApprovalDialog({ id: p.id, name: p.full_name, currentSalary: p.monthly_salary });
+  }
+
+  async function confirmApproval() {
+    if (!approvalDialog) return;
+    const salary = Number(approvalSalary);
+    const clQuota = Number(approvalClQuota);
+    if (!approvalSalary || isNaN(salary) || salary <= 0) return toast.error("Enter a valid monthly salary");
+    if (isNaN(clQuota) || clQuota < 0 || clQuota > 365) return toast.error("Casual leave quota must be between 0 and 365");
+    setApprovalDialog(null);
+    patch.mutate({ id: approvalDialog.id, values: { approved: true, monthly_salary: salary, cl_quota: clQuota } as any });
+    // Set CL quota via RPC so current year balance is recalculated
+    await supabase.rpc("set_teacher_cl_quota", { _teacher_id: approvalDialog.id, _quota: clQuota });
+  }
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["admin-staff"] });
@@ -142,10 +174,17 @@ function AdminPage() {
       if (error) throw error;
       return { collegeId: data?.user_id as string | undefined, approved: values.approved };
     },
-    onSuccess: (result) => {
+    onSuccess: (result, { id }) => {
       invalidate();
       if (result?.approved && result.collegeId) {
         toast.success(`Approved — college ID ${result.collegeId}`);
+        // Notify the teacher their account has been approved
+        sendPush({ data: {
+          userIds: [id],
+          title: "Account Approved ✓",
+          body: `Your registration has been approved. Your college ID is ${result.collegeId}`,
+          targetUrl: "/dashboard",
+        }}).catch((e) => console.error("[Push] teacher approved:", e));
       } else {
         toast.success("Saved");
       }
@@ -232,7 +271,7 @@ function AdminPage() {
                   <div className="flex gap-2">
                     <Button
                       size="sm"
-                      onClick={() => patch.mutate({ id: p.id, values: { approved: true } })}
+                      onClick={() => openApprovalDialog(p)}
                     >
                       <Check className="size-4" /> Approve
                     </Button>
@@ -250,6 +289,49 @@ function AdminPage() {
             </ul>
           )}
         </SectionCard>
+
+        {/* Approval dialog */}
+        <Dialog open={!!approvalDialog} onOpenChange={(v) => !v && setApprovalDialog(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Approve {approvalDialog?.name}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="approval-salary">Monthly Salary (₹)</Label>
+                <Input
+                  id="approval-salary"
+                  type="number"
+                  min={0}
+                  placeholder="e.g. 45000"
+                  value={approvalSalary}
+                  onChange={(e) => setApprovalSalary(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="approval-cl">Casual Leave Quota (days/year)</Label>
+                <Input
+                  id="approval-cl"
+                  type="number"
+                  min={0}
+                  max={365}
+                  placeholder="Default: 12"
+                  value={approvalClQuota}
+                  onChange={(e) => setApprovalClQuota(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Default is 12 days/year. This overrides the standard quota for this teacher.
+                </p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setApprovalDialog(null)}>Cancel</Button>
+              <Button onClick={confirmApproval}>
+                <Check className="size-4 mr-1" /> Confirm Approval
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <AddStaffCard departments={departments} onDone={invalidate} />
 
@@ -304,6 +386,7 @@ function StaffRowCard({
   const [designation, setDesignation] = useState(row.designation);
   const [dept, setDept] = useState(row.department_id ?? "none");
   const [role, setRole] = useState<StaffRow["role"]>(row.role);
+  const [clQuota, setClQuota] = useState<string>((row as any).cl_quota != null ? String((row as any).cl_quota) : "12");
   const [resetPw, setResetPw] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
   const resetFn = useServerFn(directPasswordReset);
@@ -371,6 +454,18 @@ function StaffRowCard({
         </div>
         )}
         <div className="space-y-1.5">
+          <Label className="text-xs">Casual leave quota (days/yr)</Label>
+          <Input
+            type="number"
+            min={0}
+            max={365}
+            placeholder="12"
+            value={clQuota}
+            onChange={(e) => setClQuota(e.target.value)}
+            title="Override the default 12-day annual casual leave quota for this teacher"
+          />
+        </div>
+        <div className="space-y-1.5">
           <Label className="text-xs">Designation</Label>
           <Select value={designation} onValueChange={setDesignation}>
             <SelectTrigger><SelectValue /></SelectTrigger>
@@ -417,13 +512,18 @@ function StaffRowCard({
         <Button
           size="sm"
           disabled={!dirtyProfile}
-          onClick={() =>
+          onClick={async () => {
+            const quota = Number(clQuota);
             onSaveProfile({
               monthly_salary: Number(salary) || 0,
               designation,
               department_id: departmentId,
-            })
-          }
+            });
+            // Update CL quota separately via RPC to recalculate balance
+            if (!isNaN(quota) && quota >= 0) {
+              await supabase.rpc("set_teacher_cl_quota", { _teacher_id: row.id, _quota: quota });
+            }
+          }}
         >
           Save details
         </Button>

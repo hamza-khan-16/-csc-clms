@@ -33,7 +33,16 @@ async function resolvePlayerIds(userIds: string[]): Promise<string[]> {
 
   for (const sentinel of sentinels) {
     const deptMatch = sentinel.match(/^__hod_dept_(.+)__$/);
-    if (deptMatch) {
+    const deptTeachersMatch = sentinel.match(/^__dept_teachers_(.+)__$/);
+    if (deptTeachersMatch) {
+      // All teachers in a specific department
+      const deptId = deptTeachersMatch[1];
+      const { data: teachers } = await supabaseAdmin
+        .from("profiles").select("id")
+        .eq("department_id", deptId)
+        .eq("approved", true);
+      profileIds = [...profileIds, ...(teachers ?? []).map((r: any) => r.id)];
+    } else if (deptMatch) {
       // Resolve HOD by department
       const deptId = deptMatch[1];
       const { data: hodRoles } = await supabaseAdmin
@@ -108,9 +117,9 @@ export async function dispatchPush(
     include_player_ids:  playerIds,
     headings:            { en: payload.title },
     contents:            { en: payload.body },
-    android_channel_id:  "csc-clms",
+    android_channel_id:   "69e5e20c-9520-4afe-a46e-611bbcd905bc",
     android_accent_color: "FF2563EB",
-    small_icon:          "ic_stat_notification",
+    small_icon:           "ic_stat_notification",
   };
 
   if (payload.targetUrl) {

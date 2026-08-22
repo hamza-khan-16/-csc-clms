@@ -11,13 +11,11 @@ export const Route = createFileRoute("/api/push-token")({
           await upsertToken(userId, onesignalId);
           return json({ ok: true });
         } catch (err) {
+          console.error("[Push] POST error:", err);
           return json({ ok: false, error: String(err) }, 500);
         }
       },
 
-      // GET /api/push-token?userId=xxx
-      // Scans all OneSignal players and saves matching tokens for this user.
-      // Called on every login as a reliable fallback for the Median bridge.
       GET: async ({ request }: { request: Request }) => {
         try {
           const url = new URL(request.url);
@@ -40,7 +38,6 @@ export const Route = createFileRoute("/api/push-token")({
             return match ? match[0] : null;
           }
 
-          // Fetch players — paginate in case of many users
           let offset = 0;
           const matchingIds: string[] = [];
 
@@ -65,8 +62,7 @@ export const Route = createFileRoute("/api/push-token")({
           }
 
           if (matchingIds.length === 0) {
-            // User hasn't opened the Median app yet — nothing to save
-            return json({ ok: false, error: "No OneSignal subscription found for this user yet" }, 404);
+            return json({ ok: false, error: "No OneSignal subscription found for this user" }, 404);
           }
 
           for (const id of matchingIds) {
@@ -86,6 +82,23 @@ export const Route = createFileRoute("/api/push-token")({
 
 async function upsertToken(userId: string, onesignalId: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  // Remove stale tokens for this device linked to OTHER users
+  await supabaseAdmin
+    .from("push_tokens")
+    .delete()
+    .eq("onesignal_id", onesignalId)
+    .neq("user_id", userId);
+
+  // Remove all OTHER devices previously linked to this user
+  // (user switched to a new phone — old phone should no longer receive notifications)
+  await supabaseAdmin
+    .from("push_tokens")
+    .delete()
+    .eq("user_id", userId)
+    .neq("onesignal_id", onesignalId);
+
+  // Insert the current device
   const { error } = await supabaseAdmin.from("push_tokens").upsert(
     { user_id: userId, onesignal_id: onesignalId, updated_at: new Date().toISOString() },
     { onConflict: "user_id,onesignal_id" }
