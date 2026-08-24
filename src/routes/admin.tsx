@@ -23,6 +23,16 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -133,6 +143,9 @@ function AdminPage() {
       };
     },
   });
+
+  // Delete confirmation state
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const pending = staff.filter((s) => !s.approved);
   const payroll = staff.filter((s) => s.role !== "admin").reduce((s, r) => s + r.monthly_salary, 0);
@@ -279,7 +292,7 @@ function AdminPage() {
                     <Button
                       size="sm"
                       variant="destructive"
-                      onClick={() => removeStaff.mutate(p.id)}
+                      onClick={() => setDeleteConfirm({ id: p.id, name: p.full_name })}
                       disabled={removeStaff.isPending}
                     >
                       Reject
@@ -293,7 +306,7 @@ function AdminPage() {
 
         {/* Approval dialog */}
         <Dialog open={!!approvalDialog} onOpenChange={(v) => !v && setApprovalDialog(null)}>
-          <DialogContent>
+          <DialogContent className="w-[calc(100vw-32px)] max-w-md">
             <DialogHeader>
               <DialogTitle>Approve {approvalDialog?.name}</DialogTitle>
             </DialogHeader>
@@ -334,6 +347,27 @@ function AdminPage() {
           </DialogContent>
         </Dialog>
 
+        {/* Delete confirmation dialog */}
+        <AlertDialog open={!!deleteConfirm} onOpenChange={(v) => !v && setDeleteConfirm(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently remove <strong>{deleteConfirm?.name}</strong> and all their data. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => { if (deleteConfirm) { removeStaff.mutate(deleteConfirm.id); setDeleteConfirm(null); } }}
+              >
+                Remove
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <AddStaffCard departments={departments} onDone={invalidate} />
 
         <PasswordResetRequests />
@@ -354,7 +388,7 @@ function AdminPage() {
                   onChangeRole={(role, departmentId) =>
                     changeRole.mutate({ id: s.id, role, departmentId })
                   }
-                  onRemove={() => removeStaff.mutate(s.id)}
+                  onRemove={() => setDeleteConfirm({ id: s.id, name: s.full_name })}
                   onInvalidate={invalidate}
                 />
               ))}
@@ -536,11 +570,6 @@ function StaffRowCard({
         >
           Update role
         </Button>
-        {!row.approved && (
-          <Button size="sm" variant="secondary" onClick={() => onSaveProfile({ approved: true })}>
-            Approve
-          </Button>
-        )}
         {row.account_locked && row.role !== "admin" && (
           <Button size="sm" variant="outline" onClick={handleUnlock}>
             Unlock account
@@ -966,18 +995,21 @@ function ExportsCard() {
       const mod = REPORT_MODULES.find((m) => m.key === activeModule)!;
       const headers = Object.keys(rows[0]);
 
+      // HTML escape to prevent XSS in print export
+      const escHtml = (s: unknown) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
       // Build a printable HTML table and open in new window
       const tableRows = rows
         .map(
           (r) =>
-            `<tr>${headers.map((h) => `<td style="border:1px solid #ddd;padding:6px 10px;font-size:12px">${r[h] ?? ""}</td>`).join("")}</tr>`,
+            `<tr>${headers.map((h) => `<td style="border:1px solid #ddd;padding:6px 10px;font-size:12px">${escHtml(r[h])}</td>`).join("")}</tr>`,
         )
         .join("");
       const html = `
         <html><head><title>${mod.label} — ${year}</title>
         <style>body{font-family:sans-serif;margin:24px}h1{font-size:18px;margin-bottom:4px}p{color:#666;font-size:13px;margin-bottom:16px}table{border-collapse:collapse;width:100%}th{background:#4f46e5;color:#fff;padding:7px 10px;font-size:12px;text-align:left}tr:nth-child(even){background:#f5f5f5}@media print{button{display:none}}</style>
         </head><body>
-        <h1>${mod.label}</h1><p>${mod.description} · ${year}</p>
+        <h1>${escHtml(mod.label)}</h1><p>${escHtml(mod.description)} · ${year}</p>
         <table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
         <tbody>${tableRows}</tbody></table>
         <br/><button onclick="window.print()">Print / Save as PDF</button>
@@ -1073,6 +1105,7 @@ function ExportsCard() {
 function DepartmentsCard({ departments }: { departments: { id: string; name: string }[] }) {
   const qc = useQueryClient();
   const [name, setName] = useState("");
+  const [deptDeleteConfirm, setDeptDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const add = useMutation({
     mutationFn: async () => {
@@ -1127,7 +1160,7 @@ function DepartmentsCard({ departments }: { departments: { id: string; name: str
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={() => remove.mutate(d.id)}
+                onClick={() => setDeptDeleteConfirm({ id: d.id, name: d.name })}
                 aria-label={`Remove ${d.name}`}
               >
                 <Trash2 className="size-4 text-destructive" />
@@ -1136,6 +1169,25 @@ function DepartmentsCard({ departments }: { departments: { id: string; name: str
           ))}
         </ul>
       )}
+      <AlertDialog open={!!deptDeleteConfirm} onOpenChange={(v) => !v && setDeptDeleteConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove department?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove the <strong>{deptDeleteConfirm?.name}</strong> department. Staff assigned to it will lose their department link.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deptDeleteConfirm) { remove.mutate(deptDeleteConfirm.id); setDeptDeleteConfirm(null); } }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SectionCard>
   );
 }

@@ -18,27 +18,27 @@ type ActivityItem =
   | { kind: "proxy";   id: string; title: string; date: string; created_at: string }
   | { kind: "doc";     id: string; title: string; status: string; created_at: string };
 
-const SEEN_KEY = "notif_seen_ids";
+// Per-user key — prevents cross-user read state bleed on shared devices
+function seenKey(userId?: string) { return userId ? `notif_seen_ids_${userId}` : "notif_seen_ids"; }
 
-function getSeenIds(): Set<string> {
+function getSeenIds(userId?: string): Set<string> {
   try {
-    const raw = localStorage.getItem(SEEN_KEY);
+    const raw = localStorage.getItem(seenKey(userId));
     return raw ? new Set(JSON.parse(raw)) : new Set();
   } catch { return new Set(); }
 }
 
-function saveSeenIds(ids: Set<string>) {
+function saveSeenIds(ids: Set<string>, userId?: string) {
   try {
-    // Keep only last 200 to avoid unbounded growth
     const arr = [...ids].slice(-200);
-    localStorage.setItem(SEEN_KEY, JSON.stringify(arr));
+    localStorage.setItem(seenKey(userId), JSON.stringify(arr));
   } catch {}
 }
 
 export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: string }) {
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
-  const [seenIds, setSeenIds] = useState<Set<string>>(() => getSeenIds());
+  const [seenIds, setSeenIds] = useState<Set<string>>(() => getSeenIds(userId));
   const prevCountRef = useRef(0);
 
   // Notices
@@ -84,10 +84,13 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
     enabled: !!userId && (role === "teacher" || role === "hod"),
     staleTime: 60_000,
     queryFn: async () => {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const { data } = await supabase
         .from("proxy_assignments")
         .select("id, subject, proxy_date, created_at")
         .eq("proxy_teacher_id", userId!)
+        .gte("created_at", thirtyDaysAgo.toISOString())
         .order("created_at", { ascending: false })
         .limit(5);
       return (data ?? []).map((p) => ({
@@ -159,7 +162,7 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
     setSeenIds((prev) => {
       const next = new Set(prev);
       next.add(id);
-      saveSeenIds(next);
+      saveSeenIds(next, userId);
       return next;
     });
   }
@@ -169,7 +172,7 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
     setSeenIds((prev) => {
       const next = new Set(prev);
       allItems.forEach((i) => next.add(i.id));
-      saveSeenIds(next);
+      saveSeenIds(next, userId);
       return next;
     });
   }
@@ -224,7 +227,10 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
           </div>
         </div>
         {allItems.filter((item) => !seenIds.has(item.id)).length === 0 ? (
-          <p className="px-3 py-6 text-center text-sm text-muted-foreground">All caught up!</p>
+          <div className="px-3 py-6 text-center">
+            <p className="text-sm text-muted-foreground">All caught up!</p>
+            <Link to="/notices" className="text-xs text-accent mt-1 inline-block" onClick={() => setOpen(false)}>View notices →</Link>
+          </div>
         ) : (
           <ul className="max-h-[420px] overflow-y-auto divide-y divide-border">
             {allItems.filter((item) => !seenIds.has(item.id)).map((item) => (
@@ -247,6 +253,7 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
                   onClick={(e) => { e.stopPropagation(); markRead(item.id); }}
                   className="mt-0.5 shrink-0 rounded-full p-1 hover:bg-primary/20 text-muted-foreground hover:text-primary transition-colors"
                   title="Mark as read"
+                  aria-label="Mark as read"
                 >
                   <CheckCircle2 className="size-4" />
                 </button>

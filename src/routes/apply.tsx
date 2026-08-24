@@ -273,9 +273,9 @@ function ApplyPage() {
 
           {/* Draft banner */}
           {hasDraft && step === 0 && (
-            <div className="flex items-center gap-2 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2.5 text-xs text-orange-800 font-medium shadow-sm">
+            <div className="flex items-center gap-2 rounded-lg border border-warning bg-warning px-3 py-2.5 text-xs text-warning-foreground font-medium shadow-sm">
               <span>📝 Draft restored — your previous selections have been loaded.</span>
-              <button type="button" className="ml-auto shrink-0 underline underline-offset-2 hover:text-orange-600" onClick={() => { try { localStorage.removeItem(DRAFT_KEY); } catch {} window.location.reload(); }}>Clear draft</button>
+              <button type="button" className="ml-auto shrink-0 underline underline-offset-2 hover:opacity-70" onClick={() => { try { localStorage.removeItem(DRAFT_KEY); } catch {} window.location.reload(); }}>Clear draft</button>
             </div>
           )}
 

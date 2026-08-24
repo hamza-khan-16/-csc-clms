@@ -17,7 +17,8 @@
  *    so the model can't be tricked into explaining or reproducing the content.
  *
  * Setup:
- *   Add VITE_GROQ_API_KEY=<your_key> to .env
+ *   Add GROQ_API_KEY=<your_key> to your SERVER environment (Vercel env vars)
+ *   Do NOT use VITE_GROQ_API_KEY — that would expose the key in the client bundle
  *   Get a free key at https://console.groq.com (no credit card required)
  */
 
