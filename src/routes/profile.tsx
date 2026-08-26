@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
+import { useBalances } from "@/hooks/useBalances";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard } from "@/components/ui-bits";
@@ -113,6 +114,35 @@ export const Route = createFileRoute("/profile")({
     </Guarded>
   ),
 });
+
+function LeaveBalancePanel({ profileId }: { profileId?: string }) {
+  const { data: balances = [] } = useBalances(profileId);
+  if (!balances.length) return <p className="text-xs text-muted-foreground">No balance data.</p>;
+  return (
+    <div className="space-y-3">
+      {balances.map(b => {
+        const rem = Math.max(b.yearlyCap - b.usedYear, 0);
+        const pct = b.yearlyCap > 0 ? Math.min((b.usedYear / b.yearlyCap) * 100, 100) : 0;
+        return (
+          <div key={b.type}>
+            <div className="flex justify-between text-xs mb-1">
+              <span className="font-medium">{b.label}</span>
+              <span className={rem === 0 ? "text-destructive font-semibold" : "text-muted-foreground"}>
+                {rem}/{b.yearlyCap} left
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-destructive" : pct >= 70 ? "bg-warning" : "bg-primary"}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function ProfilePage() {
   const { profile, role, session } = useAuth();
@@ -247,7 +277,27 @@ function ProfilePage() {
 
   return (
     <AppShell title="My Profile" subtitle="Account details and settings">
-      <div className="grid gap-6 lg:grid-cols-2 max-w-3xl">
+      <div className="space-y-6">
+        {/* College info banner — full width */}
+        <div className="flex items-center gap-4 rounded-xl border border-primary/20 bg-gradient-to-r from-primary/8 to-primary/4 px-5 py-4">
+          <div className="size-12 rounded-full bg-primary/15 flex items-center justify-center text-xl font-bold text-primary shrink-0">
+            {profile?.full_name?.slice(0, 1).toUpperCase() ?? "?"}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-base truncate">{profile?.full_name}</p>
+            <p className="text-sm text-muted-foreground capitalize">{role} · {profile?.designation ?? "—"}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{profile?.department_name ?? "No department assigned"} · Chandrabhan Sharma College</p>
+          </div>
+          {profile?.date_of_birth && (
+            <div className="hidden sm:block text-right shrink-0">
+              <p className="text-xs text-muted-foreground">Date of Birth</p>
+              <p className="text-sm font-semibold">{profile.date_of_birth}</p>
+            </div>
+          )}
+        </div>
+
+        {/* 3-column grid: Details | Password | Account Info */}
+        <div className="grid gap-6 lg:grid-cols-[1fr_1fr_300px]">
 
         {/* Details card */}
         <SectionCard title="Details">
@@ -465,6 +515,79 @@ function ProfilePage() {
             </form>
           )}
         </SectionCard>
+        {/* ── Right: account info panel ─────────────────────────── */}
+        <div className="hidden lg:flex flex-col gap-4">
+
+          {/* Leave balance snapshot */}
+          <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Leave Balance</p>
+            <LeaveBalancePanel profileId={profile?.id} />
+          </div>
+
+          {/* Account activity */}
+          <div className="rounded-xl border border-border p-4 space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Account Info</p>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Role</span>
+                <span className="font-medium capitalize">{role}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Department</span>
+                <span className="font-medium text-right max-w-[140px] truncate">{profile?.department_name ?? "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Designation</span>
+                <span className="font-medium text-right max-w-[140px] truncate">{profile?.designation ?? "—"}</span>
+              </div>
+              {profile?.gender && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Gender</span>
+                  <span className="font-medium capitalize">{profile.gender}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Password health */}
+          {role !== "admin" && profile?.password_changed_at && (() => {
+            const daysLeft = Math.ceil(
+              (new Date(profile.password_changed_at).getTime() + 90 * 86400000 - Date.now()) / 86400000
+            );
+            const pct = Math.max(0, Math.min((daysLeft / 90) * 100, 100));
+            return (
+              <div className="rounded-xl border border-border p-4 space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Password Health</p>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">{daysLeft > 0 ? "Expires in" : "Expired"}</span>
+                  <span className={`font-semibold ${daysLeft <= 7 ? "text-destructive" : daysLeft <= 20 ? "text-warning-foreground" : "text-success"}`}>
+                    {daysLeft > 0 ? `${daysLeft} days` : "Now"}
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${daysLeft <= 7 ? "bg-destructive" : daysLeft <= 20 ? "bg-warning" : "bg-success"}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">Resets every 90 days after you change it.</p>
+              </div>
+            );
+          })()}
+
+          {/* Tips */}
+          <div className="rounded-xl border border-border p-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tips</p>
+            <ul className="space-y-1.5 text-xs text-muted-foreground">
+              <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Keep your gender updated — it affects leave types available to you.</li>
+              <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Your college ID is your login username and cannot be changed.</li>
+              <li className="flex items-start gap-2"><span className="text-primary mt-0.5">•</span> Use a strong password with letters, numbers, and symbols.</li>
+            </ul>
+          </div>
+
+        </div>
+
+        </div>
       </div>
     </AppShell>
   );

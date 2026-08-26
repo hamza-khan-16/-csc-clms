@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
-import { SectionCard, Empty } from "@/components/ui-bits";
+import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,11 +104,25 @@ function TeachersPage() {
     return matchDept && matchSearch;
   });
 
+  const totalLeavesTaken = rows.reduce((s, r) => s + r.taken, 0);
+  const totalUnpaid      = rows.reduce((s, r) => s + r.unpaid, 0);
+  const onLeaveToday     = rows.filter(r => (r as any).onLeaveToday).length;
+
   return (
     <AppShell
       title="Teachers"
       subtitle={role === "hod" ? "Staff in your department" : "All college staff"}
     >
+      {/* Stats strip */}
+      {rows.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-6">
+          <StatCard label="Total Staff"      value={rows.length}         />
+          <StatCard label="Leaves Taken"     value={totalLeavesTaken}    hint="approved this year" />
+          <StatCard label="Pay-cut Days"     value={totalUnpaid}         tone={totalUnpaid > 0 ? "destructive" : "success"} />
+          <StatCard label="Filtered"         value={filtered.length}     hint={`of ${rows.length} staff`} />
+        </div>
+      )}
+
       <div className={`grid gap-6 transition-all ${selected ? "lg:grid-cols-[1fr_380px]" : "grid-cols-1"}`}>
         {/* Staff list */}
         <SectionCard title={`${filtered.length} of ${rows.length} staff member(s)`}>

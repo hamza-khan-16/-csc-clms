@@ -29,9 +29,9 @@ import { Route as RequestsRouteImport } from './routes/requests'
 import { Route as ScheduleRouteImport } from './routes/schedule'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TeachersRouteImport } from './routes/teachers'
-import { Route as ApiPushTokenRouteImport } from './routes/api.push-token'
 import { Route as ApiPushDebugRouteImport } from './routes/api.push-debug'
 import { Route as ApiPushSyncAllRouteImport } from './routes/api.push-sync-all'
+import { Route as ApiPushTokenRouteImport } from './routes/api.push-token'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -133,11 +133,6 @@ const TeachersRoute = TeachersRouteImport.update({
   path: '/teachers',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPushTokenRoute = ApiPushTokenRouteImport.update({
-  id: '/api/push-token',
-  path: '/api/push-token',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiPushDebugRoute = ApiPushDebugRouteImport.update({
   id: '/api/push-debug',
   path: '/api/push-debug',
@@ -146,6 +141,11 @@ const ApiPushDebugRoute = ApiPushDebugRouteImport.update({
 const ApiPushSyncAllRoute = ApiPushSyncAllRouteImport.update({
   id: '/api/push-sync-all',
   path: '/api/push-sync-all',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPushTokenRoute = ApiPushTokenRouteImport.update({
+  id: '/api/push-token',
+  path: '/api/push-token',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -170,9 +170,9 @@ export interface FileRoutesByFullPath {
   '/schedule': typeof ScheduleRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/teachers': typeof TeachersRoute
-  '/api/push-token': typeof ApiPushTokenRoute
   '/api/push-debug': typeof ApiPushDebugRoute
   '/api/push-sync-all': typeof ApiPushSyncAllRoute
+  '/api/push-token': typeof ApiPushTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -195,9 +195,9 @@ export interface FileRoutesByTo {
   '/schedule': typeof ScheduleRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/teachers': typeof TeachersRoute
-  '/api/push-token': typeof ApiPushTokenRoute
   '/api/push-debug': typeof ApiPushDebugRoute
   '/api/push-sync-all': typeof ApiPushSyncAllRoute
+  '/api/push-token': typeof ApiPushTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -221,9 +221,9 @@ export interface FileRoutesById {
   '/schedule': typeof ScheduleRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/teachers': typeof TeachersRoute
-  '/api/push-token': typeof ApiPushTokenRoute
   '/api/push-debug': typeof ApiPushDebugRoute
   '/api/push-sync-all': typeof ApiPushSyncAllRoute
+  '/api/push-token': typeof ApiPushTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -248,6 +248,9 @@ export interface FileRouteTypes {
     | '/schedule'
     | '/sitemap.xml'
     | '/teachers'
+    | '/api/push-debug'
+    | '/api/push-sync-all'
+    | '/api/push-token'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -270,6 +273,9 @@ export interface FileRouteTypes {
     | '/schedule'
     | '/sitemap.xml'
     | '/teachers'
+    | '/api/push-debug'
+    | '/api/push-sync-all'
+    | '/api/push-token'
   id:
     | '__root__'
     | '/'
@@ -292,6 +298,9 @@ export interface FileRouteTypes {
     | '/schedule'
     | '/sitemap.xml'
     | '/teachers'
+    | '/api/push-debug'
+    | '/api/push-sync-all'
+    | '/api/push-token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -315,6 +324,9 @@ export interface RootRouteChildren {
   ScheduleRoute: typeof ScheduleRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TeachersRoute: typeof TeachersRoute
+  ApiPushDebugRoute: typeof ApiPushDebugRoute
+  ApiPushSyncAllRoute: typeof ApiPushSyncAllRoute
+  ApiPushTokenRoute: typeof ApiPushTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -459,6 +471,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeachersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/push-debug': {
+      id: '/api/push-debug'
+      path: '/api/push-debug'
+      fullPath: '/api/push-debug'
+      preLoaderRoute: typeof ApiPushDebugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/push-sync-all': {
+      id: '/api/push-sync-all'
+      path: '/api/push-sync-all'
+      fullPath: '/api/push-sync-all'
+      preLoaderRoute: typeof ApiPushSyncAllRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/push-token': {
+      id: '/api/push-token'
+      path: '/api/push-token'
+      fullPath: '/api/push-token'
+      preLoaderRoute: typeof ApiPushTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -483,9 +516,9 @@ const rootRouteChildren: RootRouteChildren = {
   ScheduleRoute: ScheduleRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   TeachersRoute: TeachersRoute,
-  ApiPushTokenRoute: ApiPushTokenRoute,
   ApiPushDebugRoute: ApiPushDebugRoute,
   ApiPushSyncAllRoute: ApiPushSyncAllRoute,
+  ApiPushTokenRoute: ApiPushTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

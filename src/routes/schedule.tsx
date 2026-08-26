@@ -723,6 +723,9 @@ function SchedulePage() {
 
   // ── Render helpers ─────────────────────────────────────────────────────────
   const todayDowValue = new Date().getDay();
+  const totalLectures = lectures.filter(l => !l.lecture_date).length;
+  const todayCount = lectures.filter(l => !l.lecture_date && l.day_of_week === todayDowValue).length;
+  const proxiesThisYear = proxies.filter((p: any) => p.status === "accepted").length;
 
   return (
     <AppShell title="My Schedule" subtitle="Fixed timetable, added lectures and accepted proxy duties">
@@ -734,6 +737,26 @@ function SchedulePage() {
         />,
         document.body
       )}
+
+      {/* Quick stats strip */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="surface p-4">
+          <p className="text-xs text-muted-foreground font-medium">Weekly Lectures</p>
+          <p className="text-2xl font-extrabold mt-1">{totalLectures}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">recurring per week</p>
+        </div>
+        <div className="surface p-4">
+          <p className="text-xs text-muted-foreground font-medium">Today's Lectures</p>
+          <p className="text-2xl font-extrabold mt-1 text-primary">{todayCount}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{new Date().toLocaleDateString("en-GB",{weekday:"long"})}</p>
+        </div>
+        <div className="surface p-4">
+          <p className="text-xs text-muted-foreground font-medium">Proxy Accepted</p>
+          <p className="text-2xl font-extrabold mt-1 text-success">{proxiesThisYear}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">this year</p>
+        </div>
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4">
           {/* Pending compensation offers banner */}

@@ -54,12 +54,12 @@ export const Route = createFileRoute("/api/push-sync-all")({
             const onesignalId = player.id;
             if (!userId || !onesignalId) { totalSkipped++; continue; }
 
-            await supabaseAdmin.from("push_tokens").delete()
+            await (supabaseAdmin as any).from("push_tokens").delete()
               .eq("onesignal_id", onesignalId).neq("user_id", userId);
-            await supabaseAdmin.from("push_tokens").delete()
+            await (supabaseAdmin as any).from("push_tokens").delete()
               .eq("user_id", userId).neq("onesignal_id", onesignalId);
 
-            const { error } = await supabaseAdmin.from("push_tokens").upsert(
+            const { error } = await (supabaseAdmin as any).from("push_tokens").upsert(
               { user_id: userId, onesignal_id: onesignalId, updated_at: new Date().toISOString() },
               { onConflict: "user_id,onesignal_id" }
             );

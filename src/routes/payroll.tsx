@@ -49,6 +49,22 @@ function PayrollPage() {
   const fromISO = iso(effectiveMonth);
   const toISO   = iso(new Date(Number(filterYear), month.getMonth() + 1, 0));
 
+  // Yearly overview
+  const { data: yearlyLeaves = [] } = useQuery({
+    queryKey: ["payroll-yearly", profile?.id, filterYear],
+    enabled: !!profile,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("leave_requests")
+        .select("leave_type, total_days, paid_days, unpaid_days, status, from_date")
+        .eq("teacher_id", profile!.id)
+        .in("status", ["approved", "hod_approved"])
+        .gte("from_date", `${filterYear}-01-01`)
+        .lte("from_date", `${filterYear}-12-31`);
+      return data ?? [];
+    },
+  });
+
   const { data: allLeaves = [] } = useQuery({
     queryKey: ["payroll-leaves", profile?.id, fromISO],
     enabled: !!profile,
@@ -115,9 +131,43 @@ function PayrollPage() {
     doc.save(`Payslip_${safeName}_${safePeriod}.pdf`);
   }
 
+  const yearlyTotals = {
+    totalDays:   yearlyLeaves.reduce((s, l) => s + Number(l.total_days), 0),
+    paidDays:    yearlyLeaves.reduce((s, l) => s + Number(l.paid_days), 0),
+    unpaidDays:  yearlyLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0),
+    deduction:   Math.round(yearlyLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0) * dayRate),
+  };
+
   return (
     <AppShell title="Payroll" subtitle="Salary and leave deductions">
       <div className="space-y-6">
+
+        {/* Yearly overview strip */}
+        {yearlyLeaves.length > 0 && (
+          <div className="rounded-xl border border-border bg-gradient-to-r from-muted/60 to-muted/20 px-5 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">{filterYear} Overview</p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <p className="text-2xl font-extrabold">{yearlyTotals.totalDays}</p>
+                <p className="text-xs text-muted-foreground">Total leave days</p>
+              </div>
+              <div>
+                <p className="text-2xl font-extrabold text-success">{yearlyTotals.paidDays}</p>
+                <p className="text-xs text-muted-foreground">Paid days</p>
+              </div>
+              <div>
+                <p className={`text-2xl font-extrabold ${yearlyTotals.unpaidDays > 0 ? "text-destructive" : "text-success"}`}>{yearlyTotals.unpaidDays}</p>
+                <p className="text-xs text-muted-foreground">Unpaid days</p>
+              </div>
+              <div>
+                <p className={`text-2xl font-extrabold ${yearlyTotals.deduction > 0 ? "text-destructive" : "text-success"}`}>
+                  {yearlyTotals.deduction > 0 ? `−${money(yearlyTotals.deduction)}` : "₹0"}
+                </p>
+                <p className="text-xs text-muted-foreground">Total deduction</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Filters + download */}
         <div className="flex flex-wrap items-center gap-2">

@@ -4,17 +4,16 @@
  * Server-side Groq calls via createServerFn.
  * Running on the server solves two problems:
  *   1. CORS — Groq blocks direct browser → api.groq.com requests
- *   2. Key safety — GROQ_API_KEY stays in the server env, never in the bundle
+ *   2. Key safety — GEMINI_API_KEY stays in the server env, never in the bundle
  */
 
 import { createServerFn } from "@tanstack/react-start";
 
-const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
+const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
-const GROQ_MODELS = [
-  "openai/gpt-oss-20b",   // replaces llama3-8b-8192 (fast, free tier)
-  "openai/gpt-oss-120b",  // replaces llama-3.3-70b-versatile (more capable)
-  "qwen/qwen3.6-27b",     // additional fallback
+const GEMINI_MODELS = [
+  "gemini-3.5-flash",       // 1M TPM free tier — primary
+  "gemini-2.5-flash-lite",  // lighter fallback
 ];
 
 export type ModerationVerdict = "CLEAN" | "ABUSIVE" | "UNCLEAR";
@@ -25,7 +24,7 @@ export const moderateText = createServerFn({ method: "POST" })
     text: String(data?.text ?? "").slice(0, 500),
   }))
   .handler(async ({ data }): Promise<{ verdict: ModerationVerdict }> => {
-    const key = process.env.GROQ_API_KEY;
+    const key = process.env.GEMINI_API_KEY;
     if (!key) return { verdict: "CLEAN" };
 
     const prompt = `You are a strict content moderator for a school/college leave management system.
@@ -40,9 +39,9 @@ Respond with ONLY the single word verdict (CLEAN, ABUSIVE, or UNCLEAR). No expla
 
 Text: """${data.text}"""`;
 
-    for (const model of GROQ_MODELS) {
+    for (const model of GEMINI_MODELS) {
       try {
-        const res = await fetch(GROQ_API, {
+        const res = await fetch(GEMINI_API, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
           body: JSON.stringify({ model, max_tokens: 5, temperature: 0, messages: [{ role: "user", content: prompt }] }),
@@ -65,27 +64,26 @@ interface ChatMessage { role: "user" | "assistant"; content: string; }
 export const leaveBotChat = createServerFn({ method: "POST" })
   .inputValidator((data: { messages: ChatMessage[]; systemPrompt: string }) => ({
     messages: (data?.messages ?? []).slice(-20) as ChatMessage[], // last 20 messages max
-    systemPrompt: String(data?.systemPrompt ?? "").slice(0, 8000),
+    systemPrompt: String(data?.systemPrompt ?? "").slice(0, 80000),
   }))
   .handler(async ({ data }): Promise<{ reply: string }> => {
-    const key = process.env.GROQ_API_KEY;
-    if (!key) return { reply: "LeaveBot is not configured yet. Please ask your admin to add the GROQ_API_KEY to the server environment." };
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return { reply: "LeaveBot is not configured yet. Please ask your admin to add the GEMINI_API_KEY to the server environment." };
 
     // Use the more capable model for chat (falls back to lighter ones)
     const CHAT_MODELS = [
-      "openai/gpt-oss-120b",  // most capable, replaces llama-3.3-70b-versatile
-      "openai/gpt-oss-20b",   // fast fallback
-      "qwen/qwen3.6-27b",     // second fallback
+      "gemini-3.5-flash",       // 1M TPM free tier — primary
+      "gemini-2.5-flash-lite",  // lighter fallback
     ];
 
     for (const model of CHAT_MODELS) {
       try {
-        const res = await fetch(GROQ_API, {
+        const res = await fetch(GEMINI_API, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
           body: JSON.stringify({
             model,
-            max_tokens: 512,
+            max_tokens: 1024,
             temperature: 0.3,
             messages: [
               { role: "system", content: data.systemPrompt },

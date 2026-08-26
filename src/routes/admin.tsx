@@ -68,7 +68,7 @@ type ProfilePatch = {
   designation?: string;
   department_id?: string | null;
   monthly_salary?: number;
-  cl_quota?: number | null;
+  
 };
 
 type StaffRow = {
@@ -78,11 +78,11 @@ type StaffRow = {
   designation: string;
   department_id: string | null;
   monthly_salary: number;
-  cl_quota: number | null;
   approved: boolean;
   account_locked: boolean;
   role: "teacher" | "hod" | "principal" | "admin" | null;
   deptName: string;
+  cl_quota: number | null;
 };
 
 function AdminPage() {
@@ -101,19 +101,18 @@ function AdminPage() {
     queryKey: ["admin-staff"],
     queryFn: async () => {
       const [{ data: profiles, error }, { data: roles }, { data: depts }] = await Promise.all([
-        supabase
+        (supabase as any)
           .from("profiles")
-          .select("id, full_name, user_id, designation, department_id, monthly_salary, cl_quota, approved, account_locked")
+          .select("id, full_name, user_id, designation, department_id, monthly_salary, approved, account_locked")
           .order("full_name"),
         supabase.from("user_roles").select("user_id, role"),
         supabase.from("departments").select("id, name"),
       ]);
       if (error) throw error;
-      return (profiles ?? []).map((p) => ({
+      return ((profiles ?? []) as any[]).map((p: any) => ({
         ...p,
         monthly_salary: Number(p.monthly_salary ?? 0),
-        cl_quota: (p as any).cl_quota != null ? Number((p as any).cl_quota) : null,
-        account_locked: Boolean((p as any).account_locked),
+        account_locked: Boolean(p.account_locked),
         role: ((roles ?? []).find((r) => r.user_id === p.id)?.role ?? null) as StaffRow["role"],
         deptName: (depts ?? []).find((d) => d.id === p.department_id)?.name ?? "—",
       }));
@@ -169,7 +168,7 @@ function AdminPage() {
     if (!approvalSalary || isNaN(salary) || salary <= 0) return toast.error("Enter a valid monthly salary");
     if (isNaN(clQuota) || clQuota < 0 || clQuota > 365) return toast.error("Casual leave quota must be between 0 and 365");
     // Don't close dialog until patch succeeds — let onSuccess close it
-    patch.mutate({ id: approvalDialog.id, values: { approved: true, monthly_salary: salary, cl_quota: clQuota } });
+    patch.mutate({ id: approvalDialog.id, values: { approved: true, monthly_salary: salary } });
   }
 
   const invalidate = () => {
@@ -555,7 +554,6 @@ function StaffRowCard({
               monthly_salary: Number(salary) || 0,
               designation,
               department_id: departmentId,
-              cl_quota: !isNaN(quota) && quota >= 0 ? quota : null,
             });
 
           }}

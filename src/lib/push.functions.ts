@@ -60,7 +60,7 @@ async function resolvePlayerIds(userIds: string[], excludeUserIds: string[] = []
     } else {
       // Resolve by role e.g. __principal__ → "principal"
       const role = sentinel.replace(/^__|__$/g, "");
-      const { data: rows } = await supabaseAdmin
+      const { data: rows } = await (supabaseAdmin as any)
         .from("user_roles").select("user_id").eq("role", role);
       profileIds = [...profileIds, ...(rows ?? []).map((r: any) => r.user_id)];
     }
@@ -69,7 +69,7 @@ async function resolvePlayerIds(userIds: string[], excludeUserIds: string[] = []
   if (profileIds.length === 0) return [];
 
   const unique = [...new Set(profileIds)].filter((id) => !excludeUserIds.includes(id));
-  const { data: tokens, error } = await supabaseAdmin
+  const { data: tokens, error } = await (supabaseAdmin as any)
     .from("push_tokens")
     .select("onesignal_id")
     .in("user_id", unique);

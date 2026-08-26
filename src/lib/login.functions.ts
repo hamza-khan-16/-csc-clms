@@ -39,13 +39,13 @@ async function syncPushTokenForUser(userId: string): Promise<void> {
       const onesignalId = player.id;
 
       // Remove this device from other users + remove other devices from this user
-      await supabaseAdmin.from("push_tokens").delete()
+      await (supabaseAdmin as any).from("push_tokens").delete()
         .eq("onesignal_id", onesignalId).neq("user_id", userId);
-      await supabaseAdmin.from("push_tokens").delete()
+      await (supabaseAdmin as any).from("push_tokens").delete()
         .eq("user_id", userId).neq("onesignal_id", onesignalId);
 
-      await supabaseAdmin.from("push_tokens").upsert(
-        { user_id: userId, onesignal_id: onesignalId, updated_at: new Date().toISOString() },
+      await (supabaseAdmin as any).from("push_tokens").upsert(
+        { user_id: userId, onesignal_id: onesignalId },
         { onConflict: "user_id,onesignal_id" }
       );
       console.log(`[Push] Auto-synced token for user ${userId}: ${onesignalId}`);
@@ -99,7 +99,7 @@ export const signInWithIdentifier = createServerFn({ method: "POST" })
 
     } else {
       // Plain email path: use getUserByEmail instead of listing ALL users
-      const { data: authUser } = await supabaseAdmin.auth.admin.getUserByEmail(email.toLowerCase());
+      const { data: authUser } = await (supabaseAdmin.auth.admin as any).getUserByEmail(email.toLowerCase());
       if (authUser?.user?.id) {
         // Fetch profile + lockout check in one query
         const { data: profile } = await supabaseAdmin

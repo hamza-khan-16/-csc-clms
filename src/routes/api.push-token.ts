@@ -81,7 +81,9 @@ export const Route = createFileRoute("/api/push-token")({
 });
 
 async function upsertToken(userId: string, onesignalId: string) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { supabaseAdmin: _supabaseAdminTyped } = await import("@/integrations/supabase/client.server");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabaseAdmin = _supabaseAdminTyped as any;
 
   // Remove stale tokens for this device linked to OTHER users
   await supabaseAdmin
@@ -99,8 +101,8 @@ async function upsertToken(userId: string, onesignalId: string) {
     .neq("onesignal_id", onesignalId);
 
   // Insert the current device
-  const { error } = await supabaseAdmin.from("push_tokens").upsert(
-    { user_id: userId, onesignal_id: onesignalId, updated_at: new Date().toISOString() },
+  const { error } = await supabaseAdmin.from("push_tokens" as any).upsert(
+    { user_id: userId, onesignal_id: onesignalId },
     { onConflict: "user_id,onesignal_id" }
   );
   if (error) throw new Error(error.message);

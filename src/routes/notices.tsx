@@ -124,14 +124,24 @@ function NoticesPage() {
     setBusy(false);
     if (error) return toast.error(error.message);
     // Notify recipients — exclude the poster themselves
+    // departmentId = null means college-wide (principal posting to all)
     const recipientIds = departmentId
-      ? [`__dept_teachers_${departmentId}__`, `__hod_dept_${departmentId}__`]
-      : ["__teacher__", "__hod__", "__hr__"];
+      ? [
+          `__dept_teachers_${departmentId}__`,  // all teachers in dept
+          `__hod_dept_${departmentId}__`,        // HOD of that dept
+          "__principal__",                        // principal always gets notices
+        ]
+      : [
+          "__teacher__",   // all teachers
+          "__hod__",       // all HODs
+          "__hr__",        // HR staff
+          "__principal__", // principal (if another principal/admin posts)
+        ];
     sendPush({ data: {
       userIds: recipientIds,
       title: "📢 New Notice",
       body: title.trim(),
-      targetUrl: "/dashboard",
+      targetUrl: "/notices",
       excludeUserIds: profile?.id ? [profile.id] : [],
     }}).catch((e) => console.error("[Push] notice:", e));
     setTitle("");
@@ -160,9 +170,26 @@ function NoticesPage() {
       }
     >
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-        <SectionCard title="Published notices">
+        <SectionCard
+          title="Published notices"
+          subtitle={notices.length > 0 ? `${notices.length} active notice${notices.length !== 1 ? "s" : ""}` : "No active notices"}
+        >
           {notices.length === 0 ? (
-            <Empty illustration="inbox">No notices published yet.</Empty>
+            <div className="py-8 text-center space-y-3">
+              <div className="size-14 rounded-full bg-muted flex items-center justify-center mx-auto">
+                <span className="text-2xl">📋</span>
+              </div>
+              <div>
+                <p className="font-semibold text-sm">No notices yet</p>
+                <p className="text-xs text-muted-foreground mt-1">Published notices will appear here for all teachers to read.</p>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 text-xs text-muted-foreground px-4 py-3 max-w-xs mx-auto text-left space-y-1">
+                <p className="font-semibold text-foreground">Tips for good notices:</p>
+                <p>• Keep titles short and clear</p>
+                <p>• Add an event date for scheduled events</p>
+                <p>• Notices with past event dates are auto-removed</p>
+              </div>
+            </div>
           ) : (
             <ul className="space-y-3">
               {notices.map((n) => {

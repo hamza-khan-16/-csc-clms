@@ -526,7 +526,7 @@ export function LeaveBot() {
         }
       }
 
-      // Full weekly timetable
+      //Full weekly timetable
       lines.push("", "FULL WEEKLY TIMETABLE (recurring):");
       const byDay: Record<number, typeof recurring> = {};
       for (const l of recurring) {

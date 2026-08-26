@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
-import { SectionCard, StatusBadge, Empty } from "@/components/ui-bits";
+import { SectionCard, StatCard, StatusBadge, Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import {
   eachDate,
@@ -165,9 +165,27 @@ function MyLeavesPage() {
     return () => { document.body.style.overflow = ""; };
   }, [confirmId]);
 
+  // Stats derived from all leaves
+  const totalApproved = leaves.filter(l => l.status === "approved" || l.status === "hod_approved").length;
+  const totalPending  = leaves.filter(l => PENDING_STATUSES.includes(l.status)).length;
+  const totalRejected = leaves.filter(l => l.status === "rejected").length;
+  const totalUnpaidDays = leaves
+    .filter(l => l.status === "approved" || l.status === "hod_approved")
+    .reduce((s, l) => s + Number(l.unpaid_days), 0);
+
   return (
     <AppShell title="My Leaves" subtitle="All leave requests you have submitted">
       <div className="space-y-4">
+        {/* Summary stats strip */}
+        {leaves.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Total Requests"   value={leaves.length}    />
+            <StatCard label="Approved"         value={totalApproved}    tone="success" />
+            <StatCard label="Pending Approval" value={totalPending}     tone="warning" />
+            <StatCard label="Unpaid Days"      value={totalUnpaidDays}  tone={totalUnpaidDays > 0 ? "destructive" : "success"} hint="salary deduction" />
+          </div>
+        )}
+
         {/* Filter + view mode toggle */}
         <div className="flex items-center gap-3 flex-wrap">
           <Select value={filter} onValueChange={(v) => setFilter(v as FilterTab)}>

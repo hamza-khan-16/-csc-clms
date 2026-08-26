@@ -63,17 +63,17 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
     queryFn: async () => {
       const { data } = await supabase
         .from("leave_requests")
-        .select("id, leave_type, status, from_date, updated_at")
+        .select("id, leave_type, status, from_date")
         .eq("teacher_id", userId!)
         .in("status", ["approved", "hod_approved", "rejected", "hod_recommended"])
-        .order("updated_at", { ascending: false })
+        .order("from_date", { ascending: false })
         .limit(8);
       return (data ?? []).map((l) => ({
         kind: "leave" as const,
         id: `leave-${l.id}-${l.status}`,
         title: `Leave ${l.status.replace(/_/g, " ")} — ${fmtDate(l.from_date)}`,
         status: l.status,
-        created_at: (l as any).updated_at ?? l.from_date,
+        created_at: l.from_date,
       }));
     },
   });

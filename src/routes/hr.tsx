@@ -499,7 +499,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
 
                     <div className="space-y-1">
                       <div className="relative">
-                        <Textarea rows={2} fieldName="Rejection reason" placeholder="Overall rejection reason (required to reject entire application)…"
+                        <Textarea rows={2} placeholder="Overall rejection reason (required to reject entire application)…"
                           value={note} onChange={(e) => setNote(e.target.value)}
                           className={noteError ? "border-destructive" : ""} />
                         {noteChecking && (
@@ -716,9 +716,38 @@ function HrPage() {
 
   const isLoading = tLoading || (teacherIds.length > 0 && lLoading);
 
+  const totalPayroll = teachers.reduce((s, t) => s + Number(t.monthly_salary), 0);
+  const fmtINR2 = (n: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Math.round(n));
+
   return (
     <Guarded roles={["hr"]}>
       <AppShell title="HR Panel" subtitle="Teacher onboarding, documents, payroll & leave records">
+
+        {/* Stats strip */}
+        {teachers.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-6">
+            <div className="surface p-4">
+              <p className="text-xs text-muted-foreground font-medium">Total Staff</p>
+              <p className="text-2xl font-extrabold mt-1">{counts.all}</p>
+            </div>
+            <div className="surface p-4 border-warning/30 bg-warning/5">
+              <p className="text-xs text-muted-foreground font-medium">Pending Review</p>
+              <p className={`text-2xl font-extrabold mt-1 ${counts.pending > 0 ? "text-warning-foreground" : "text-muted-foreground"}`}>{counts.pending}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">awaiting HR approval</p>
+            </div>
+            <div className="surface p-4">
+              <p className="text-xs text-muted-foreground font-medium">Approved</p>
+              <p className="text-2xl font-extrabold mt-1 text-success">{counts.approved}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">fully onboarded</p>
+            </div>
+            <div className="surface p-4">
+              <p className="text-xs text-muted-foreground font-medium">Monthly Payroll</p>
+              <p className="text-xl font-extrabold mt-1">{fmtINR2(totalPayroll)}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">gross total</p>
+            </div>
+          </div>
+        )}
+
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-3 mb-5">
           <div className="flex flex-wrap gap-2">

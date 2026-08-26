@@ -29,10 +29,12 @@ export const Route = createFileRoute("/api/push-debug")({
         };
 
         try {
-          const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+          const { supabaseAdmin: _supabaseAdminTyped } = await import("@/integrations/supabase/client.server");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabaseAdmin = _supabaseAdminTyped as any;
           const { data: tokens, error } = await supabaseAdmin
-            .from("push_tokens").select("user_id, onesignal_id, updated_at")
-            .order("updated_at", { ascending: false }).limit(20);
+            .from("push_tokens").select("user_id, onesignal_id")
+            .limit(20);
           result.push_tokens = error ? { error: error.message } : { count: tokens?.length ?? 0, tokens };
         } catch (err) {
           result.push_tokens = { error: String(err) };

@@ -18,7 +18,7 @@ import { GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
 import { sendPushNotification } from "@/lib/push.functions";
 import { useRef } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { AlertTriangle, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, CheckCircle2, Info, Clock, FileText, CalendarDays, ShieldCheck } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -93,6 +93,127 @@ function StepIndicator({ current }: { current: number }) {
   );
 }
 
+// ── Sidebar info panel ────────────────────────────────────────────────────────
+function ApplySidebar({ leaveType, balances, holidays }: {
+  leaveType: LeaveType;
+  balances: ReturnType<typeof useBalances>["data"];
+  holidays: { holiday_date: string; occasion: string }[];
+}) {
+  const upcomingHolidays = holidays
+    .filter(h => h.holiday_date >= todayISO())
+    .slice(0, 4);
+
+  const tips: { icon: React.ReactNode; text: string }[] = [
+    {
+      icon: <Clock className="size-3.5 shrink-0 text-primary" />,
+      text: "Apply at least 1 day in advance for casual leave.",
+    },
+    {
+      icon: <FileText className="size-3.5 shrink-0 text-primary" />,
+      text: "Medical leave > 3 days requires a certificate after HOD approval.",
+    },
+    {
+      icon: <CalendarDays className="size-3.5 shrink-0 text-primary" />,
+      text: "Sundays and holidays between your dates are not counted as leave days.",
+    },
+    {
+      icon: <ShieldCheck className="size-3.5 shrink-0 text-primary" />,
+      text: "Your request goes to HOD first. Principal reviews after HOD recommends.",
+    },
+  ];
+
+  const leaveInfo: Record<string, { emoji: string; desc: string }> = {
+    casual:      { emoji: "🗓️", desc: "Up to 2 per month, 12 per year. Exhausted days become unpaid." },
+    medical:     { emoji: "🏥", desc: "≤ 3 days: HOD + Principal. > 3 days: HOD only with certificate." },
+    maternity:   { emoji: "🤱", desc: "Available for female staff. HOD approves. Fully paid." },
+    bereavement: { emoji: "🕊️", desc: "For the loss of an immediate family member. HOD approves." },
+    duty:        { emoji: "🗂️", desc: "For official duties outside college. HOD approves directly." },
+  };
+
+  const info = leaveInfo[leaveType];
+
+  return (
+    <div className="space-y-4">
+      {/* Leave type info card */}
+      {info && (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+          <p className="text-sm font-semibold flex items-center gap-2 mb-1.5">
+            <span>{info.emoji}</span>
+            <span className="capitalize">{leaveType.replace(/_/g, " ")} Leave</span>
+          </p>
+          <p className="text-xs text-muted-foreground leading-relaxed">{info.desc}</p>
+        </div>
+      )}
+
+      {/* Balance card — Casual & Medical only */}
+      {(balances ?? []).length > 0 && (() => {
+        const casualBal  = (balances ?? []).find(b => b.type === "casual");
+        const medicalBal = (balances ?? []).find(b => b.type === "medical");
+        const items = [
+          casualBal  ? { label: "Casual Leave",  used: casualBal.usedYear,  cap: casualBal.yearlyCap,  monthUsed: casualBal.usedMonth,  monthCap: casualBal.monthlyCap }  : null,
+          medicalBal ? { label: "Medical Leave", used: medicalBal.usedYear, cap: medicalBal.yearlyCap, monthUsed: null, monthCap: null } : null,
+        ].filter(Boolean) as { label: string; used: number; cap: number; monthUsed: number | null; monthCap?: number }[];
+        if (!items.length) return null;
+        return (
+          <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Leave Balance</p>
+            {items.map(b => {
+              const remYear  = Math.max(b.cap - b.used, 0);
+              const remMonth = b.monthCap != null ? Math.max(b.monthCap - (b.monthUsed ?? 0), 0) : null;
+              const pct = b.cap > 0 ? Math.min((b.used / b.cap) * 100, 100) : 0;
+              return (
+                <div key={b.label}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="font-medium">{b.label}</span>
+                    <span className={remYear === 0 ? "text-destructive font-semibold" : "text-muted-foreground"}>
+                      {remYear}/{b.cap} left this year
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-destructive" : pct >= 70 ? "bg-warning" : "bg-primary"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  {remMonth !== null && (
+                    <p className="text-[11px] text-muted-foreground mt-1">{remMonth}/{b.monthCap} left this month</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {/* Tips */}
+      <div className="rounded-xl border border-border p-4 space-y-2.5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+          <Info className="size-3.5" /> Tips
+        </p>
+        {tips.map((t, i) => (
+          <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+            {t.icon}
+            <span>{t.text}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Upcoming holidays */}
+      {upcomingHolidays.length > 0 && (
+        <div className="rounded-xl border border-border p-4 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Upcoming Holidays</p>
+          {upcomingHolidays.map(h => (
+            <div key={h.holiday_date} className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">{fmtDate(h.holiday_date)}</span>
+              <span className="font-medium">{h.occasion}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ApplyPage() {
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -100,13 +221,12 @@ function ApplyPage() {
   const { data: balances = [] } = useBalances(profile?.id);
 
   const DRAFT_KEY = `leave_draft_${profile?.id ?? "anon"}`;
-  const DRAFT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+  const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
   const draft = (() => {
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      // Discard drafts older than 24 hours
       if (parsed._savedAt && Date.now() - parsed._savedAt > DRAFT_TTL_MS) {
         localStorage.removeItem(DRAFT_KEY);
         return null;
@@ -127,7 +247,6 @@ function ApplyPage() {
   const sendPush = useServerFn(sendPushNotification);
   const [hasDraft] = useState(() => {
     if (!draft) return false;
-    // Only show the banner if the draft has non-default content
     const hasCustomType   = draft.leaveType && draft.leaveType !== "casual";
     const hasCustomDate   = draft.fromDate && draft.fromDate !== todayISO();
     const hasCustomReason = draft.reason && draft.reason.trim().length > 0;
@@ -198,7 +317,7 @@ function ApplyPage() {
   const casualBal = balances.find((b) => b.type === "casual");
 
   function validateStep(s: number): string | null {
-    if (s === 0) return null; // leave type always valid
+    if (s === 0) return null;
     if (s === 1) {
       if (toDate < fromDate) return "To date must be after from date";
       if (!isMedical && fromDate < todayISO()) return "Leave cannot be applied for a past date";
@@ -218,7 +337,6 @@ function ApplyPage() {
 
   async function submit() {
     if (reasonError) return toast.error(reasonError);
-    // Pre-submit guard: re-run all layers (including awaiting any in-flight LLM)
     if (reason.trim() && reasonGuardRef.current) {
       const guardErr = await reasonGuardRef.current.validateNow();
       if (guardErr) return toast.error(guardErr);
@@ -242,7 +360,6 @@ function ApplyPage() {
     setBusy(false);
     if (error) return toast.error(error.message);
     qc.invalidateQueries();
-    // Notify HOD — use __hod__ sentinel so server resolves the right HOD by department
     if (profile?.department_id) {
       sendPush({ data: {
         userIds:   [`__hod_dept_${profile.department_id}__`],
@@ -266,188 +383,225 @@ function ApplyPage() {
 
   return (
     <AppShell title="Apply Leave" subtitle="Your request goes to HOD first, then the principal">
-      <SectionCard className="max-w-2xl">
-        <form onSubmit={(e) => e.preventDefault()} className="space-y-5">
+      {/* Two-column layout: wizard left, info sidebar right */}
+      <div className="grid gap-6 lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_360px]">
 
-          <StepIndicator current={step} />
+        {/* ── Left: wizard ─────────────────────────────────────────────── */}
+        <SectionCard>
+          <form onSubmit={(e) => e.preventDefault()} className="space-y-5">
+            <StepIndicator current={step} />
 
-          {/* Draft banner */}
-          {hasDraft && step === 0 && (
-            <div className="flex items-center gap-2 rounded-lg border border-warning bg-warning px-3 py-2.5 text-xs text-warning-foreground font-medium shadow-sm">
-              <span>📝 Draft restored — your previous selections have been loaded.</span>
-              <button type="button" className="ml-auto shrink-0 underline underline-offset-2 hover:opacity-70" onClick={() => { try { localStorage.removeItem(DRAFT_KEY); } catch {} window.location.reload(); }}>Clear draft</button>
-            </div>
-          )}
+            {/* Draft banner */}
+            {hasDraft && step === 0 && (
+              <div className="flex items-center gap-2 rounded-lg border border-warning bg-warning px-3 py-2.5 text-xs text-warning-foreground font-medium shadow-sm">
+                <span>📝 Draft restored — your previous selections have been loaded.</span>
+                <button type="button" className="ml-auto shrink-0 underline underline-offset-2 hover:opacity-70"
+                  onClick={() => { try { localStorage.removeItem(DRAFT_KEY); } catch {} window.location.reload(); }}>
+                  Clear draft
+                </button>
+              </div>
+            )}
 
-          {/* ── STEP 0: Leave type ─────────────────────────────────────── */}
-          {step === 0 && (
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label>Leave Type</Label>
-                <Select value={leaveType} onValueChange={(v) => setLeaveType(v as LeaveType)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {availableLeaveTypes.map((t) => (
-                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+            {/* ── STEP 0: Leave type ──────────────────────────────────── */}
+            {step === 0 && (
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label>Leave Type</Label>
+                  <Select value={leaveType} onValueChange={(v) => setLeaveType(v as LeaveType)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {availableLeaveTypes.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {leaveType === "casual" && casualBal && (
+                    <p className="text-xs text-muted-foreground pl-0.5">
+                      Balance: <span className="font-medium text-foreground">{Math.max(casualBal.monthlyCap! - casualBal.usedMonth, 0)}/{casualBal.monthlyCap} this month</span>
+                      {" · "}<span className="font-medium text-foreground">{Math.max(casualBal.yearlyCap - casualBal.usedYear, 0)}/{casualBal.yearlyCap} this year</span>
+                    </p>
+                  )}
+                </div>
+
+                {isDutyHodFinal && (
+                  <div className="rounded-lg border border-info/40 bg-info/8 p-3 text-sm">
+                    <p className="font-semibold text-info">🗂 Duty Leave</p>
+                    <p className="mt-1 text-muted-foreground">HOD approves directly. Upload <strong>Proof of Duty</strong> after approval.</p>
+                  </div>
+                )}
+                {isMedical && (
+                  <div className="rounded-lg border border-info/40 bg-info/8 p-3 text-sm">
+                    <p className="font-semibold text-info">🏥 Medical Leave</p>
+                    <p className="mt-1 text-muted-foreground">≤ 3 days: no doc required, HOD + Principal approval. &nbsp;· &gt; 3 days: HOD approves directly, medical certificate required.</p>
+                  </div>
+                )}
+
+
+              </div>
+            )}
+
+            {/* ── STEP 1: Dates & Session ─────────────────────────────── */}
+            {step === 1 && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Session</Label>
+                  <RadioGroup value={session} onValueChange={(v) => setSession(v as LeaveSession)} className="flex items-center gap-5">
+                    {[["full_day","Full Day"],["forenoon","Forenoon"],["afternoon","Afternoon"]].map(([v,l]) => (
+                      <div key={v} className="flex items-center gap-2">
+                        <RadioGroupItem value={v} id={v} />
+                        <Label htmlFor={v} className="font-normal">{l}</Label>
+                      </div>
                     ))}
-                  </SelectContent>
-                </Select>
-                {leaveType === "casual" && casualBal && (
-                  <p className="text-xs text-muted-foreground pl-0.5">
-                    Balance: <span className="font-medium text-foreground">{Math.max(casualBal.monthlyCap! - casualBal.usedMonth, 0)}/{casualBal.monthlyCap} this month</span>
-                    {" · "}<span className="font-medium text-foreground">{Math.max(casualBal.yearlyCap - casualBal.usedYear, 0)}/{casualBal.yearlyCap} this year</span>
-                  </p>
+                  </RadioGroup>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="from">From Date</Label>
+                    <Input id="from" type="date" value={fromDate} min={isMedical ? undefined : todayISO()}
+                      onChange={(e) => { setFromDate(e.target.value); if (toDate < e.target.value) setToDate(e.target.value); }} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="to">To Date</Label>
+                    <Input id="to" type="date" value={toDate} min={isMedical ? fromDate : todayISO()}
+                      disabled={session !== "full_day"} onChange={(e) => setToDate(e.target.value)} />
+                  </div>
+                </div>
+
+                {preview?.purelyNonWorking && (
+                  <div className="rounded-lg border border-destructive/40 bg-destructive/8 px-4 py-3 flex items-start gap-3">
+                    <span className="text-destructive text-lg leading-none mt-0.5">⛔</span>
+                    <p className="text-sm text-destructive">Selected date is a Sunday or holiday — not a working day.</p>
+                  </div>
+                )}
+                {overlappingLeave && (
+                  <div className="rounded-lg border border-destructive/40 bg-destructive/8 p-3 text-sm">
+                    <p className="font-semibold text-destructive">🚫 Date Conflict</p>
+                    <p className="mt-1 text-muted-foreground">Active {overlappingLeave.leave_type} leave from <strong>{fmtDate(overlappingLeave.from_date)}</strong> to <strong>{fmtDate(overlappingLeave.to_date)}</strong>.</p>
+                  </div>
+                )}
+
+                {preview && !preview.purelyNonWorking && preview.total > 0 && (
+                  <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm space-y-1.5">
+                    <div className="flex flex-wrap gap-x-6 gap-y-1">
+                      <span><span className="text-muted-foreground">Leave days: </span><strong>{preview.total}</strong></span>
+                      {preview.skipped > 0 && <span className="text-muted-foreground">+ {preview.skipped} Sun/holiday not counted</span>}
+                      {"paid" in preview && !("medicalFlow" in preview) && !("hodDecides" in preview) && (
+                        <>
+                          {(preview.paid ?? 0) > 0 && <span className="text-success font-semibold">{preview.paid} paid</span>}
+                          {(preview.unpaid ?? 0) > 0 && <span className="text-destructive font-semibold">{preview.unpaid} unpaid</span>}
+                        </>
+                      )}
+                    </div>
+                    {isMedical && medFlow && <p className="text-xs text-muted-foreground">{medFlow.description}</p>}
+                    {preview.skipped === 0 && preview.total > 1 && (() => {
+                      const holidaySet = new Set(holidays.map((h) => h.holiday_date));
+                      const allDates: string[] = [];
+                      let d = new Date(fromDate + "T00:00:00");
+                      const end = new Date(toDate + "T00:00:00");
+                      while (d <= end) { allDates.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+                      const sw = allDates.filter(dt => new Date(dt+"T00:00:00").getDay()===0 || holidaySet.has(dt)).length;
+                      if (!sw) return null;
+                      return (
+                        <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1 flex items-center gap-1.5">
+                          <AlertTriangle className="size-3 shrink-0" /> {sw} Sunday/holiday sandwiched inside — counted as leave days.
+                        </p>
+                      );
+                    })()}
+                  </div>
                 )}
               </div>
+            )}
 
-              {isDutyHodFinal && (
-                <div className="rounded-lg border border-info/40 bg-info/8 p-3 text-sm">
-                  <p className="font-semibold text-info">🗂 Duty Leave</p>
-                  <p className="mt-1 text-muted-foreground">HOD approves directly. Upload <strong>Proof of Duty</strong> after approval.</p>
-                </div>
-              )}
-              {isMedical && (
-                <div className="rounded-lg border border-info/40 bg-info/8 p-3 text-sm">
-                  <p className="font-semibold text-info">🏥 Medical Leave</p>
-                  <p className="mt-1 text-muted-foreground">≤ 3 days: no doc required, HOD + Principal approval. &nbsp;· &gt; 3 days: HOD approves directly, medical certificate required.</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── STEP 1: Dates & Session ────────────────────────────────── */}
-          {step === 1 && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Session</Label>
-                <RadioGroup value={session} onValueChange={(v) => setSession(v as LeaveSession)} className="flex items-center gap-5">
-                  {[["full_day","Full Day"],["forenoon","Forenoon"],["afternoon","Afternoon"]].map(([v,l]) => (
-                    <div key={v} className="flex items-center gap-2">
-                      <RadioGroupItem value={v} id={v} />
-                      <Label htmlFor={v} className="font-normal">{l}</Label>
-                    </div>
-                  ))}
-                </RadioGroup>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="from">From Date</Label>
-                  <Input id="from" type="date" value={fromDate} min={isMedical ? undefined : todayISO()}
-                    onChange={(e) => { setFromDate(e.target.value); if (toDate < e.target.value) setToDate(e.target.value); }} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="to">To Date</Label>
-                  <Input id="to" type="date" value={toDate} min={isMedical ? fromDate : todayISO()}
-                    disabled={session !== "full_day"} onChange={(e) => setToDate(e.target.value)} />
-                </div>
-              </div>
-
-              {/* Overlap / non-working warnings */}
-              {preview?.purelyNonWorking && (
-                <div className="rounded-lg border border-destructive/40 bg-destructive/8 px-4 py-3 flex items-start gap-3">
-                  <span className="text-destructive text-lg leading-none mt-0.5">⛔</span>
-                  <p className="text-sm text-destructive">Selected date is a Sunday or holiday — not a working day.</p>
-                </div>
-              )}
-              {overlappingLeave && (
-                <div className="rounded-lg border border-destructive/40 bg-destructive/8 p-3 text-sm">
-                  <p className="font-semibold text-destructive">🚫 Date Conflict</p>
-                  <p className="mt-1 text-muted-foreground">Active {overlappingLeave.leave_type} leave from <strong>{fmtDate(overlappingLeave.from_date)}</strong> to <strong>{fmtDate(overlappingLeave.to_date)}</strong>.</p>
-                </div>
-              )}
-
-              {/* Preview strip */}
-              {preview && !preview.purelyNonWorking && preview.total > 0 && (
-                <div className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm space-y-1.5">
-                  <div className="flex flex-wrap gap-x-6 gap-y-1">
-                    <span><span className="text-muted-foreground">Leave days: </span><strong>{preview.total}</strong></span>
-                    {preview.skipped > 0 && <span className="text-muted-foreground">+ {preview.skipped} Sun/holiday not counted</span>}
-                    {"paid" in preview && !("medicalFlow" in preview) && !("hodDecides" in preview) && (
-                      <>
-                        {(preview.paid ?? 0) > 0 && <span className="text-success font-semibold">{preview.paid} paid</span>}
-                        {(preview.unpaid ?? 0) > 0 && <span className="text-destructive font-semibold">{preview.unpaid} unpaid</span>}
-                      </>
-                    )}
+            {/* ── STEP 2: Review & Submit ─────────────────────────────── */}
+            {step === 2 && (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-2 text-sm">
+                  <p className="font-semibold text-base">Review your request</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                    <span className="text-muted-foreground">Leave type</span>
+                    <span className="font-medium capitalize">{leaveType.replace(/_/g," ")}</span>
+                    <span className="text-muted-foreground">From</span>
+                    <span className="font-medium">{fmtDate(fromDate)}</span>
+                    <span className="text-muted-foreground">To</span>
+                    <span className="font-medium">{fmtDate(toDate)}</span>
+                    <span className="text-muted-foreground">Session</span>
+                    <span className="font-medium capitalize">{session.replace(/_/g," ")}</span>
+                    {preview && preview.total > 0 && <>
+                      <span className="text-muted-foreground">Working days</span>
+                      <span className="font-medium">{preview.total}</span>
+                    </>}
+                    {"unpaid" in (preview ?? {}) && (preview?.unpaid ?? 0) > 0 && <>
+                      <span className="text-muted-foreground">Unpaid days</span>
+                      <span className="font-medium text-destructive">{preview!.unpaid}</span>
+                    </>}
+                    {reason.trim() && <>
+                      <span className="text-muted-foreground">Reason</span>
+                      <span className="font-medium">{reason.trim()}</span>
+                    </>}
                   </div>
-                  {isMedical && medFlow && <p className="text-xs text-muted-foreground">{medFlow.description}</p>}
-                  {preview.skipped === 0 && preview.total > 1 && (() => {
-                    const holidaySet = new Set(holidays.map((h) => h.holiday_date));
-                    const allDates: string[] = [];
-                    let d = new Date(fromDate + "T00:00:00");
-                    const end = new Date(toDate + "T00:00:00");
-                    while (d <= end) { allDates.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
-                    const sw = allDates.filter(dt => new Date(dt+"T00:00:00").getDay()===0 || holidaySet.has(dt)).length;
-                    if (!sw) return null;
-                    return (
-                      <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1 flex items-center gap-1.5">
-                        <AlertTriangle className="size-3 shrink-0" /> {sw} Sunday/holiday sandwiched inside — counted as leave days.
-                      </p>
-                    );
-                  })()}
                 </div>
+
+                {/* Approval flow visual */}
+                <div className="rounded-xl border border-border bg-muted/20 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Approval Flow</p>
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="size-8 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold">You</div>
+                    </div>
+                    <div className="flex-1 h-px bg-primary/30" />
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="size-8 rounded-full bg-primary/15 flex items-center justify-center text-primary text-[10px] font-bold">HOD</div>
+                    </div>
+                    {!isDutyHodFinal && !(leaveType === "medical" && medFlow?.hodFinal) && <>
+                      <div className="flex-1 h-px bg-muted-foreground/30" />
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="size-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-[9px] font-bold">PRIN</div>
+                      </div>
+                    </>}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    {isDutyHodFinal ? "HOD is the final approver for this leave type." :
+                     leaveType === "medical" && medFlow?.hodFinal ? "HOD is the final approver for medical leave > 3 days." :
+                     "HOD reviews first, then forwards to Principal."}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="reason">Reason <span className="text-xs text-muted-foreground">(optional)</span></Label>
+                  <GuardedTextarea ref={reasonGuardRef} id="reason" fieldName="Reason" rows={3} maxLength={500}
+                    placeholder="Enter reason (optional)..." value={reason} onChange={setReason}
+                    onGuardError={setReasonError} />
+                </div>
+              </div>
+            )}
+
+            {/* Navigation buttons */}
+            <div className="flex gap-3 pt-1">
+              {step > 0 && (
+                <Button type="button" variant="outline" className="flex-1" onClick={() => setStep((s) => s - 1)}>
+                  <ChevronLeft className="size-4 mr-1" /> Back
+                </Button>
+              )}
+              {step < STEPS.length - 1 ? (
+                <Button type="button" className="flex-1" onClick={next}>
+                  Next <ChevronRight className="size-4 ml-1" />
+                </Button>
+              ) : (
+                <Button type="button" className="flex-1" onClick={submit}
+                  disabled={busy || !!overlappingLeave || !!preview?.purelyNonWorking || !!reasonError}>
+                  {busy ? "Submitting…" : "Submit Request"}
+                </Button>
               )}
             </div>
-          )}
+          </form>
+        </SectionCard>
 
-          {/* ── STEP 2: Review & Submit ────────────────────────────────── */}
-          {step === 2 && (
-            <div className="space-y-4">
-              {/* Summary card — shown first so user reads it before submitting */}
-              <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-2 text-sm">
-                <p className="font-semibold text-base">Review your request</p>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                  <span className="text-muted-foreground">Leave type</span>
-                  <span className="font-medium capitalize">{leaveType.replace(/_/g," ")}</span>
-                  <span className="text-muted-foreground">From</span>
-                  <span className="font-medium">{fmtDate(fromDate)}</span>
-                  <span className="text-muted-foreground">To</span>
-                  <span className="font-medium">{fmtDate(toDate)}</span>
-                  <span className="text-muted-foreground">Session</span>
-                  <span className="font-medium capitalize">{session.replace(/_/g," ")}</span>
-                  {preview && preview.total > 0 && <>
-                    <span className="text-muted-foreground">Working days</span>
-                    <span className="font-medium">{preview.total}</span>
-                  </>}
-                  {"unpaid" in (preview ?? {}) && (preview?.unpaid ?? 0) > 0 && <>
-                    <span className="text-muted-foreground">Unpaid days</span>
-                    <span className="font-medium text-destructive">{preview!.unpaid}</span>
-                  </>}
-                  {reason.trim() && <>
-                    <span className="text-muted-foreground">Reason</span>
-                    <span className="font-medium">{reason.trim()}</span>
-                  </>}
-                </div>
-              </div>
+        {/* ── Right: info sidebar ───────────────────────────────────────── */}
+        <div className="hidden lg:block">
+          <ApplySidebar leaveType={leaveType} balances={balances} holidays={holidays} />
+        </div>
 
-              {/* Reason input — below review so it's clearly an optional addition */}
-              <div className="space-y-2">
-                <Label htmlFor="reason">Reason <span className="text-xs text-muted-foreground">(optional)</span></Label>
-                <GuardedTextarea ref={reasonGuardRef} id="reason" fieldName="Reason" rows={3} maxLength={500}
-                  placeholder="Enter reason (optional)..." value={reason} onChange={setReason}
-                  onGuardError={setReasonError} />
-              </div>
-            </div>
-          )}
-
-          {/* Navigation buttons */}
-          <div className="flex gap-3 pt-1">
-            {step > 0 && (
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setStep((s) => s - 1)}>
-                <ChevronLeft className="size-4 mr-1" /> Back
-              </Button>
-            )}
-            {step < STEPS.length - 1 ? (
-              <Button type="button" className="flex-1" onClick={next}>
-                Next <ChevronRight className="size-4 ml-1" />
-              </Button>
-            ) : (
-              <Button type="button" className="flex-1" onClick={submit} disabled={busy || !!overlappingLeave || !!preview?.purelyNonWorking || !!reasonError}>
-                {busy ? "Submitting…" : "Submit Request"}
-              </Button>
-            )}
-          </div>
-        </form>
-      </SectionCard>
+      </div>
     </AppShell>
   );
 }

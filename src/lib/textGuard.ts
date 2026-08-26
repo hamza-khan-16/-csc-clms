@@ -112,7 +112,8 @@ export async function groqModerationCheck(text: string): Promise<boolean> {
 // on the server, which fixes both CORS and API key exposure.
 type GroqVerdict = "CLEAN" | "ABUSIVE" | "UNCLEAR";
 
-async function groqCheck(text: string, serverFn: typeof moderateText): Promise<GroqVerdict> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function groqCheck(text: string, serverFn: any): Promise<GroqVerdict> {
   try {
     const { verdict } = await serverFn({ data: { text } });
     return verdict;
@@ -160,7 +161,8 @@ export function useTextGuard(value: string, fieldName = "Text"): TextGuardResult
   const lastCheckedRef  = useRef<string>("");   // text that was last sent to LLM
   const llmErrorRef     = useRef<string | null>(null); // verdict for lastCheckedRef
   const mountedRef      = useRef(true);
-  const callModerate    = useServerFn(moderateText);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const callModerate    = useServerFn(moderateText as any) as any;
   // Holds the in-flight LLM promise so validateNow() can await it on submit
   const pendingLLMRef   = useRef<Promise<GroqVerdict> | null>(null);
 
