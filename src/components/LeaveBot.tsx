@@ -17,7 +17,7 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import { MessageCircle, X, Send, Loader2, Bot, User } from "lucide-react";
+import { MessageCircle, X, Send, Loader2, Bot, User, Mic, MicOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -44,6 +44,32 @@ function dateISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 function todayISO(): string { return dateISO(new Date()); }
+
+/**
+ * Parses the custom DOB format stored in DB: "DD-MM-YYYY" or "DD-MM" (no year).
+ * Also handles legacy ISO "YYYY-MM-DD". Returns a readable string like "15 August 1990".
+ */
+function parseDobDisplay(raw: string): string {
+  if (!raw) return "Not set";
+  // Legacy ISO: YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y, m, d] = raw.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  }
+  // Custom: DD-MM-YYYY or DD-MM
+  const parts = raw.split("-");
+  if (parts.length >= 2) {
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const year = parts[2] ? parseInt(parts[2], 10) : null;
+    if (!isNaN(day) && !isNaN(month)) {
+      return year
+        ? new Date(year, month, day).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+        : new Date(2000, month, day).toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+    }
+  }
+  return raw;
+}
 
 // ── MASTER SYSTEM PROMPT ──────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are LeaveBot — the all-knowing assistant for Chandrabhan Sharma College Leave Management System (CLMS). Built by Hamza Khan and Adarsh Pandey.
@@ -108,7 +134,20 @@ HR ONBOARDING
 4. Once HR approves a doc it's locked (can't re-upload). Rejected → see reason → re-upload.
 
 Be concise, direct, warm, and professional. Use bullet points for lists.
-If something is genuinely not in your data, say so and suggest contacting HOD/Admin/HR.`;
+If something is genuinely not in your data, say so and suggest contacting HOD/Admin/HR.
+
+═══════════════════════════════════════════════════════
+STRICT SCOPE — THIS IS NOT A GENERAL AI ASSISTANT
+═══════════════════════════════════════════════════════
+You ONLY answer questions that are directly about:
+  • The CLMS app features, leave types, quotas, approval flows
+  • The logged-in user's schedule, salary, leave balances, profile
+  • Staff, department, payroll data (for HOD / Principal / Admin / HR)
+  • Holidays, notices, proxy duties, onboarding steps
+
+If a question is off-topic (coding, math, general knowledge, writing, science, recipes, anything unrelated to leave management or this college system), you MUST respond with EXACTLY:
+"Sorry, I can only help with leave management and CLMS-related questions. Please ask me about your schedule, leaves, salary, or anything else related to the app."
+Do NOT attempt to answer it, even partially. Do NOT apologise at length. Just give that one sentence and stop.`;
 
 // ── Role-specific starter questions ──────────────────────────────────────────
 const STARTERS: Record<string, string[]> = {
@@ -190,9 +229,7 @@ async function fetchPersonalContext(profileId: string, role: string): Promise<st
   const tmrwHol = allH.find(h=>h.holiday_date===tmrwISO)?.occasion??null;
   const tmrwSch = [...recurring.filter(l=>l.day_of_week===tmrwDow),...allLec.filter(l=>l.lecture_date===tmrwISO)].sort((a,b)=>a.start_time.localeCompare(b.start_time));
 
-  const dobDisplay = profile.date_of_birth
-    ? new Date(profile.date_of_birth+"T00:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})
-    : "Not set";
+  const dobDisplay = parseDobDisplay(profile.date_of_birth ?? "");
   const salaryDisplay = profile.monthly_salary
     ? `₹${Number(profile.monthly_salary).toLocaleString("en-IN")} per month`
     : "Not disclosed";
@@ -320,7 +357,7 @@ async function fetchHODContext(deptId: string, year: number, today: string): Pro
     const unpaidTotal = tLeaves.filter(l=>APPROVED_S.includes(l.status)).reduce((s,l)=>s+Number(l.unpaid_days??0),0);
     const deduction   = Math.round((Number(t.monthly_salary??0)/30)*unpaidTotal*100)/100;
     const netPay      = Number(t.monthly_salary??0) - deduction;
-    const dob         = t.date_of_birth ? new Date(t.date_of_birth+"T00:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"}) : "Not set";
+    const dob         = parseDobDisplay(t.date_of_birth ?? "");
 
     lines.push(`── ${t.full_name} ──`);
     lines.push(`   Designation: ${t.designation} | Gender: ${t.gender??"Not set"} | DOB: ${dob}`);
@@ -500,13 +537,18 @@ async function buildFullContext(profileId: string, role: string, deptId?: string
   const year  = new Date().getFullYear();
   const today = todayISO();
 
-  const personal = await fetchPersonalContext(profileId, role);
+  // Run personal + role-specific context IN PARALLEL for faster load
+  const extraPromise: Promise<string[]> =
+    role === "hod" && deptId  ? fetchHODContext(deptId, year, today) :
+    role === "principal"       ? fetchPrincipalContext(year, today) :
+    role === "admin"           ? Promise.all([fetchPrincipalContext(year, today), fetchAdminContext(year)]).then(([a, b]) => [...a, ...b]) :
+    role === "hr"              ? fetchHRContext(year) :
+    Promise.resolve([]);
 
-  let extra: string[] = [];
-  if (role==="hod" && deptId)    extra = await fetchHODContext(deptId, year, today);
-  else if (role==="principal")   extra = await fetchPrincipalContext(year, today);
-  else if (role==="admin")       extra = [...await fetchPrincipalContext(year, today), ...await fetchAdminContext(year)];
-  else if (role==="hr")          extra = await fetchHRContext(year);
+  const [personal, extra] = await Promise.all([
+    fetchPersonalContext(profileId, role),
+    extraPromise,
+  ]);
 
   return [...personal, ...extra].join("\n");
 }
@@ -591,14 +633,57 @@ export function LeaveBot() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
 
-  // Fetch full context once when chat opens
+  // ── Mic / Speech-to-text ─────────────────────────────────────────────────
+  const [listening,   setListening]   = useState(false);
+  const [micSupported, setMicSupported] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
   useEffect(() => {
-    if (!open || !profile?.id || ctxReady) return;
+    const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) setMicSupported(true);
+  }, []);
+
+  function toggleMic() {
+    const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+
+    const rec = new SpeechRecognition();
+    rec.lang = "en-IN";
+    rec.interimResults = true;
+    rec.continuous = false;
+    recognitionRef.current = rec;
+
+    rec.onstart = () => setListening(true);
+    rec.onend   = () => setListening(false);
+    rec.onerror = () => setListening(false);
+
+    rec.onresult = (e: any) => {
+      const transcript = Array.from(e.results as any[])
+        .map((r: any) => r[0].transcript)
+        .join("");
+      setInput(transcript);
+      if ((e.results as any)[e.results.length - 1].isFinal) {
+        setListening(false);
+      }
+    };
+
+    rec.start();
+  }
+
+  // Pre-fetch context on mount (background) — ready before user opens chat
+  useEffect(() => {
+    if (!profile?.id || ctxReady) return;
     const deptId = (profile as any).department_id ?? null;
     buildFullContext(profile.id, role ?? "teacher", deptId)
       .then(ctx => { setCtxStr(ctx); setCtxReady(true); })
       .catch(() => setCtxReady(true));
-  }, [open, profile?.id, role]);
+  }, [profile?.id, role]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages, open]);
   useEffect(() => { if(open) setTimeout(()=>inputRef.current?.focus(),100); }, [open]);
@@ -667,7 +752,7 @@ export function LeaveBot() {
                   {ctxReady ? "All data loaded — ask me anything" : "Loading your data…"}
                 </p>
               </div>
-              <button onClick={() => { setMessages([INITIAL_MSG]); setCtxStr(""); setCtxReady(false); try{sessionStorage.removeItem(CHAT_KEY);}catch{} }}
+              <button onClick={() => { setMessages([INITIAL_MSG]); try{sessionStorage.removeItem(CHAT_KEY);}catch{} }}
                 className="opacity-60 hover:opacity-100 transition-opacity mr-1" title="Clear chat">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
@@ -716,15 +801,36 @@ export function LeaveBot() {
             {/* Input */}
             <div className="flex-shrink-0 border-t border-border">
               {inputErr && <p className="text-xs text-destructive px-4 pt-2">{inputErr}</p>}
+              {listening && (
+                <p className="text-xs text-primary px-4 pt-2 animate-pulse flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+                  Listening… speak now
+                </p>
+              )}
               <div className="flex items-center gap-2 px-3 py-3">
                 <input ref={inputRef}
                   className="flex-1 bg-muted rounded-full px-4 py-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary/30"
-                  placeholder={ctxReady ? "Ask anything…" : "Loading data…"}
+                  placeholder={listening ? "Speaking…" : ctxReady ? "Ask anything…" : "Loading data…"}
                   value={input}
                   onChange={e=>{setInput(e.target.value);if(inputErr)setInputErr(null);}}
                   onKeyDown={handleKey}
                   disabled={loading || !ctxReady}
                 />
+                {micSupported && (
+                  <button
+                    onClick={toggleMic}
+                    disabled={loading || !ctxReady}
+                    title={listening ? "Stop listening" : "Speak your question"}
+                    className={cn(
+                      "w-9 h-9 rounded-full flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-40",
+                      listening
+                        ? "bg-destructive text-destructive-foreground hover:bg-destructive/90 animate-pulse"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    )}
+                  >
+                    {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  </button>
+                )}
                 <button onClick={()=>send()} disabled={!input.trim()||loading||!ctxReady}
                   className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors flex-shrink-0">
                   <Send className="w-4 h-4" />

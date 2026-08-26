@@ -117,14 +117,15 @@ export const Route = createFileRoute("/profile")({
 
 function LeaveBalancePanel({ profileId }: { profileId?: string }) {
   const { data: balances = [] } = useBalances(profileId);
-  if (!balances.length) return <p className="text-xs text-muted-foreground">No balance data.</p>;
+  const displayed = balances.filter(b => b.type === "casual" || b.type === "medical");
+  if (!displayed.length) return <p className="text-xs text-muted-foreground">No balance data.</p>;
   return (
     <div className="space-y-3">
-      {balances.map(b => {
+      {displayed.map(b => {
         const rem = Math.max(b.yearlyCap - b.usedYear, 0);
         const pct = b.yearlyCap > 0 ? Math.min((b.usedYear / b.yearlyCap) * 100, 100) : 0;
         return (
-          <div key={b.type}>
+          <div key={b.type} className="space-y-1">
             <div className="flex justify-between text-xs mb-1">
               <span className="font-medium">{b.label}</span>
               <span className={rem === 0 ? "text-destructive font-semibold" : "text-muted-foreground"}>
