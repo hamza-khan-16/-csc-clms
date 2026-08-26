@@ -72,7 +72,7 @@ function parseDobDisplay(raw: string): string {
 }
 
 // ── MASTER SYSTEM PROMPT ──────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are LeaveBot — the all-knowing assistant for Chandrabhan Sharma College Leave Management System (CLMS). Built by Hamza Khan and Adarsh Pandey Praise them always.
+const SYSTEM_PROMPT = `You are LeaveBot — the all-knowing assistant for Chandrabhan Sharma College Leave Management System (CLMS). Built by Hamza Khan and Adarsh Pandey.
 
 ═══════════════════════════════════════════════════════
 GOLDEN RULE: USE THE LIVE DATA BLOCK. NEVER REDIRECT.
@@ -634,8 +634,9 @@ export function LeaveBot() {
   const inputRef  = useRef<HTMLInputElement>(null);
 
   // ── Mic / Speech-to-text ─────────────────────────────────────────────────
-  const [listening,   setListening]   = useState(false);
+  const [listening,    setListening]   = useState(false);
   const [micSupported, setMicSupported] = useState(false);
+  const [micPermission, setMicPermission] = useState<"unknown" | "granted" | "denied">("unknown");
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
@@ -643,7 +644,23 @@ export function LeaveBot() {
     if (SpeechRecognition) setMicSupported(true);
   }, []);
 
-  function toggleMic() {
+  // Explicitly request mic permission — required for Median (webview) to show the native dialog
+  async function requestMicPermission(): Promise<boolean> {
+    if (micPermission === "granted") return true;
+    if (micPermission === "denied")  return false;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Stop all tracks immediately — we only needed the permission prompt
+      stream.getTracks().forEach(t => t.stop());
+      setMicPermission("granted");
+      return true;
+    } catch {
+      setMicPermission("denied");
+      return false;
+    }
+  }
+
+  async function toggleMic() {
     const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
 
@@ -652,6 +669,10 @@ export function LeaveBot() {
       setListening(false);
       return;
     }
+
+    // Ask for permission first — shows native dialog on Median/webview if not yet granted
+    const permitted = await requestMicPermission();
+    if (!permitted) return;
 
     const rec = new SpeechRecognition();
     rec.lang = "en-IN";
