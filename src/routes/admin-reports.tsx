@@ -407,7 +407,7 @@ function AdminReportsPage() {
   const monthLabel = filterMonth !== "all" ? MONTH_NAMES[Number(filterMonth) - 1] : "All Months";
 
   // ── Excel export ─────────────────────────────────────────────────────────────
-  function exportExcel() {
+  async function exportExcel() {
     if (rows.length === 0) return toast.error("No data to export");
     const mod      = activeModInfo;
     const subtitle = `${deptLabel} · ${monthLabel} · ${filterYear}`;

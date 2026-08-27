@@ -674,7 +674,7 @@ function HrPage() {
   }
 
   // Full payroll report — all teachers, current year approved leaves
-  function downloadFullReport() {
+  async function downloadFullReport() {
     const year = String(CURRENT_YEAR);
     const rows = teachers.map((t) => {
       const tLeaves = allLeaves.filter((l) =>
