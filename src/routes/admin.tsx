@@ -194,7 +194,7 @@ function AdminPage() {
         toast.success(`Approved — college ID ${result.collegeId}`);
         sendPush({ data: {
           userIds: [id],
-          title: "Account Approved ✓",
+          title: "Account Approved",
           body: `Your registration has been approved. Your college ID is ${result.collegeId}`,
           targetUrl: "/dashboard",
         }}).catch((e) => console.error("[Push] teacher approved:", e));

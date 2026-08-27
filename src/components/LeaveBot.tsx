@@ -34,7 +34,8 @@ interface Message { role: "user" | "assistant"; content: string; }
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const APPROVED_S = ["approved","hod_approved"];
 const PENDING_S  = ["pending_hod","hod_recommended","pending_principal"];
-const DEFAULT_QUOTA: Record<string,number> = { casual:12, medical:15, duty:30, bereavement:5, maternity:90 };
+// duty, bereavement and maternity have no preset quota — principal decides paid/unpaid per request
+const DEFAULT_QUOTA: Record<string,number> = { casual:12, medical:15 };
 
 function fmt(t: string): string {
   const [h, m] = t.split(":").map(Number);
@@ -107,9 +108,9 @@ LEAVE TYPES & QUOTAS
 1. Casual Leave       — 12/year, max 2/month. Always paid. HOD has final approval.
 2. Medical Leave      — 15/year. First 10 days paid. Days 11–15 principal decides.
    ≤3 days: no doc needed, HOD recommends → Principal final. >3 days: Medical Certificate required, HOD approves directly.
-3. Maternity Leave    — up to 90 days. Female teachers only.
-4. Bereavement Leave  — up to 5 days. No doc required.
-5. Duty Leave         — up to 30 days/year. Proof of Duty required. HOD final approval.
+3. Maternity Leave    — no fixed quota. Female teachers only. Principal decides paid/unpaid per request.
+4. Bereavement Leave  — no fixed quota. No doc required. Principal decides paid/unpaid per request.
+5. Duty Leave         — no fixed quota. Proof of Duty required. HOD final approval. Principal decides paid/unpaid.
 Sandwich Rule: Sundays/holidays between leave days are counted as leave days.
 Half-day: Forenoon or Afternoon = 0.5 days.
 
@@ -307,14 +308,24 @@ async function fetchPersonalContext(profileId: string, role: string): Promise<st
   // Leave balances
   lines.push("", `════ LEAVE USAGE ${year} ════`);
   for (const [type,s] of Object.entries(sum)) {
-    const cap = type === "casual" ? clQuota : (DEFAULT_QUOTA[type] ?? '?'); lines.push(`• ${leaveTypeLabel(type as LeaveType)}: ${s.approved} approved, ${s.pending} pending — quota ${cap}/year${s.unpaid>0?` (${s.unpaid} unpaid)`:"" }`);
+    const noQuota = ["duty","bereavement","maternity"].includes(type);
+    if (noQuota) {
+      lines.push(`• ${leaveTypeLabel(type as LeaveType)}: ${s.approved} approved, ${s.pending} pending${s.unpaid>0?` (${s.unpaid} unpaid, ${s.approved-s.unpaid} paid)`:""}`);
+    } else {
+      const cap = type === "casual" ? clQuota : (DEFAULT_QUOTA[type] ?? "?");
+      lines.push(`• ${leaveTypeLabel(type as LeaveType)}: ${s.approved} approved, ${s.pending} pending — quota ${cap}/year${s.unpaid>0?` (${s.unpaid} unpaid)`:"" }`);
+    }
   }
 
+  const dutyUsed = sum["duty"]?.approved ?? 0;
+  const bereavUsed = sum["bereavement"]?.approved ?? 0;
+  const maternityUsed = sum["maternity"]?.approved ?? 0;
   lines.push("", "════ QUICK BALANCE SUMMARY ════",
     `• Casual Leave: ${Math.max(2-Math.round(thisMonthCL*2)/2,0)} left THIS MONTH | ${Math.max(clQuota-clUsed,0)} left THIS YEAR (used ${clUsed}/${clQuota})${profile.cl_quota ? " [admin-set quota: "+clQuota+"]" : ""}`,
     `• Medical Leave: ${Math.max(15-mlUsed,0)} left this year (used ${mlUsed}/15)`,
-    `• Duty Leave: ${Math.max(30-(sum["duty"]?.approved??0),0)} left this year`,
-    `• Bereavement Leave: ${Math.max(5-(sum["bereavement"]?.approved??0),0)} left this year`,
+    ...(dutyUsed > 0 ? [`• Duty Leave: ${dutyUsed} days used this year (no fixed quota — principal decides paid/unpaid)`] : []),
+    ...(bereavUsed > 0 ? [`• Bereavement Leave: ${bereavUsed} days used this year (no fixed quota — principal decides paid/unpaid)`] : []),
+    ...(maternityUsed > 0 ? [`• Maternity Leave: ${maternityUsed} days used this year (no fixed quota — principal decides paid/unpaid)`] : []),
   );
 
   // Recent requests
@@ -370,7 +381,7 @@ async function fetchHODContext(deptId: string, year: number, today: string): Pro
     const usageParts = Object.entries(leaveSum).map(([type,days])=>`${leaveTypeLabel(type as LeaveType)}: ${days}d`);
     lines.push(`   Leave used ${year}: ${usageParts.length ? usageParts.join(" | ") : "None"}`);
     const clU=leaveSum["casual"]??0; const mlU=leaveSum["medical"]??0;
-    const tClQ = (t as any).cl_quota ?? 12; lines.push(`   Remaining: CL ${tClQ-clU}/${tClQ}${(t as any).cl_quota ? " (admin-set)" : ""} · ML ${15-mlU}/15 · DL ${30-(leaveSum["duty"]??0)}/30 · BL ${5-(leaveSum["bereavement"]??0)}/5`);
+    const tClQ = (t as any).cl_quota ?? 12; lines.push(`   Remaining: CL ${tClQ-clU}/${tClQ}${(t as any).cl_quota ? " (admin-set)" : ""} · ML ${15-mlU}/15${(leaveSum["duty"]??0)>0 ? ` · DL used: ${leaveSum["duty"]}d` : ""}${(leaveSum["bereavement"]??0)>0 ? ` · BL used: ${leaveSum["bereavement"]}d` : ""}${(leaveSum["maternity"]??0)>0 ? ` · Maternity used: ${leaveSum["maternity"]}d` : ""}`);
     lines.push("");
   }
   return lines;
@@ -634,33 +645,60 @@ export function LeaveBot() {
   const inputRef  = useRef<HTMLInputElement>(null);
 
   // ── Mic / Speech-to-text ─────────────────────────────────────────────────
+  // Strategy:
+  //   1. In Median (Android/iOS webview) — SpeechRecognition is NOT available.
+  //      Use Median's Background Audio JS bridge with enableTranscription:true.
+  //   2. In browser — use standard SpeechRecognition as fallback.
   const [listening,    setListening]   = useState(false);
   const [micSupported, setMicSupported] = useState(false);
-  const [micPermission, setMicPermission] = useState<"unknown" | "granted" | "denied">("unknown");
   const recognitionRef = useRef<any>(null);
 
+  const isMedian = () => !!(window as any).median || !!(window as any).gonative;
+
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) setMicSupported(true);
+    // Show mic button if Median bridge OR browser SpeechRecognition is available
+    const hasBridge = isMedian();
+    const hasSpeech = !!(window as any).SpeechRecognition || !!(window as any).webkitSpeechRecognition;
+    setMicSupported(hasBridge || hasSpeech);
   }, []);
 
-  // Explicitly request mic permission — required for Median (webview) to show the native dialog
-  async function requestMicPermission(): Promise<boolean> {
-    if (micPermission === "granted") return true;
-    if (micPermission === "denied")  return false;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Stop all tracks immediately — we only needed the permission prompt
-      stream.getTracks().forEach(t => t.stop());
-      setMicPermission("granted");
-      return true;
-    } catch {
-      setMicPermission("denied");
-      return false;
-    }
-  }
-
   async function toggleMic() {
+    // ── Median webview path ──────────────────────────────────────────────────
+    if (isMedian()) {
+      const bridge = (window as any).median?.backgroundAudio;
+      if (!bridge) return;
+
+      if (listening) {
+        try {
+          const result = await bridge.stopRecording();
+          if (result?.transcript) setInput(result.transcript);
+        } catch { /* ignore */ }
+        setListening(false);
+        return;
+      }
+
+      try {
+        // Check / request permission — shows native Android dialog
+        const perm = await bridge.checkPermission();
+        if (!perm?.granted) {
+          const req = await bridge.requestPermission();
+          if (!req?.granted) return; // user denied
+        }
+
+        // Start recording with on-device transcription
+        const result = await bridge.startRecording({
+          format: "m4a",
+          maxDuration: 60,        // 60s max for a chat message
+          enableTranscription: true,
+          sttLanguage: "en-IN",
+        });
+
+        if (result?.success) setListening(true);
+      } catch { setListening(false); }
+      return;
+    }
+
+    // ── Browser fallback path (SpeechRecognition) ────────────────────────────
     const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
 
@@ -669,10 +707,6 @@ export function LeaveBot() {
       setListening(false);
       return;
     }
-
-    // Ask for permission first — shows native dialog on Median/webview if not yet granted
-    const permitted = await requestMicPermission();
-    if (!permitted) return;
 
     const rec = new SpeechRecognition();
     rec.lang = "en-IN";
@@ -689,9 +723,7 @@ export function LeaveBot() {
         .map((r: any) => r[0].transcript)
         .join("");
       setInput(transcript);
-      if ((e.results as any)[e.results.length - 1].isFinal) {
-        setListening(false);
-      }
+      if ((e.results as any)[e.results.length - 1].isFinal) setListening(false);
     };
 
     rec.start();
@@ -727,7 +759,7 @@ export function LeaveBot() {
     try {
       const isAbusive = await groqModerationCheck(question);
       if (isAbusive) {
-        setMessages([...next, { role:"assistant", content:"⚠️ I'm here to help with leave management questions. Please keep your messages respectful and professional." }]);
+        setMessages([...next, { role:"assistant", content:"I'm here to help with leave management questions. Please keep your messages respectful and professional." }]);
         return;
       }
 

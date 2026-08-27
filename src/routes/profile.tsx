@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { KeyRound, Eye, EyeOff, CheckCircle2, Camera, Loader2 } from "lucide-react";
+import { Camera, Check, CheckCircle2, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 
 const GENDERS: { value: string; label: string }[] = [
   { value: "male",   label: "Male" },
@@ -381,7 +381,7 @@ function ProfilePage() {
               </div>
             )}
             <Button type="submit" disabled={busy} className={saved ? "bg-success text-success-foreground hover:bg-success/90" : ""}>
-              {saved ? "✓ Saved" : busy ? "Saving…" : "Save changes"}
+              {saved ? <span className="inline-flex items-center gap-1"><Check className="size-4"/>Saved</span> : busy ? "Saving…" : "Save changes"}
             </Button>
           </form>
         </SectionCard>

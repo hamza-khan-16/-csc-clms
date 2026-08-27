@@ -12,7 +12,7 @@ import { SectionCard, StatCard, StatCardSkeleton, ListSkeleton, StatusBadge, Emp
 import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL, MEDICAL_PAID_QUOTA, type LeaveStatus, type LeaveType, type LeaveSession } from "@/lib/leave";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
-import { AlertTriangle, PlusCircle, TrendingUp, Users, CheckCheck } from "lucide-react";
+import { AlertTriangle, BookOpen, CheckCheck, Clock, Flame, PlusCircle, Settings, TrendingUp, Users, X } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 const PW_EXPIRY_DAYS  = 90;
@@ -75,7 +75,7 @@ function ProfileCompletenessBanner({ profile }: { profile: any }) {
             try { localStorage.setItem(`profile_banner_${profile?.id}`, "1"); } catch {}
           }}
           aria-label="Dismiss"
-        >✕</button>
+        ><X className="size-3.5"/></button>
       </div>
     </div>
   );
@@ -119,7 +119,7 @@ function StreakBadge({ leaves }: { leaves: { from_date: string; to_date: string;
   if (streak < 3) return null;
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 border border-warning/30 px-2.5 py-0.5 text-xs font-semibold text-warning-foreground">
-      🔥 {streak}-day streak
+      <span className="inline-flex items-center gap-1"><Flame className="size-4 text-orange-500"/>{streak}-day streak</span>
     </span>
   );
 }
@@ -146,7 +146,7 @@ function NextLectureBanner({ lectures }: { lectures: { start_time: string; end_t
 
   return (
     <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/6 px-4 py-2.5 text-sm">
-      <span className="text-lg">{current ? "📖" : "⏰"}</span>
+      <span>{current ? <BookOpen className="size-5"/> : <Clock className="size-5"/>}</span>
       <div>
         <span className="font-semibold">{subject.subject}</span>
         <span className="text-muted-foreground"> · {subject.class_name}{subject.room ? ` · Room ${subject.room}` : ""}</span>
@@ -974,7 +974,7 @@ function AdminHrDashboard() {
     <div className="space-y-6">
       <div className="rounded-xl border border-primary/20 bg-gradient-to-r from-primary/8 to-primary/4 px-5 py-4 flex items-center gap-4">
         <div className="size-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
-          <span className="text-lg">{isHr ? "👥" : "⚙️"}</span>
+          <span>{isHr ? <Users className="size-5"/> : <Settings className="size-5"/>}</span>
         </div>
         <div>
           <p className="font-bold text-base">Chandrabhan Sharma College</p>

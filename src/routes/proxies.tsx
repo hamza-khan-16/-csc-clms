@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fmtDate, fmtTime, todayISO } from "@/lib/leave";
-import { CalendarClock, UserCheck, BookOpen, CheckCircle2, XCircle, Clock3, Gift } from "lucide-react";
+import { BookOpen, CalendarClock, CheckCircle2, Clock3, Gift, Info, UserCheck, XCircle } from "lucide-react";
 
 export const Route = createFileRoute("/proxies")({
   head: () => ({
@@ -542,7 +542,7 @@ function CompensationForm({
           You covered <span className="font-medium text-foreground">{absenteeName}</span>'s lecture
         </p>
         <p className="text-xs text-info mt-1">
-          ℹ️ The lecture you select below will be <strong>moved</strong> to {absenteeName}'s schedule on the chosen date — it will no longer appear in yours.
+          <Info className="size-4 inline mr-1"/>The lecture you select below will be <strong>moved</strong> to {absenteeName}'s schedule on the chosen date — it will no longer appear in yours.
         </p>
       </div>
 

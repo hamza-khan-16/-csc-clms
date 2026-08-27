@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { savePDF, saveXLSX } from "../lib/download";
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { supabase } from "@/integrations/supabase/client";
@@ -347,7 +348,7 @@ function exportExcel(month: number, year: number, label: string, summaries: Retu
     XLSX.utils.book_append_sheet(wb, ws5, "Compensations");
   }
 
-  XLSX.writeFile(wb, `${label.replace(/[^a-zA-Z0-9 _-]/g,"_")}_${MONTH_NAMES[month]}_${year}.xlsx`);
+  saveXLSX(XLSX, wb, `${label.replace(/[^a-zA-Z0-9 _-]/g,"_")}_${MONTH_NAMES[month]}_${year}.xlsx`);
 }
 
 // ── Principal Excel export (leave-based, not schedule-based) ─────────────────
@@ -451,7 +452,7 @@ function exportPrincipalExcel(
   ws4["!cols"] = [{ wch: 50 }];
   XLSX.utils.book_append_sheet(wb, ws4, "Report Info");
 
-  XLSX.writeFile(wb, `Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.xlsx`);
+  saveXLSX(XLSX, wb, `Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.xlsx`);
 }
 
 // ── Principal PDF export ──────────────────────────────────────────────────────
@@ -551,7 +552,7 @@ function exportPrincipalPDF(
     },
   });
 
-  doc.save(`Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.pdf`);
+  savePDF(doc, `Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.pdf`);
 }
 function exportPDF(month: number, year: number, label: string, summaries: ReturnType<typeof buildTeacherSummary>[], workingDays: Date[]) {
   const weeks   = getWeeksInMonth(workingDays);
@@ -667,7 +668,7 @@ function exportPDF(month: number, year: number, label: string, summaries: Return
     },
   });
 
-  doc.save(`${label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${MONTH_NAMES[month]}_${year}.pdf`);
+  savePDF(doc, `${label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${MONTH_NAMES[month]}_${year}.pdf`);
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { signInWithIdentifier, registerStaff, resolvePreviewUserId, verifyCollegeId, submitForgotPasswordRequest } from "@/lib/login.functions";
-import { Eye, EyeOff, Loader2, Moon, Sun, UserRound } from "lucide-react";
+import { Check, Eye, EyeOff, Loader2, Moon, Sun, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -131,7 +131,7 @@ function PasswordStrength({ password }: { password: string }) {
       <ul className="space-y-0.5">
         {results.map((r) => (
           <li key={r.label} className={`flex items-center gap-1.5 text-xs ${r.ok ? "text-success" : "text-muted-foreground"}`}>
-            <span>{r.ok ? "✓" : "·"}</span> {r.label}
+            <span>{r.ok ? <Check className="size-3"/> : <span>·</span>}</span> {r.label}
           </li>
         ))}
       </ul>
@@ -371,7 +371,7 @@ function ForgotPasswordDialog() {
               <>
                 <div className="flex items-center gap-3">
                   <div className="size-10 rounded-full bg-success/10 flex items-center justify-center shrink-0">
-                    <span className="text-xl">✓</span>
+                    <Check className="size-5"/>
                   </div>
                   <div>
                     <p className="font-semibold">Request sent</p>
@@ -401,8 +401,8 @@ function ForgotPasswordDialog() {
                     <span className="flex items-center pr-2.5 text-sm text-muted-foreground select-none whitespace-nowrap">
                       @CSC.COM
                       {verifying && <Loader2 className="size-3.5 animate-spin ml-2" />}
-                      {!verifying && verified?.exists && <span className="text-green-500 ml-2">✓</span>}
-                      {!verifying && verified && !verified.exists && <span className="text-destructive ml-2">✗</span>}
+                      {!verifying && verified?.exists && <Check className="size-4 text-green-500 ml-2"/>}
+                      {!verifying && verified && !verified.exists && <X className="size-4 text-destructive ml-2"/>}
                     </span>
                   </div>
                   {!verifying && verified?.exists && verified.maskedName && (

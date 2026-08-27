@@ -18,7 +18,7 @@ import { GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
 import { sendPushNotification } from "@/lib/push.functions";
 import { useRef } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { AlertTriangle, ChevronLeft, ChevronRight, CheckCircle2, Info, Clock, FileText, CalendarDays, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Baby, Briefcase, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock, FileText, Flower2, Info, ShieldCheck, Stethoscope, XCircle } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -122,12 +122,12 @@ function ApplySidebar({ leaveType, balances, holidays }: {
     },
   ];
 
-  const leaveInfo: Record<string, { emoji: string; desc: string }> = {
-    casual:      { emoji: "🗓️", desc: "Up to 2 per month, 12 per year. Exhausted days become unpaid." },
-    medical:     { emoji: "🏥", desc: "≤ 3 days: HOD + Principal. > 3 days: HOD only with certificate." },
-    maternity:   { emoji: "🤱", desc: "Available for female staff. HOD approves. Fully paid." },
-    bereavement: { emoji: "🕊️", desc: "For the loss of an immediate family member. HOD approves." },
-    duty:        { emoji: "🗂️", desc: "For official duties outside college. HOD approves directly." },
+  const leaveInfo: Record<string, { icon: React.ElementType; desc: string }> = {
+    casual:      { icon: CalendarDays,  emoji: "", desc: "Up to 2 per month, 12 per year. Exhausted days become unpaid." },
+    medical:     { icon: Stethoscope,   emoji: "", desc: "≤ 3 days: HOD + Principal. > 3 days: HOD only with certificate." },
+    maternity:   { icon: Baby,          emoji: "", desc: "Available for female staff. HOD approves. Fully paid." },
+    bereavement: { icon: Flower2,       emoji: "", desc: "For the loss of an immediate family member. HOD approves." },
+    duty:        { icon: Briefcase,     emoji: "", desc: "For official duties outside college. HOD approves directly." },
   };
 
   const info = leaveInfo[leaveType];
@@ -138,7 +138,7 @@ function ApplySidebar({ leaveType, balances, holidays }: {
       {info && (
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
           <p className="text-sm font-semibold flex items-center gap-2 mb-1.5">
-            <span>{info.emoji}</span>
+            <info.icon className="size-4 text-primary"/>
             <span className="capitalize">{leaveType.replace(/_/g, " ")} Leave</span>
           </p>
           <p className="text-xs text-muted-foreground leading-relaxed">{info.desc}</p>
@@ -394,7 +394,7 @@ function ApplyPage() {
             {/* Draft banner */}
             {hasDraft && step === 0 && (
               <div className="flex items-center gap-2 rounded-lg border border-warning bg-warning px-3 py-2.5 text-xs text-warning-foreground font-medium shadow-sm">
-                <span>📝 Draft restored — your previous selections have been loaded.</span>
+                <span className="inline-flex items-center gap-1"><ClipboardList className="size-4"/>Draft restored — your previous selections have been loaded.</span>
                 <button type="button" className="ml-auto shrink-0 underline underline-offset-2 hover:opacity-70"
                   onClick={() => { try { localStorage.removeItem(DRAFT_KEY); } catch {} window.location.reload(); }}>
                   Clear draft
@@ -425,13 +425,13 @@ function ApplyPage() {
 
                 {isDutyHodFinal && (
                   <div className="rounded-lg border border-info/40 bg-info/8 p-3 text-sm">
-                    <p className="font-semibold text-info">🗂 Duty Leave</p>
+                    <p className="font-semibold text-info flex items-center gap-1"><Briefcase className="size-4"/>Duty Leave</p>
                     <p className="mt-1 text-muted-foreground">HOD approves directly. Upload <strong>Proof of Duty</strong> after approval.</p>
                   </div>
                 )}
                 {isMedical && (
                   <div className="rounded-lg border border-info/40 bg-info/8 p-3 text-sm">
-                    <p className="font-semibold text-info">🏥 Medical Leave</p>
+                    <p className="font-semibold text-info flex items-center gap-1"><Stethoscope className="size-4"/>Medical Leave</p>
                     <p className="mt-1 text-muted-foreground">≤ 3 days: no doc required, HOD + Principal approval. &nbsp;· &gt; 3 days: HOD approves directly, medical certificate required.</p>
                   </div>
                 )}
@@ -469,13 +469,13 @@ function ApplyPage() {
 
                 {preview?.purelyNonWorking && (
                   <div className="rounded-lg border border-destructive/40 bg-destructive/8 px-4 py-3 flex items-start gap-3">
-                    <span className="text-destructive text-lg leading-none mt-0.5">⛔</span>
+                    <XCircle className="size-5 text-destructive shrink-0 mt-0.5"/>
                     <p className="text-sm text-destructive">Selected date is a Sunday or holiday — not a working day.</p>
                   </div>
                 )}
                 {overlappingLeave && (
                   <div className="rounded-lg border border-destructive/40 bg-destructive/8 p-3 text-sm">
-                    <p className="font-semibold text-destructive">🚫 Date Conflict</p>
+                    <p className="font-semibold text-destructive">Date Conflict</p>
                     <p className="mt-1 text-muted-foreground">Active {overlappingLeave.leave_type} leave from <strong>{fmtDate(overlappingLeave.from_date)}</strong> to <strong>{fmtDate(overlappingLeave.to_date)}</strong>.</p>
                   </div>
                 )}

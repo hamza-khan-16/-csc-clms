@@ -26,7 +26,7 @@
  */
 
 import { useId, forwardRef, useEffect, useImperativeHandle } from "react";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { Input }    from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useTextGuard } from "@/lib/textGuard";
@@ -58,7 +58,7 @@ function GuardFeedback({ error, checking }: { error: string | null; checking: bo
     <p className={cn("flex items-center gap-1 text-xs mt-1", error ? "text-destructive" : "text-muted-foreground")}>
       {checking && !error && <Loader2 className="h-3 w-3 animate-spin" />}
       {checking && !error && "Checking…"}
-      {error && <span>⚠ {error}</span>}
+      {error && <span className="inline-flex items-center gap-1"><AlertTriangle className="size-3.5 shrink-0"/>{error}</span>}
     </p>
   );
 }

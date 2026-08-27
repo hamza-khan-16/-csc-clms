@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2, LayoutGrid, X, ChevronLeft, ChevronRight, Printer } from "lucide-react";
+import { ChevronLeft, ChevronRight, Gift, LayoutGrid, Printer, Trash2, X } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { supabase } from "@/integrations/supabase/client";
@@ -762,7 +762,7 @@ function SchedulePage() {
           {/* Pending compensation offers banner */}
           {pendingCompOffers.length > 0 && (
             <div className="rounded-lg border border-success/40 bg-success/8 p-4 space-y-2">
-              <p className="text-sm font-semibold text-success-foreground">🎁 Compensation lecture offers pending your response</p>
+              <p className="text-sm font-semibold text-success-foreground flex items-center gap-1"><Gift className="size-4"/>Compensation lecture offers pending your response</p>
               <p className="text-xs text-muted-foreground">Go to <strong>Proxy Duties</strong> to accept or decline. Accepted lectures will appear in your schedule automatically.</p>
               <ul className="mt-2 space-y-1">
                 {pendingCompOffers.map((o) => (

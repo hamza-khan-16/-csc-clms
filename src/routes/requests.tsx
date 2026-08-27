@@ -39,7 +39,7 @@ import {
   type LeaveType,
   type DocStatus,
 } from "@/lib/leave";
-import { AlertCircle, LockKeyhole, Lightbulb, FileText, CheckCircle2, Clock, ChevronRight } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ChevronRight, Clock, FileText, Lightbulb, LockKeyhole } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { GuardedTextarea } from "@/components/GuardedField";
 import { useServerFn } from "@tanstack/react-start";
@@ -908,7 +908,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     if (error) return toast.error(error.message);
     toast.success(`Leave approved — teacher must upload ${requiredDoc}`);
     // Notify teacher their leave was approved
-    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved ✓", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch((e) => console.error("[Push] hodDirectApprove:", e));
+    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch((e) => console.error("[Push] hodDirectApprove:", e));
     qc.invalidateQueries();
   }
 
@@ -963,7 +963,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     if (error) return toast.error(error.message);
     toast.success("Leave approved");
     // Notify teacher their leave was approved by principal
-    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved ✓", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch((e) => console.error("[Push] principalApprove:", e));
+    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch((e) => console.error("[Push] principalApprove:", e));
     qc.invalidateQueries();
   }
 
@@ -1049,7 +1049,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
                 This request: <strong>{requestDays}</strong> day(s) — <span className="text-success font-medium">{medicalSplit.withinQuota} within quota</span>
                 {medicalSplit.overQuota > 0 && <span className="text-destructive font-medium"> · {medicalSplit.overQuota} over quota</span>}
               </p>
-              {!medicalRequiresDecision && <p className="text-success font-medium">✓ All days within paid quota.</p>}
+              {!medicalRequiresDecision && <p className="text-success font-medium flex items-center gap-1"><Check className="size-4"/>All days within paid quota.</p>}
             </div>
           )}
           {(!isMedical || medicalRequiresDecision) && (

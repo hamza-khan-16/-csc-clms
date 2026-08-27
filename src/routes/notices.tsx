@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Trash2, CalendarClock, CalendarDays, ChevronDown, ChevronUp, CheckCheck } from "lucide-react";
+import { CalendarClock, CalendarDays, CheckCheck, ChevronDown, ChevronUp, ClipboardList, Trash2 } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { GuardedInput, GuardedTextarea } from "@/components/GuardedField";
 import { supabase } from "@/integrations/supabase/client";
@@ -139,7 +139,7 @@ function NoticesPage() {
         ];
     sendPush({ data: {
       userIds: recipientIds,
-      title: "📢 New Notice",
+      title: "New Notice",
       body: title.trim(),
       targetUrl: "/notices",
       excludeUserIds: profile?.id ? [profile.id] : [],
@@ -177,7 +177,7 @@ function NoticesPage() {
           {notices.length === 0 ? (
             <div className="py-8 text-center space-y-3">
               <div className="size-14 rounded-full bg-muted flex items-center justify-center mx-auto">
-                <span className="text-2xl">📋</span>
+                <ClipboardList className="size-6 text-muted-foreground"/>
               </div>
               <div>
                 <p className="font-semibold text-sm">No notices yet</p>

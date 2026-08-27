@@ -193,7 +193,7 @@ export async function notifyLeaveApproved(
 ) {
   const result = await dispatchPush({
     userIds:   [teacherId],
-    title:     "Leave Approved ✓",
+    title:     "Leave Approved",
     body:      `Your ${leaveType} leave for ${days} day(s) has been approved`,
     targetUrl: "/leaves",
   });

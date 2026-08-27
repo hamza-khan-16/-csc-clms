@@ -236,7 +236,7 @@ function DepartmentsPage() {
               <div className="space-y-4 text-sm">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-                    Courses {isAdmin && <span className="normal-case font-normal text-muted-foreground/70">(click ✎ to edit)</span>}
+                    Courses {isAdmin && <span className="normal-case font-normal text-muted-foreground/70">(click the edit icon to edit)</span>}
                   </p>
                   <CourseManager dept={d} isAdmin={isAdmin} />
                 </div>

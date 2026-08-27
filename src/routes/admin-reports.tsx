@@ -3,6 +3,7 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { savePDF, saveXLSX } from "../lib/download";
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { supabase } from "@/integrations/supabase/client";
@@ -435,7 +436,7 @@ function AdminReportsPage() {
     ws["!freeze"] = { xSplit: 0, ySplit: 1 };
     XLSX.utils.book_append_sheet(wb, ws, mod.label.slice(0, 31));
     const filename = `${mod.label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${filterYear}${filterDept !== "all" ? `_${deptLabel}` : ""}${filterMonth !== "all" ? `_${monthLabel}` : ""}.xlsx`;
-    XLSX.writeFile(wb, filename);
+    saveXLSX(XLSX, wb, filename);
     toast.success(`Excel exported — ${rows.length} rows`);
   }
 
@@ -510,7 +511,7 @@ function AdminReportsPage() {
       });
 
       const filename = `${mod.label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${filterYear}${filterDept !== "all" ? `_${deptLabel}` : ""}${filterMonth !== "all" ? `_${monthLabel}` : ""}.pdf`;
-      doc.save(filename);
+      savePDF(doc, filename);
       toast.success(`PDF exported — ${rows.length} rows`);
     } finally { setExporting(false); }
   }

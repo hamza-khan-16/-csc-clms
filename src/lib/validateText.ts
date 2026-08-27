@@ -214,6 +214,6 @@ export function validateMeaningfulText(
 export function liveTextHint(text: string): string | null {
   if (text.trim().length < 6) return null;
   const result = validateMeaningfulText(text, "Text");
-  if (!result.valid) return "⚠ Please use proper words.";
+  if (!result.valid) return "Please use proper words.";
   return null;
 }

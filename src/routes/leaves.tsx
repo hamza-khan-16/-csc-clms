@@ -22,7 +22,7 @@ import {
   type LeaveType,
   type DocStatus,
 } from "@/lib/leave";
-import { CheckCircle2, FileText, Upload, Calendar, List } from "lucide-react";
+import { AlertTriangle, Calendar, CheckCircle2, FileText, List, Paperclip, Upload } from "lucide-react";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -343,7 +343,7 @@ function MyLeavesPage() {
           <div className="w-full max-w-sm rounded-2xl border border-border bg-background p-6 shadow-2xl space-y-4 animate-in fade-in-0 zoom-in-95 duration-200">
             <div className="flex items-center gap-3">
               <div className="size-10 rounded-full bg-destructive/10 flex items-center justify-center shrink-0">
-                <span className="text-destructive text-lg">⚠️</span>
+                <AlertTriangle className="size-5 text-destructive shrink-0"/>
               </div>
               <div>
                 <p className="font-semibold text-base">Withdraw request?</p>
@@ -490,7 +490,7 @@ function DocUploadSection({
         {selectedFile && (
           <div className="flex items-center gap-2">
             <span className="truncate text-xs text-muted-foreground">
-              📎 {selectedFile.name}
+              <span className="inline-flex items-center gap-1"><Paperclip className="size-3.5"/>{selectedFile.name}</span>
             </span>
             <Button
               size="sm"
