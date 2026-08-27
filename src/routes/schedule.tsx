@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { DAYS, fmtDate, fmtTime, todayISO } from "@/lib/leave";
 import { cn } from "@/lib/utils";
+import { savePDF, saveXLSX } from "../lib/download";
 
 // ── Common subjects list ──────────────────────────────────────────────────────
 const COMMON_SUBJECTS = [
@@ -334,7 +335,7 @@ function TimetableModal({
     }
 
     const safeName = teacherName.split(" ").join("_");
-    doc.save(`Timetable_${safeName}.pdf`);
+    savePDF(doc, `Timetable_${safeName}.pdf`);
   }
 
   return (

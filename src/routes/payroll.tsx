@@ -12,6 +12,7 @@ import { fmtDate, leaveTypeLabel, money, perDaySalary, LEAVE_TYPES, type LeaveSt
 import { ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { jsPDF } from "jspdf";
+import { savePDF, saveXLSX } from "../lib/download";
 
 export const Route = createFileRoute("/payroll")({
   head: () => ({
@@ -128,7 +129,7 @@ function PayrollPage() {
     doc.text(`Net Payable    ${money(totals.net).padStart(14)}`, 14, 82);
     const safeName = (profile?.full_name ?? "payslip").split(" ").join("_");
     const safePeriod = month.replace(" ", "_");
-    doc.save(`Payslip_${safeName}_${safePeriod}.pdf`);
+    savePDF(doc, `Payslip_${safeName}_${safePeriod}.pdf`);
   }
 
   const yearlyTotals = {

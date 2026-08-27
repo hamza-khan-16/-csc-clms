@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { savePDF, saveXLSX } from "../lib/download";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
@@ -205,7 +206,7 @@ function downloadReferenceDoc() {
   ws2["!cols"] = [{ wch: 14 }, { wch: 44 }, { wch: 12 }];
   XLSX.utils.book_append_sheet(wb, ws2, "Upload Template (clean)");
 
-  XLSX.writeFile(wb, "CSC_Holiday_Format_2026.xlsx");
+  saveXLSX(XLSX, wb, "CSC_Holiday_Format_2026.xlsx");
   toast.success("Format document downloaded — use 'Upload Template (clean)' sheet for uploading");
 }
 

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
+import { savePDF, saveXLSX } from "../lib/download";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
@@ -347,7 +348,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
         : [{ Note: "No approved leaves in this period" }]
     ), "Approved Leaves");
     const fileName = teacher.full_name.replace(/\s+/g, "_") + "_HR_" + filterYear + ".xlsx";
-    XLSX.writeFile(wb, fileName);
+    saveXLSX(XLSX, wb, fileName);
   }
 
   const TABS: { id: CardTab; label: string; Icon: any }[] = [
@@ -695,7 +696,7 @@ function HrPage() {
     });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "HR Payroll");
-    XLSX.writeFile(wb, `HR_Full_Report_${new Date().toISOString().slice(0,10)}.xlsx`);
+    saveXLSX(XLSX, wb, `HR_Full_Report_${new Date().toISOString().slice(0,10)}.xlsx`);
     toast.success("Full report downloaded");
   }
 
