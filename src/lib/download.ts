@@ -1,25 +1,25 @@
 /**
  * download.ts
  *
- * Unified download helper that works in both browser and Median webview.
+ * Unified download helper that works in browser, Median webview, and
+ * mobile browsers (iOS Safari / Android Chrome) where blob-URL clicks
+ * are silently blocked.
  *
- * Median's webview doesn't intercept blob-URL downloads (jsPDF doc.save /
- * XLSX.writeFile both create a hidden <a> with a blob href — the webview
- * ignores the click). Instead we must call median.downloadFile() with a
- * real https:// URL.
- *
- * Strategy for Median:
- *   1. Convert the file to a Blob.
- *   2. Upload it to Supabase Storage (temp-downloads bucket) with a short TTL path.
- *   3. Create a signed URL (60 s is plenty for the native download manager).
- *   4. Pass that URL to median.downloadFile().
- *   5. Clean up the remote file after a short delay.
+ * Strategy:
+ *   - Median app  → median.downloadFile() with a signed Supabase URL
+ *   - Mobile browser (non-Median) → same upload+sign strategy, then
+ *     window.open() the signed URL (works on iOS Safari & Android Chrome)
+ *   - Desktop browser → standard doc.save() / XLSX.writeFile() blob approach
  */
 
 import { supabase } from "@/integrations/supabase/client";
 
 function isMedian(): boolean {
   return !!(window as any).median || !!(window as any).gonative;
+}
+
+function isMobileBrowser(): boolean {
+  return /android|iphone|ipad|ipod/i.test(navigator.userAgent);
 }
 
 /** Upload a Blob to Supabase Storage and return a short-lived signed URL. */
@@ -59,6 +59,11 @@ export async function savePDF(doc: any, filename: string): Promise<void> {
     const blob: Blob = doc.output("blob");
     const url = await uploadAndSign(blob, filename);
     (window as any).median.downloadFile({ url, filename });
+  } else if (isMobileBrowser()) {
+    // iOS Safari / Android Chrome block blob-URL clicks — use signed URL + window.open
+    const blob: Blob = doc.output("blob");
+    const url = await uploadAndSign(blob, filename);
+    window.open(url, "_blank");
   } else {
     doc.save(filename);
   }
@@ -83,7 +88,54 @@ export async function saveXLSX(
     });
     const url = await uploadAndSign(blob, filename);
     (window as any).median.downloadFile({ url, filename });
+  } else if (isMobileBrowser()) {
+    // iOS Safari / Android Chrome — use signed URL + window.open
+    const buf: ArrayBuffer = XLSX.write(wb, {
+      bookType: "xlsx",
+      type: "array",
+    });
+    const blob = new Blob([buf], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = await uploadAndSign(blob, filename);
+    window.open(url, "_blank");
   } else {
     XLSX.writeFile(wb, filename);
+  }
+}
+
+/**
+ * Download any blob (e.g. ZIP) on all platforms.
+ * Use this instead of a raw <a>.click() in mobile-facing code.
+ */
+export async function saveBlob(
+  blob: Blob,
+  filename: string
+): Promise<void> {
+  if (isMedian()) {
+    const url = await uploadAndSign(blob, filename);
+    (window as any).median.downloadFile({ url, filename });
+  } else if (isMobileBrowser()) {
+    const url = await uploadAndSign(blob, filename);
+    window.open(url, "_blank");
+  } else {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+}
+
+/**
+ * Open a signed/remote URL as a download on all platforms.
+ * Use this instead of a raw <a>.click() when you already have an https:// URL.
+ */
+export function saveRemoteUrl(url: string, filename: string): void {
+  if (isMedian()) {
+    (window as any).median.downloadFile({ url, filename });
+  } else {
+    // Works on mobile browsers too — signed https URL, not a blob
+    window.open(url, "_blank");
   }
 }

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
-import { savePDF, saveXLSX } from "../lib/download";
+import { savePDF, saveXLSX, saveBlob, saveRemoteUrl } from "../lib/download";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
@@ -103,8 +103,7 @@ async function signedUrl(path: string) {
 async function downloadDoc(doc: TeacherDoc) {
   const url = await signedUrl(doc.file_path);
   if (!url) { toast.error("Could not get download link"); return; }
-  const a = document.createElement("a");
-  a.href = url; a.download = doc.original_name; a.target = "_blank"; a.click();
+  saveRemoteUrl(url, doc.original_name);
 }
 async function downloadAllDocs(teacher: TeacherProfile, setBusy: (v: boolean) => void) {
   if (!teacher.docs.length) { toast.error("No documents"); return; }
@@ -121,10 +120,7 @@ async function downloadAllDocs(teacher: TeacherProfile, setBusy: (v: boolean) =>
       folder.file(`${DOC_LABEL[doc.doc_type] ?? doc.doc_type}.${ext}`, blob);
     }));
     const content = await zip.generateAsync({ type: "blob" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(content);
-    a.download = safeName + "_documents.zip";
-    a.click(); URL.revokeObjectURL(a.href);
+    await saveBlob(content, safeName + "_documents.zip");
     toast.success("All documents downloaded");
   } catch { toast.error("Download failed"); }
   finally { setBusy(false); }
