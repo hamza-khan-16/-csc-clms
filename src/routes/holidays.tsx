@@ -145,7 +145,7 @@ function parseHolidaySheet(workbook: XLSX.WorkBook): {
 }
 
 // ── Generate the 2026 reference document ─────────────────────────────────────
-function downloadReferenceDoc() {
+async function downloadReferenceDoc() {
   // DD-MM-YYYY format — matches what Excel auto-displays when you type dates
   const rows2026 = [
     ["Date",        "Occasion",                              "Kind"    ],
@@ -206,7 +206,7 @@ function downloadReferenceDoc() {
   ws2["!cols"] = [{ wch: 14 }, { wch: 44 }, { wch: 12 }];
   XLSX.utils.book_append_sheet(wb, ws2, "Upload Template (clean)");
 
-  saveXLSX(XLSX, wb, "CSC_Holiday_Format_2026.xlsx");
+  await saveXLSX(XLSX, wb, "CSC_Holiday_Format_2026.xlsx");
   toast.success("Format document downloaded — use 'Upload Template (clean)' sheet for uploading");
 }
 

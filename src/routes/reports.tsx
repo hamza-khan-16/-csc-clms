@@ -253,7 +253,7 @@ function fmtDateFull(d: Date): string {
 
 // ── Apply header row styles in XLSX ──────────────────────────────────────────
 
-function exportExcel(month: number, year: number, label: string, summaries: ReturnType<typeof buildTeacherSummary>[], workingDays: Date[], fixedLectures: any[], datedLectures: any[], proxies: any[], compensations: any[]) {
+async function exportExcel(month: number, year: number, label: string, summaries: ReturnType<typeof buildTeacherSummary>[], workingDays: Date[], fixedLectures: any[], datedLectures: any[], proxies: any[], compensations: any[]) {
   const wb = XLSX.utils.book_new();
   const weeks = getWeeksInMonth(workingDays);
 
@@ -348,11 +348,11 @@ function exportExcel(month: number, year: number, label: string, summaries: Retu
     XLSX.utils.book_append_sheet(wb, ws5, "Compensations");
   }
 
-  saveXLSX(XLSX, wb, `${label.replace(/[^a-zA-Z0-9 _-]/g,"_")}_${MONTH_NAMES[month]}_${year}.xlsx`);
+  await saveXLSX(XLSX, wb, `${label.replace(/[^a-zA-Z0-9 _-]/g,"_")}_${MONTH_NAMES[month]}_${year}.xlsx`);
 }
 
 // ── Principal Excel export (leave-based, not schedule-based) ─────────────────
-function exportPrincipalExcel(
+async function exportPrincipalExcel(
   year: number,
   deptTabLabel: string,
   leaves: any[],
@@ -452,11 +452,11 @@ function exportPrincipalExcel(
   ws4["!cols"] = [{ wch: 50 }];
   XLSX.utils.book_append_sheet(wb, ws4, "Report Info");
 
-  saveXLSX(XLSX, wb, `Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.xlsx`);
+  await saveXLSX(XLSX, wb, `Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.xlsx`);
 }
 
 // ── Principal PDF export ──────────────────────────────────────────────────────
-function exportPrincipalPDF(
+async function exportPrincipalPDF(
   year: number,
   deptTabLabel: string,
   leaves: any[],
@@ -552,9 +552,9 @@ function exportPrincipalPDF(
     },
   });
 
-  savePDF(doc, `Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.pdf`);
+  await savePDF(doc, `Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.pdf`);
 }
-function exportPDF(month: number, year: number, label: string, summaries: ReturnType<typeof buildTeacherSummary>[], workingDays: Date[]) {
+async function exportPDF(month: number, year: number, label: string, summaries: ReturnType<typeof buildTeacherSummary>[], workingDays: Date[]) {
   const weeks   = getWeeksInMonth(workingDays);
   const doc     = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
   const pageW   = doc.internal.pageSize.getWidth();
@@ -668,7 +668,7 @@ function exportPDF(month: number, year: number, label: string, summaries: Return
     },
   });
 
-  savePDF(doc, `${label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${MONTH_NAMES[month]}_${year}.pdf`);
+  await savePDF(doc, `${label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${MONTH_NAMES[month]}_${year}.pdf`);
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────

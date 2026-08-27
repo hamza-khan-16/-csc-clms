@@ -283,7 +283,7 @@ function TimetableModal({
   const WEEKDAYS_LIST = [1, 2, 3, 4, 5, 6];
   const [mobileDay, setMobileDay] = useState(1);
 
-  function downloadPDF() {
+  async function downloadPDF() {
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const DAY_NAMES_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const WEEKDAYS_LIST   = [1, 2, 3, 4, 5, 6];
@@ -335,7 +335,7 @@ function TimetableModal({
     }
 
     const safeName = teacherName.split(" ").join("_");
-    savePDF(doc, `Timetable_${safeName}.pdf`);
+    await savePDF(doc, `Timetable_${safeName}.pdf`);
   }
 
   return (

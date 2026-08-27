@@ -112,7 +112,7 @@ function PayrollPage() {
     { name: "Deduction", value: totals.deduction, color: "#ef4444" },
   ].filter((d) => d.value > 0);
 
-  function downloadPayslip() {
+  async function downloadPayslip() {
     const doc = new jsPDF({ unit: "mm", format: "a5" });
     const month = effectiveMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
     doc.setFontSize(15); doc.text("Chandrabhan Sharma College", 14, 18);
@@ -129,7 +129,7 @@ function PayrollPage() {
     doc.text(`Net Payable    ${money(totals.net).padStart(14)}`, 14, 82);
     const safeName = (profile?.full_name ?? "payslip").split(" ").join("_");
     const safePeriod = month.replace(" ", "_");
-    savePDF(doc, `Payslip_${safeName}_${safePeriod}.pdf`);
+    await savePDF(doc, `Payslip_${safeName}_${safePeriod}.pdf`);
   }
 
   const yearlyTotals = {

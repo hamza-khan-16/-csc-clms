@@ -436,12 +436,12 @@ function AdminReportsPage() {
     ws["!freeze"] = { xSplit: 0, ySplit: 1 };
     XLSX.utils.book_append_sheet(wb, ws, mod.label.slice(0, 31));
     const filename = `${mod.label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${filterYear}${filterDept !== "all" ? `_${deptLabel}` : ""}${filterMonth !== "all" ? `_${monthLabel}` : ""}.xlsx`;
-    saveXLSX(XLSX, wb, filename);
+    await saveXLSX(XLSX, wb, filename);
     toast.success(`Excel exported — ${rows.length} rows`);
   }
 
   // ── PDF export ── uses jsPDF autoTable for professional output ───────────────
-  function exportPDF() {
+  async function exportPDF() {
     if (rows.length === 0) return toast.error("No data to export");
     setExporting(true);
     try {
@@ -511,7 +511,7 @@ function AdminReportsPage() {
       });
 
       const filename = `${mod.label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${filterYear}${filterDept !== "all" ? `_${deptLabel}` : ""}${filterMonth !== "all" ? `_${monthLabel}` : ""}.pdf`;
-      savePDF(doc, filename);
+      await savePDF(doc, filename);
       toast.success(`PDF exported — ${rows.length} rows`);
     } finally { setExporting(false); }
   }

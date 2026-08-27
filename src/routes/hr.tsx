@@ -321,7 +321,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
     setBusy(false);
   }
 
-  function downloadReport() {
+  async function downloadReport() {
     const wb = XLSX.utils.book_new();
     // Sheet 1: Payroll summary (based on approved leaves — salary-impacting)
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{
@@ -348,7 +348,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
         : [{ Note: "No approved leaves in this period" }]
     ), "Approved Leaves");
     const fileName = teacher.full_name.replace(/\s+/g, "_") + "_HR_" + filterYear + ".xlsx";
-    saveXLSX(XLSX, wb, fileName);
+    await saveXLSX(XLSX, wb, fileName);
   }
 
   const TABS: { id: CardTab; label: string; Icon: any }[] = [
@@ -696,7 +696,7 @@ function HrPage() {
     });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "HR Payroll");
-    saveXLSX(XLSX, wb, `HR_Full_Report_${new Date().toISOString().slice(0,10)}.xlsx`);
+    await saveXLSX(XLSX, wb, `HR_Full_Report_${new Date().toISOString().slice(0,10)}.xlsx`);
     toast.success("Full report downloaded");
   }
 
