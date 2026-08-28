@@ -908,11 +908,11 @@ function ReportsPage() {
                 </p>
               </div>
               <div className="flex gap-2 shrink-0">
-                <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadExcel} disabled={!!downloading || monthLoading || (!isPrincipal && !filteredSummaries.length)}>
+                <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadExcel} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
                   <FileSpreadsheet className="size-4 text-emerald-600" />
                   <span className="hidden xs:inline">{downloading === "excel" ? "…" : "Excel"}</span>
                 </Button>
-                <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadPDF} disabled={!!downloading || monthLoading || (!isPrincipal && !filteredSummaries.length)}>
+                <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadPDF} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
                   <FileText className="size-4 text-red-600 dark:text-red-400" />
                   <span className="hidden xs:inline">{downloading === "pdf" ? "…" : "PDF"}</span>
                 </Button>
