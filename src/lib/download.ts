@@ -12,7 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 function isMedian(): boolean {
   const w = window as any;
-  return !!(w.median?.downloadFile || w.gonative?.window?.open);
+  return !!(w.median?.share?.downloadFile || w.gonative?.share?.downloadFile);
 }
 
 function isWebView(): boolean {
@@ -71,7 +71,9 @@ async function downloadBlob(blob: Blob, filename: string): Promise<void> {
     const toastId = toast.loading("Preparing download…");
     try {
       const url = await uploadAndSign(blob, filename);
-      (window as any).median.downloadFile({ url, filename });
+      const m = window as any;
+      const downloadFn = m.median?.share?.downloadFile ?? m.gonative?.share?.downloadFile;
+      downloadFn({ url, filename });
       toast.success("Download started!", { id: toastId });
     } catch (err: any) {
       console.error("[download] Median path failed:", err);
