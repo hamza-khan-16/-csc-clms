@@ -665,35 +665,24 @@ export function LeaveBot() {
   async function toggleMic() {
     // ── Median webview path ──────────────────────────────────────────────────
     if (isMedian()) {
-      const bridge = (window as any).median?.backgroundAudio;
-      if (!bridge) return;
-
       if (listening) {
-        try {
-          const result = await bridge.stopRecording();
-          if (result?.transcript) setInput(result.transcript);
-        } catch { /* ignore */ }
+        // Stop ongoing recognition
+        try { (window as any).median?.speech?.stopRecognition?.(); } catch { /* ignore */ }
         setListening(false);
         return;
       }
 
       try {
-        // Check / request permission — shows native Android dialog
-        const perm = await bridge.checkPermission();
-        if (!perm?.granted) {
-          const req = await bridge.requestPermission();
-          if (!req?.granted) return; // user denied
-        }
-
-        // Start recording with on-device transcription
-        const result = await bridge.startRecording({
-          format: "m4a",
-          maxDuration: 60,        // 60s max for a chat message
-          enableTranscription: true,
-          sttLanguage: "en-IN",
+        setListening(true);
+        // median.speech.startRecognition is the correct Median JS bridge for STT
+        (window as any).median.speech.startRecognition({
+          language: "en-IN",
+          onResult: (result: any) => {
+            if (result?.transcript) setInput(result.transcript);
+            if (result?.isFinal) setListening(false);
+          },
+          onError: () => setListening(false),
         });
-
-        if (result?.success) setListening(true);
       } catch { setListening(false); }
       return;
     }
