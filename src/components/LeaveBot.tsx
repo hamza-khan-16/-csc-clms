@@ -656,38 +656,15 @@ export function LeaveBot() {
   const isMedian = () => !!(window as any).median || !!(window as any).gonative;
 
   useEffect(() => {
-    // Show mic button if Median bridge OR browser SpeechRecognition is available
-    const hasBridge = isMedian();
+    // Show mic button only if SpeechRecognition is available (works in Median Android webview too)
     const hasSpeech = !!(window as any).SpeechRecognition || !!(window as any).webkitSpeechRecognition;
-    setMicSupported(hasBridge || hasSpeech);
+    setMicSupported(hasSpeech);
   }, []);
 
   async function toggleMic() {
-    // ── Median webview path ──────────────────────────────────────────────────
-    if (isMedian()) {
-      if (listening) {
-        // Stop ongoing recognition
-        try { (window as any).median?.speech?.stopRecognition?.(); } catch { /* ignore */ }
-        setListening(false);
-        return;
-      }
-
-      try {
-        setListening(true);
-        // median.speech.startRecognition is the correct Median JS bridge for STT
-        (window as any).median.speech.startRecognition({
-          language: "en-IN",
-          onResult: (result: any) => {
-            if (result?.transcript) setInput(result.transcript);
-            if (result?.isFinal) setListening(false);
-          },
-          onError: () => setListening(false),
-        });
-      } catch { setListening(false); }
-      return;
-    }
-
-    // ── Browser fallback path (SpeechRecognition) ────────────────────────────
+    // ── Speech Recognition (works in both browser and Median Android webview) ─
+    // Median's Android webview supports webkitSpeechRecognition natively —
+    // just make sure Microphone is set to Enable in Median dashboard.
     const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
 
