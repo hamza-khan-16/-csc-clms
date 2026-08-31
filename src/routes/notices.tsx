@@ -1,14 +1,66 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
+
+// Lightweight markdown renderer for notice bodies:
+// **bold**, *italic*, - bullet lists, URLs auto-linked
+function renderNoticeBody(text: string): React.ReactNode {
+  const lines = text.split("\n");
+  return (
+    <div className="space-y-1">
+      {lines.map((line, i) => {
+        // Bullet list item
+        const isBullet = /^[-•*]\s+/.test(line);
+        const content = isBullet ? line.replace(/^[-•*]\s+/, "") : line;
+
+        // Inline formatting: **bold**, *italic*, URLs
+        const parts: React.ReactNode[] = [];
+        let remaining = content;
+        let idx = 0;
+
+        const PATTERNS: [RegExp, (m: string, g: string) => React.ReactNode][] = [
+          [/\*\*(.+?)\*\*/g, (_, g) => <strong key={idx++} className="font-semibold">{g}</strong>],
+          [/\*(.+?)\*/g,      (_, g) => <em key={idx++} className="italic">{g}</em>],
+          [/https?:\/\/[^\s]+/g, (m) => <a key={idx++} href={m} target="_blank" rel="noopener noreferrer" className="underline text-primary">{m}</a>],
+        ];
+
+        let lastStr = remaining;
+        // Simple single-pass: bold → italic → url
+        const segments: React.ReactNode[] = [];
+        const combined = /\*\*(.+?)\*\*|\*(.+?)\*|https?:\/\/[^\s]+/g;
+        let last = 0;
+        let match;
+        while ((match = combined.exec(content)) !== null) {
+          if (match.index > last) segments.push(content.slice(last, match.index));
+          if (match[0].startsWith("**")) segments.push(<strong key={idx++} className="font-semibold">{match[1]}</strong>);
+          else if (match[0].startsWith("*"))  segments.push(<em key={idx++} className="italic">{match[2]}</em>);
+          else segments.push(<a key={idx++} href={match[0]} target="_blank" rel="noopener noreferrer" className="underline text-primary">{match[0]}</a>);
+          last = match.index + match[0].length;
+        }
+        if (last < content.length) segments.push(content.slice(last));
+
+        const node = segments.length ? <>{segments}</> : <>{content}</>;
+
+        if (isBullet) return (
+          <div key={i} className="flex items-start gap-1.5">
+            <span className="mt-1 size-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
+            <span>{node}</span>
+          </div>
+        );
+        if (!line.trim()) return <div key={i} className="h-1" />;
+        return <div key={i}>{node}</div>;
+      })}
+    </div>
+  );
+}
+
 import { CalendarClock, CalendarDays, CheckCheck, ChevronDown, ChevronUp, ClipboardList, Trash2 } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { GuardedInput, GuardedTextarea } from "@/components/GuardedField";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
-import { sendPushNotification } from "@/lib/push.functions";
+import { firePush } from "@/lib/push.functions";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, Empty } from "@/components/ui-bits";
@@ -50,13 +102,28 @@ function NoticesPage() {
   const { profile, role } = useAuth();
   const qc = useQueryClient();
   const isPrincipal = role === "principal";
-  const sendPush = useServerFn(sendPushNotification);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [scope, setScope] = useState<string>("all");
   const [eventDate, setEventDate] = useState("");
   const [eventTime, setEventTime] = useState("");
   const [busy, setBusy] = useState(false);
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
+
+  // Fetch which notices this user has already read from Supabase
+  useQuery({
+    queryKey: ["notice-reads", profile?.id],
+    enabled: !!profile?.id,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("notice_reads")
+        .select("notice_id")
+        .eq("user_id", profile!.id);
+      if (error) throw error;
+      setReadIds(new Set((data ?? []).map((r: any) => r.notice_id)));
+      return data;
+    },
+  });
 
   const { data: departments = [] } = useQuery({
     queryKey: ["departments-list"],
@@ -137,13 +204,13 @@ function NoticesPage() {
           "__hr__",        // HR staff
           "__principal__", // principal (if another principal/admin posts)
         ];
-    sendPush({ data: {
+    firePush({
       userIds: recipientIds,
       title: "New Notice",
       body: title.trim(),
       targetUrl: "/notices",
       excludeUserIds: profile?.id ? [profile.id] : [],
-    }}).catch((e) => console.error("[Push] notice:", e));
+    });
     setTitle("");
     setBody("");
     setEventDate("");
@@ -204,6 +271,8 @@ function NoticesPage() {
                     canDelete={n.created_by === profile?.id || role === "admin"}
                     onDelete={() => remove(n.id)}
                     userId={profile?.id}
+                    isRead={readIds.has(n.id)}
+                    onAck={(id) => setReadIds(prev => new Set([...prev, id]))}
                   />
                 );
               })}
@@ -235,6 +304,9 @@ function NoticesPage() {
                 value={body}
                 onChange={setBody}
               />
+              <p className="text-[10px] text-muted-foreground">
+                Tip: Use <code className="bg-muted px-1 rounded">**bold**</code>, <code className="bg-muted px-1 rounded">*italic*</code>, or <code className="bg-muted px-1 rounded">- bullet</code> for formatting.
+              </p>
             </div>
 
             {/* Event date / time — optional */}
@@ -301,18 +373,21 @@ function NoticesPage() {
 
 type NoticeRow = { id: string; title: string; body: string | null; event_date: string | null; event_time: string | null; created_at: string; created_by: string | null; departments: { name: string } | null };
 
-function NoticeCard({ notice: n, hasEvent, isLong, canDelete, onDelete, userId }: {
-  notice: NoticeRow; hasEvent: boolean; isLong: boolean; canDelete: boolean; onDelete: () => void; userId: string | undefined;
+function NoticeCard({ notice: n, hasEvent, isLong, canDelete, onDelete, userId, isRead, onAck }: {
+  notice: NoticeRow; hasEvent: boolean; isLong: boolean; canDelete: boolean; onDelete: () => void;
+  userId: string | undefined; isRead: boolean; onAck: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const SEEN_KEY = `noticed_${n.id}`;
-  const [acked, setAcked] = useState(() => {
-    try { return !!localStorage.getItem(SEEN_KEY); } catch { return false; }
-  });
+  const [acked, setAcked] = useState(isRead);
 
-  function acknowledge() {
-    try { localStorage.setItem(SEEN_KEY, "1"); } catch {}
+  async function acknowledge() {
+    if (!userId) return;
+    const { error } = await (supabase as any)
+      .from("notice_reads")
+      .upsert({ user_id: userId, notice_id: n.id }, { onConflict: "user_id,notice_id" });
+    if (error) return toast.error("Could not mark as read");
     setAcked(true);
+    onAck(n.id);
     toast.success("Notice acknowledged");
   }
 
@@ -326,7 +401,9 @@ function NoticeCard({ notice: n, hasEvent, isLong, canDelete, onDelete, userId }
           <p className="font-semibold leading-snug line-clamp-2">{n.title}</p>
           {n.body && (
             <>
-              <p className={`mt-1 text-sm text-muted-foreground ${!expanded && isLong ? "line-clamp-2" : ""}`}>{n.body}</p>
+              <div className={`mt-1 text-sm text-muted-foreground ${!expanded && isLong ? "line-clamp-2" : ""}`}>
+                {expanded || !isLong ? renderNoticeBody(n.body) : n.body}
+              </div>
               {isLong && (
                 <button onClick={() => setExpanded((e) => !e)} className="mt-1 flex items-center gap-0.5 text-xs text-primary font-medium">
                   {expanded ? <><ChevronUp className="size-3" /> Show less</> : <><ChevronDown className="size-3" /> Read more</>}

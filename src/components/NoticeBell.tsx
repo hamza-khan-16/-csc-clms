@@ -18,33 +18,76 @@ type ActivityItem =
   | { kind: "proxy";   id: string; title: string; date: string; created_at: string }
   | { kind: "doc";     id: string; title: string; status: string; created_at: string };
 
-// Per-user key — prevents cross-user read state bleed on shared devices
-function seenKey(userId?: string) { return userId ? `notif_seen_ids_${userId}` : "notif_seen_ids"; }
+// ── Seen-IDs storage strategy ─────────────────────────────────────────────
+// sessionStorage  — fast, survives tab switches, cleared on browser/app close  ✓
+// Supabase meta   — persists across devices/sessions (background sync)         ✓
+//
+// On mount: load from sessionStorage immediately (no flash), then merge with
+//           Supabase metadata in the background.
+// On mark-read: write to sessionStorage instantly, debounce Supabase write.
+// ──────────────────────────────────────────────────────────────────────────────
 
-function getSeenIds(userId?: string): Set<string> {
+function ssKey(userId?: string) { return `notif_seen_ids_${userId ?? "guest"}`; }
+
+function loadFromSession(userId?: string): Set<string> {
   try {
-    const raw = localStorage.getItem(seenKey(userId));
+    const raw = sessionStorage.getItem(ssKey(userId));
     return raw ? new Set(JSON.parse(raw)) : new Set();
   } catch { return new Set(); }
 }
 
+function saveToSession(ids: Set<string>, userId?: string) {
+  try { sessionStorage.setItem(ssKey(userId), JSON.stringify([...ids].slice(-200))); } catch {}
+}
+
+let _supabaseSyncTimer: ReturnType<typeof setTimeout> | null = null;
 function saveSeenIds(ids: Set<string>, userId?: string) {
+  // Always write to sessionStorage immediately
+  saveToSession(ids, userId);
+  // Debounce Supabase write (background, best-effort)
+  if (!userId) return;
+  if (_supabaseSyncTimer) clearTimeout(_supabaseSyncTimer);
+  _supabaseSyncTimer = setTimeout(() => {
+    supabase.auth.updateUser({ data: { notif_seen_ids: [...ids].slice(-200) } }).catch(() => {});
+  }, 2000);
+}
+
+async function loadSeenIds(userId?: string): Promise<Set<string>> {
+  // Start with what's in sessionStorage (fast, no network)
+  const local = loadFromSession(userId);
+  if (!userId) return local;
+  // Merge with Supabase session metadata (cached — no network round-trip)
   try {
-    const arr = [...ids].slice(-200);
-    localStorage.setItem(seenKey(userId), JSON.stringify(arr));
+    const { data } = await supabase.auth.getSession();
+    const remote = data?.session?.user?.user_metadata?.notif_seen_ids;
+    if (Array.isArray(remote)) {
+      const merged = new Set([...local, ...remote]);
+      saveToSession(merged, userId);
+      return merged;
+    }
   } catch {}
+  return local;
 }
 
 export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: string }) {
   const [open, setOpen] = useState(false);
   const qc = useQueryClient();
-  const [seenIds, setSeenIds] = useState<Set<string>>(() => getSeenIds(userId));
+  // Initialize from sessionStorage immediately — no empty-set flash on tab switch
+  const [seenIds, setSeenIds] = useState<Set<string>>(() => loadFromSession(userId));
+
+  // Merge with Supabase metadata in background on mount
+  useEffect(() => {
+    loadSeenIds(userId).then(ids => {
+      if (ids.size > 0) setSeenIds(ids);
+    }).catch(() => {});
+  }, [userId]);
   const prevCountRef = useRef(0);
 
   // Notices
   const { data: notices = [] } = useQuery({
     queryKey: ["navbar-notices"],
     staleTime: 60_000,
+    refetchInterval: role === "teacher" ? 10 * 60 * 1000 : 2 * 60 * 1000,
     queryFn: async () => {
       const { data } = await supabase
         .from("notices")

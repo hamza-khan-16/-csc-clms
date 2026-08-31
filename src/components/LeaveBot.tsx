@@ -805,7 +805,7 @@ export function LeaveBot() {
               <div ref={bottomRef} />
             </div>
 
-            {/* Starters */}
+            {/* Starters — shown on first message */}
             {messages.length===1 && !loading && (
               <div className="px-4 pb-2 flex gap-2 flex-wrap flex-shrink-0">
                 {starters.map(s => (
@@ -816,6 +816,31 @@ export function LeaveBot() {
                 ))}
               </div>
             )}
+
+            {/* Quick reply chips — shown after bot replies (not on first message, not loading) */}
+            {messages.length > 1 && !loading && messages[messages.length - 1].role === "assistant" && (() => {
+              const QUICK_REPLIES = [
+                "Check my leave balance",
+                "How many casual leaves left?",
+                "Show today's schedule",
+                "Apply for casual leave",
+                "Who's absent today?",
+                "When is the next holiday?",
+              ];
+              // Pick 3 chips that aren't the last user message
+              const lastUser = messages.filter(m => m.role === "user").slice(-1)[0]?.content ?? "";
+              const chips = QUICK_REPLIES.filter(q => !lastUser.toLowerCase().includes(q.toLowerCase().slice(0, 12))).slice(0, 3);
+              return chips.length > 0 ? (
+                <div className="px-4 pb-2 flex gap-1.5 flex-wrap flex-shrink-0">
+                  {chips.map(q => (
+                    <button key={q} onClick={() => send(q)}
+                      className="text-xs px-2.5 py-1 rounded-full border border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors">
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              ) : null;
+            })()}
 
             {/* Input */}
             <div className="flex-shrink-0 border-t border-border">

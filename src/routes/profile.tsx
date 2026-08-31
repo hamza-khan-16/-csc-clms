@@ -31,7 +31,12 @@ const MONTHS = [
   "January","February","March","April","May","June",
   "July","August","September","October","November","December",
 ];
-const DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"));
+function daysInMonth(month: string, year: string): number {
+  const m = parseInt(month);
+  const y = parseInt(year) || 2000; // use a leap year as default so Feb gets 29
+  if (!m) return 31;
+  return new Date(y, m, 0).getDate();
+}
 
 function parseDob(val: string): { day: string; month: string; year: string } {
   if (!val) return { day: "", month: "", year: "" };
@@ -55,9 +60,16 @@ function DobPicker({ value, onChange }: { value: string; onChange: (v: string) =
   const [month, setMonth] = useState(parsed.month);
   const [year,  setYear]  = useState(parsed.year);
 
+  // Compute valid days for the selected month/year — prevents invalid combos like Feb 31
+  const maxDay = daysInMonth(month, year);
+  const days = Array.from({ length: maxDay }, (_, i) => String(i + 1).padStart(2, "0"));
+
   function update(d: string, m: string, y: string) {
-    setDay(d); setMonth(m); setYear(y);
-    onChange(buildDob(d, m, y));
+    // Clamp day if month change reduces the max days (e.g. Jan 31 → Feb → clamp to 28/29)
+    const max = daysInMonth(m, y);
+    const clampedDay = parseInt(d) > max ? String(max).padStart(2, "0") : d;
+    setDay(clampedDay); setMonth(m); setYear(y);
+    onChange(buildDob(clampedDay, m, y));
   }
 
   return (
@@ -67,7 +79,7 @@ function DobPicker({ value, onChange }: { value: string; onChange: (v: string) =
         <Select value={day} onValueChange={(v) => update(v, month, year)}>
           <SelectTrigger><SelectValue placeholder="Day" /></SelectTrigger>
           <SelectContent>
-            {DAYS.map((d) => <SelectItem key={d} value={d}>{parseInt(d)}</SelectItem>)}
+            {days.map((d) => <SelectItem key={d} value={d}>{parseInt(d)}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={month} onValueChange={(v) => update(day, v, year)}>
@@ -242,6 +254,10 @@ function ProfilePage() {
 
     // Step 2: Update password
     const { error: updateError } = await supabase.auth.updateUser({ password: newPw });
+    // Sign out all other sessions so old sessions are invalidated
+    if (!updateError) {
+      await supabase.auth.signOut({ scope: "others" }).catch(() => {});
+    }
     if (updateError) { setPwBusy(false); return toast.error(updateError.message); }
 
     // Step 3: Update password_changed_at to restart the 90-day clock

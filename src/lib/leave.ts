@@ -6,7 +6,8 @@ export type LeaveStatus =
   | "pending_principal"
   | "hod_approved"
   | "approved"
-  | "rejected";
+  | "rejected"
+  | "cancelled";
 
 export type DocStatus = "required" | "uploaded" | "verified";
 
@@ -83,6 +84,7 @@ export const STATUS_LABEL: Record<LeaveStatus, string> = {
   hod_approved: "Approved",
   approved: "Approved",
   rejected: "Rejected",
+  cancelled: "Withdrawn",
 };
 
 export function statusClasses(status: LeaveStatus) {
@@ -95,6 +97,8 @@ export function statusClasses(status: LeaveStatus) {
       return "bg-info/12 text-info border-info/25";
     case "rejected":
       return "bg-destructive/12 text-destructive border-destructive/25";
+    case "cancelled":
+      return "bg-muted text-muted-foreground border-muted";
     default:
       return "bg-warning/18 text-warning-foreground border-warning/35";
   }

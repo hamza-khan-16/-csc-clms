@@ -15,9 +15,8 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { validateMeaningfulText } from "@/lib/validateText";
 import { GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
-import { sendPushNotification } from "@/lib/push.functions";
+import { firePush } from "@/lib/push.functions";
 import { useRef } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { AlertTriangle, Baby, Briefcase, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock, FileText, Flower2, Info, ShieldCheck, Stethoscope, XCircle } from "lucide-react";
 import {
   Select,
@@ -122,7 +121,7 @@ function ApplySidebar({ leaveType, balances, holidays }: {
     },
   ];
 
-  const leaveInfo: Record<string, { icon: React.ElementType; desc: string }> = {
+  const leaveInfo: Record<string, { icon: React.ElementType; emoji?: string; desc: string }> = {
     casual:      { icon: CalendarDays,  emoji: "", desc: "Up to 2 per month, 12 per year. Exhausted days become unpaid." },
     medical:     { icon: Stethoscope,   emoji: "", desc: "≤ 3 days: HOD + Principal. > 3 days: HOD only with certificate." },
     maternity:   { icon: Baby,          emoji: "", desc: "Available for female staff. HOD approves. Fully paid." },
@@ -214,52 +213,94 @@ function ApplySidebar({ leaveType, balances, holidays }: {
   );
 }
 
+function ProxyAvailabilityHint({ departmentId, fromDate, toDate }: {
+  departmentId?: string; fromDate: string; toDate: string;
+}) {
+  const { data } = useQuery({
+    queryKey: ["proxy-availability", departmentId, fromDate, toDate],
+    enabled: !!departmentId && !!fromDate,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("department_id", departmentId!)
+        .eq("approved", true);
+      // Subtract 1 for the applicant themselves
+      return Math.max((count ?? 0) - 1, 0);
+    },
+  });
+  // Only warn if there are 0 other teachers available in the dept
+  if (data === undefined || data > 0) return null;
+  return (
+    <div className="col-span-2 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+      <AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
+      <span>Your department has limited staff. HOD may have difficulty finding a proxy for these dates.</span>
+    </div>
+  );
+}
+
 function ApplyPage() {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: balances = [] } = useBalances(profile?.id);
 
-  const DRAFT_KEY = `leave_draft_${profile?.id ?? "anon"}`;
-  const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
-  const draft = (() => {
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (parsed._savedAt && Date.now() - parsed._savedAt > DRAFT_TTL_MS) {
-        localStorage.removeItem(DRAFT_KEY);
-        return null;
+  // Draft is loaded async from Supabase user_metadata
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [serverDraft, setServerDraft] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      const d = data?.user?.user_metadata?.leave_draft;
+      if (d && d._savedAt && Date.now() - d._savedAt < 24 * 60 * 60 * 1000) {
+        setServerDraft(d);
       }
-      return parsed;
-    } catch { return null; }
-  })();
+      setDraftLoaded(true);
+    }).catch(() => setDraftLoaded(true));
+  }, []);
 
   const [step, setStep] = useState(0);
-  const [leaveType, setLeaveType] = useState<LeaveType>(draft?.leaveType ?? "casual");
-  const [fromDate, setFromDate] = useState(draft?.fromDate ?? todayISO());
-  const [toDate, setToDate] = useState(draft?.toDate ?? todayISO());
-  const [session, setSession] = useState<LeaveSession>(draft?.session ?? "full_day");
-  const [reason, setReason] = useState(draft?.reason ?? "");
+  const [leaveType, setLeaveType] = useState<LeaveType>("casual");
+  const [fromDate, setFromDate] = useState(todayISO());
+  const [toDate, setToDate] = useState(todayISO());
+  const [session, setSession] = useState<LeaveSession>("full_day");
+  const [reason, setReason] = useState("");
+
+  // Ref to track whether we've already populated from draft — prevents
+  // the populate effect from re-firing and triggering the save effect 5×
+  const draftPopulated = useRef(false);
+
+  useEffect(() => {
+    if (!draftLoaded || !serverDraft || draftPopulated.current) return;
+    draftPopulated.current = true;
+    if (serverDraft.leaveType) setLeaveType(serverDraft.leaveType);
+    if (serverDraft.fromDate)  setFromDate(serverDraft.fromDate);
+    if (serverDraft.toDate)    setToDate(serverDraft.toDate);
+    if (serverDraft.session)   setSession(serverDraft.session);
+    if (serverDraft.reason)    setReason(serverDraft.reason);
+  }, [draftLoaded, serverDraft]);
   const [busy, setBusy] = useState(false);
   const [reasonError, setReasonError] = useState<string | null>(null);
   const reasonGuardRef = useRef<GuardHandle>(null);
-  const sendPush = useServerFn(sendPushNotification);
-  const [hasDraft] = useState(() => {
-    if (!draft) return false;
-    const hasCustomType   = draft.leaveType && draft.leaveType !== "casual";
-    const hasCustomDate   = draft.fromDate && draft.fromDate !== todayISO();
-    const hasCustomReason = draft.reason && draft.reason.trim().length > 0;
+  const hasDraft = draftLoaded && serverDraft && (() => {
+    if (!serverDraft) return false;
+    const hasCustomType   = serverDraft.leaveType && serverDraft.leaveType !== "casual";
+    const hasCustomDate   = serverDraft.fromDate && serverDraft.fromDate !== todayISO();
+    const hasCustomReason = serverDraft.reason && serverDraft.reason.trim().length > 0;
     return !!(hasCustomType || hasCustomDate || hasCustomReason);
-  });
+  })();
 
+  // Save draft to Supabase user_metadata (debounced, only after draft was populated)
   useEffect(() => {
-    try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+    if (!draftLoaded || !draftPopulated.current) return;
+    const t = setTimeout(() => {
+      supabase.auth.updateUser({ data: { leave_draft: {
         leaveType, fromDate, toDate, session, reason, _savedAt: Date.now(),
-      }));
-    } catch {}
-  }, [DRAFT_KEY, leaveType, fromDate, toDate, session, reason]);
+      }}}).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [draftLoaded, leaveType, fromDate, toDate, session, reason]);
 
   const isMedical = leaveType === "medical";
   const isDutyHodFinal = isHodFinalLeave(leaveType) && !isMedical;
@@ -337,6 +378,10 @@ function ApplyPage() {
 
   async function submit() {
     if (reasonError) return toast.error(reasonError);
+    // Server-side guard: maternity only for female staff
+    if (leaveType === "maternity" && profile?.gender !== "female") {
+      return toast.error("Maternity leave is only available for female staff.");
+    }
     if (reason.trim() && reasonGuardRef.current) {
       const guardErr = await reasonGuardRef.current.validateNow();
       if (guardErr) return toast.error(guardErr);
@@ -347,6 +392,18 @@ function ApplyPage() {
     if (err) return toast.error(err);
     setBusy(true);
     const docStatus = (isMedical && medFlow?.docRequired) ? "required" : undefined;
+    // Rate limit: prevent duplicate submissions within 30 seconds
+    const { data: recent } = await supabase
+      .from("leave_requests")
+      .select("id, created_at")
+      .eq("teacher_id", profile!.id)
+      .gte("created_at", new Date(Date.now() - 30_000).toISOString())
+      .limit(1);
+    if (recent && recent.length > 0) {
+      setBusy(false);
+      return toast.error("You just submitted a request. Please wait a moment before submitting again.");
+    }
+
     const { error } = await supabase.from("leave_requests").insert({
       teacher_id: profile!.id,
       leave_type: leaveType,
@@ -359,14 +416,15 @@ function ApplyPage() {
     });
     setBusy(false);
     if (error) return toast.error(error.message);
-    qc.invalidateQueries();
+    qc.invalidateQueries({ queryKey: ["my-leaves", profile?.id] });
+    // Send push — fire and forget via async IIFE (useServerFn result is not a native Promise)
     if (profile?.department_id) {
-      sendPush({ data: {
-        userIds:   [`__hod_dept_${profile.department_id}__`],
+      firePush({
+        userIds:   [`__hod_dept_${profile!.department_id}__`],
         title:     "New Leave Request",
-        body:      `${profile.full_name ?? "A teacher"} applied for ${preview?.total ?? 1} day(s) of ${leaveType} leave`,
+        body:      `${profile!.full_name ?? "A teacher"} applied for ${preview?.total ?? 1} day(s) of ${leaveType} leave`,
         targetUrl: "/requests",
-      }}).catch(() => {});
+      });
     }
     if (isMedical) {
       toast.success(medFlow?.hodFinal
@@ -377,7 +435,7 @@ function ApplyPage() {
     } else {
       toast.success("Leave request sent to your HOD");
     }
-    try { localStorage.removeItem(DRAFT_KEY); } catch {}
+    supabase.auth.updateUser({ data: { leave_draft: null } }).catch(() => {});
     navigate({ to: "/leaves" });
   }
 
@@ -396,7 +454,7 @@ function ApplyPage() {
               <div className="flex items-center gap-2 rounded-lg border border-warning bg-warning px-3 py-2.5 text-xs text-warning-foreground font-medium shadow-sm">
                 <span className="inline-flex items-center gap-1"><ClipboardList className="size-4"/>Draft restored — your previous selections have been loaded.</span>
                 <button type="button" className="ml-auto shrink-0 underline underline-offset-2 hover:opacity-70"
-                  onClick={() => { try { localStorage.removeItem(DRAFT_KEY); } catch {} window.location.reload(); }}>
+                  onClick={() => { supabase.auth.updateUser({ data: { leave_draft: null } }).catch(() => {}); window.location.reload(); }}>
                   Clear draft
                 </button>
               </div>
@@ -445,7 +503,7 @@ function ApplyPage() {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label>Session</Label>
-                  <RadioGroup value={session} onValueChange={(v) => setSession(v as LeaveSession)} className="flex items-center gap-5">
+                  <RadioGroup value={session} onValueChange={(v) => setSession(v as LeaveSession)} className="flex flex-wrap items-center gap-x-5 gap-y-2">
                     {[["full_day","Full Day"],["forenoon","Forenoon"],["afternoon","Afternoon"]].map(([v,l]) => (
                       <div key={v} className="flex items-center gap-2">
                         <RadioGroupItem value={v} id={v} />
@@ -493,17 +551,22 @@ function ApplyPage() {
                       )}
                     </div>
                     {isMedical && medFlow && <p className="text-xs text-muted-foreground">{medFlow.description}</p>}
-                    {preview.skipped === 0 && preview.total > 1 && (() => {
+                    {preview.total > 1 && (() => {
+                      // Find non-working days WITHIN the date range that were NOT skipped
+                      // (i.e. sandwiched between working days and thus counted as leave days)
                       const holidaySet = new Set(holidays.map((h) => h.holiday_date));
                       const allDates: string[] = [];
                       let d = new Date(fromDate + "T00:00:00");
                       const end = new Date(toDate + "T00:00:00");
                       while (d <= end) { allDates.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
-                      const sw = allDates.filter(dt => new Date(dt+"T00:00:00").getDay()===0 || holidaySet.has(dt)).length;
-                      if (!sw) return null;
+                      // Total non-working days in range
+                      const totalNonWorking = allDates.filter(dt => new Date(dt+"T00:00:00").getDay()===0 || holidaySet.has(dt)).length;
+                      // Sandwiched = non-working days that were counted (not skipped)
+                      const sandwiched = totalNonWorking - preview.skipped;
+                      if (sandwiched <= 0) return null;
                       return (
                         <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1 flex items-center gap-1.5">
-                          <AlertTriangle className="size-3 shrink-0" /> {sw} Sunday/holiday sandwiched inside — counted as leave days.
+                          <AlertTriangle className="size-3 shrink-0" /> {sandwiched} Sunday/holiday sandwiched inside — counted as leave days.
                         </p>
                       );
                     })()}
@@ -526,6 +589,16 @@ function ApplyPage() {
                     <span className="font-medium">{fmtDate(toDate)}</span>
                     <span className="text-muted-foreground">Session</span>
                     <span className="font-medium capitalize">{session.replace(/_/g," ")}</span>
+                    {/* Proxy availability hint */}
+                    {preview && preview.total > 0 && profile?.department_id && (
+                      <div className="col-span-2">
+                        <ProxyAvailabilityHint
+                          departmentId={profile.department_id}
+                          fromDate={fromDate}
+                          toDate={toDate}
+                        />
+                      </div>
+                    )}
                     {preview && preview.total > 0 && <>
                       <span className="text-muted-foreground">Working days</span>
                       <span className="font-medium">{preview.total}</span>
@@ -544,17 +617,17 @@ function ApplyPage() {
                 {/* Approval flow visual */}
                 <div className="rounded-xl border border-border bg-muted/20 p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Approval Flow</p>
-                  <div className="flex items-center gap-2 text-xs">
-                    <div className="flex flex-col items-center gap-1">
+                  <div className="flex items-center gap-1 min-w-0 text-xs overflow-x-auto">
+                    <div className="flex flex-col items-center gap-1 shrink-0">
                       <div className="size-8 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold">You</div>
                     </div>
-                    <div className="flex-1 h-px bg-primary/30" />
-                    <div className="flex flex-col items-center gap-1">
+                    <div className="flex-1 min-w-[12px] h-px bg-primary/30" />
+                    <div className="flex flex-col items-center gap-1 shrink-0">
                       <div className="size-8 rounded-full bg-primary/15 flex items-center justify-center text-primary text-[10px] font-bold">HOD</div>
                     </div>
                     {!isDutyHodFinal && !(leaveType === "medical" && medFlow?.hodFinal) && <>
-                      <div className="flex-1 h-px bg-muted-foreground/30" />
-                      <div className="flex flex-col items-center gap-1">
+                      <div className="flex-1 min-w-[12px] h-px bg-muted-foreground/30" />
+                      <div className="flex flex-col items-center gap-1 shrink-0">
                         <div className="size-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-[9px] font-bold">PRIN</div>
                       </div>
                     </>}
@@ -569,7 +642,8 @@ function ApplyPage() {
                 <div className="space-y-2">
                   <Label htmlFor="reason">Reason <span className="text-xs text-muted-foreground">(optional)</span></Label>
                   <GuardedTextarea ref={reasonGuardRef} id="reason" fieldName="Reason" rows={3} maxLength={500}
-                    placeholder="Enter reason (optional)..." value={reason} onChange={setReason}
+                    placeholder="Enter reason (optional)..." value={reason}
+                    onChange={(v) => { setReason(v); if (!v.trim()) setReasonError(null); }}
                     onGuardError={setReasonError} />
                 </div>
               </div>
@@ -596,9 +670,27 @@ function ApplyPage() {
           </form>
         </SectionCard>
 
-        {/* ── Right: info sidebar ───────────────────────────────────────── */}
+        {/* ── Right: info sidebar (hidden on mobile, shown on lg+) ──────── */}
         <div className="hidden lg:block">
           <ApplySidebar leaveType={leaveType} balances={balances} holidays={holidays} />
+        </div>
+
+        {/* Mobile balance preview — inline below wizard ─────────────────── */}
+        <div className="lg:hidden">
+          {(balances ?? []).length > 0 && (() => {
+            const casualBal2 = balances.find(b => b.type === "casual");
+            if (!casualBal2) return null;
+            const remY = Math.max(casualBal2.yearlyCap - casualBal2.usedYear, 0);
+            const remM = casualBal2.monthlyCap != null ? Math.max(casualBal2.monthlyCap - casualBal2.usedMonth, 0) : null;
+            return (
+              <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Casual balance</span>
+                <span className="font-semibold">
+                  {remM !== null ? `${remM}/${casualBal2.monthlyCap} this month` : `${remY}/${casualBal2.yearlyCap} this year`}
+                </span>
+              </div>
+            );
+          })()}
         </div>
 
       </div>

@@ -9,6 +9,7 @@ export interface Profile {
   id: string;
   user_id: string;
   full_name: string;
+  name?: string | null;
   designation: string;
   department_id: string | null;
   department_name?: string | null;

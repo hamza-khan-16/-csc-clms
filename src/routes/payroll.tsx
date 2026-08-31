@@ -9,7 +9,7 @@ import { SectionCard, StatCard, StatusBadge, Empty } from "@/components/ui-bits"
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fmtDate, leaveTypeLabel, money, perDaySalary, LEAVE_TYPES, type LeaveStatus, type LeaveType } from "@/lib/leave";
-import { ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { jsPDF } from "jspdf";
 import { savePDF, saveXLSX } from "../lib/download";
@@ -38,12 +38,14 @@ const iso = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const CURRENT_YEAR = new Date().getFullYear();
+const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const YEARS = Array.from({ length: 5 }, (_, i) => String(CURRENT_YEAR - i));
 
 function PayrollPage() {
   const { profile } = useAuth();
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [filterYear, setFilterYear] = useState(String(CURRENT_YEAR));
+  const [ytdOpen, setYtdOpen] = useState(false); // collapsed by default
   const [filterType, setFilterType] = useState("all");
 
   // effectiveMonth always derives from filterYear + month index so they stay in sync
@@ -58,7 +60,7 @@ function PayrollPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("leave_requests")
-        .select("leave_type, total_days, paid_days, unpaid_days, status, from_date")
+        .select("leave_type, total_days, paid_days, unpaid_days, status, from_date, to_date")
         .eq("teacher_id", profile!.id)
         .in("status", ["approved", "hod_approved"])
         .gte("from_date", `${filterYear}-01-01`)
@@ -91,6 +93,27 @@ function PayrollPage() {
 
   const salary = Number(profile?.monthly_salary ?? 0);
   const dayRate = perDaySalary(salary);
+
+  // YTD month-by-month breakdown
+  const ytdRows = useMemo(() => {
+    if (!salary) return [];
+    const fy = parseInt(filterYear, 10);
+    if (!fy || isNaN(fy)) return [];
+    const currentYear = new Date().getFullYear();
+    const currentMonth = fy === currentYear ? new Date().getMonth() : 11;
+    return Array.from({ length: currentMonth + 1 }, (_, m) => {
+      const monthStart = `${fy}-${String(m + 1).padStart(2, "0")}-01`;
+      const monthEnd   = new Date(fy, m + 1, 0).toISOString().slice(0, 10);
+      const monthLeaves = yearlyLeaves.filter(l =>
+        l.from_date <= monthEnd && l.to_date >= monthStart &&
+        ["approved","hod_approved"].includes(l.status)
+      );
+      const unpaidDays = monthLeaves.reduce((s, l) => s + Number(l.unpaid_days ?? 0), 0);
+      // Use salary/30 (same as perDaySalary) for consistency with the totals panel and hr.tsx
+      const deduction  = Math.round(dayRate * unpaidDays);
+      return { month: m, unpaidDays, deduction, net: salary - deduction };
+    });
+  }, [yearlyLeaves, salary, filterYear]);
 
   const totals = useMemo(() => {
     // Only deduct for leaves that have BOTH HOD and Principal approval
@@ -143,6 +166,78 @@ function PayrollPage() {
   return (
     <AppShell title="Payroll" subtitle="Salary and leave deductions">
       <div className="space-y-6">
+
+        {/* Year-to-date month-by-month breakdown — collapsible */}
+        {salary > 0 && ytdRows.length > 0 && (
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            {/* Header — always visible, click to toggle */}
+            <button
+              onClick={() => setYtdOpen(o => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors text-left"
+            >
+              <div>
+                <p className="text-sm font-semibold">Year-to-Date Summary</p>
+                <p className="text-xs text-muted-foreground">Month-by-month breakdown for {filterYear}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Mini summary always visible */}
+                {!ytdOpen && ytdRows.some(r => r.deduction > 0) && (
+                  <span className="text-xs font-semibold text-destructive tabular-nums">
+                    - {money(ytdRows.reduce((s, r) => s + r.deduction, 0))} deducted
+                  </span>
+                )}
+                {ytdOpen
+                  ? <ChevronUp className="size-4 text-muted-foreground" />
+                  : <ChevronDown className="size-4 text-muted-foreground" />
+                }
+              </div>
+            </button>
+
+            {/* Collapsible table */}
+            {ytdOpen && (
+              <div className="px-4 pb-4 overflow-x-auto border-t border-border">
+                <table className="w-full text-sm mt-3">
+                  <thead>
+                    <tr className="border-b border-border text-xs text-muted-foreground">
+                      <th className="pb-2 text-left font-medium">Month</th>
+                      <th className="pb-2 text-right font-medium">Unpaid Days</th>
+                      <th className="pb-2 text-right font-medium">Deduction</th>
+                      <th className="pb-2 text-right font-medium">Net Pay</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ytdRows.map(row => (
+                      <tr key={row.month} className="border-b border-border/40 last:border-0">
+                        <td className="py-2 font-medium">{MONTH_NAMES[row.month]} {filterYear}</td>
+                        <td className={`py-2 text-right tabular-nums ${row.unpaidDays > 0 ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                          {row.unpaidDays > 0 ? row.unpaidDays : "—"}
+                        </td>
+                        <td className={`py-2 text-right tabular-nums ${row.deduction > 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                          {row.deduction > 0 ? `- ${money(row.deduction)}` : "—"}
+                        </td>
+                        <td className="py-2 text-right font-semibold tabular-nums">{money(row.net)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-border">
+                      <td className="pt-2 text-xs font-semibold text-muted-foreground">YTD total</td>
+                      <td className="pt-2 text-right text-xs font-semibold text-destructive tabular-nums">
+                        {ytdRows.reduce((s, r) => s + r.unpaidDays, 0) || "—"}
+                      </td>
+                      <td className="pt-2 text-right text-xs font-semibold text-destructive tabular-nums">
+                        {ytdRows.some(r => r.deduction > 0) ? `- ${money(ytdRows.reduce((s, r) => s + r.deduction, 0))}` : "—"}
+                      </td>
+                      <td className="pt-2 text-right text-xs font-semibold tabular-nums">
+                        {money(ytdRows.reduce((s, r) => s + r.net, 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Yearly overview strip */}
         {yearlyLeaves.length > 0 && (

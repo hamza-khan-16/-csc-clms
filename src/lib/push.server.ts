@@ -15,7 +15,6 @@ export const savePushToken = createServerFn({ method: "POST" })
         {
           user_id:      data.userId,
           onesignal_id: data.onesignalId,
-          updated_at:   new Date().toISOString(),
         },
         { onConflict: "user_id,onesignal_id" },
       );

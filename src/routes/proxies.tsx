@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { fetchPeople } from "@/lib/people";
+import { firePush } from "@/lib/push.functions";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { Empty, ListSkeleton } from "@/components/ui-bits";
@@ -46,7 +47,7 @@ function ProxiesPage() {
   const qc = useQueryClient();
   const today = todayISO();
 
-  const { data: rows = [], isLoading: rowsLoading } = useQuery({
+  const { data: rows = [], isLoading: rowsLoading, isError: rowsError } = useQuery({
     queryKey: ["my-proxies", profile?.id],
     enabled: !!profile,
     queryFn: async () => {
@@ -144,6 +145,20 @@ function ProxiesPage() {
     const { error } = await supabase.from("proxy_assignments").update({ status }).eq("id", id);
     if (error) return toast.error(error.message);
     toast.success(status === "accepted" ? "Proxy accepted" : "Proxy declined");
+
+    // Notify HOD when a proxy is declined so they can reassign
+    if (status === "rejected") {
+      const row = rows.find((r) => r.id === id);
+      const absenteeName = row?.absentee?.full_name ?? "a teacher";
+      const subject = (row as any)?.subject ?? "a class";
+      firePush({
+        userIds: [`__hod_dept_${profile!.department_id}__`],
+        title: "Proxy Declined",
+        body: `${profile!.full_name} declined to cover ${subject} for ${absenteeName} — please reassign`,
+        targetUrl: "/requests",
+      });
+    }
+
     qc.invalidateQueries();
   }
 

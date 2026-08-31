@@ -325,8 +325,17 @@ export const registerStaff = createServerFn({ method: "POST" })
         .from("profiles").select("id").in("id", adminUserIds);
       const adminIds = (adminProfiles ?? []).map((p: any) => p.id);
       if (adminIds.length > 0) {
-        const { notifyNewRegistration } = await import("@/lib/push.functions");
-        notifyNewRegistration(adminIds, data.fullName, data.role).catch((e) => console.error("[Push] notifyNewRegistration:", e));
+        // Fire push via API endpoint — server-side fetch
+        fetch("/api/push-send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userIds: adminIds,
+            title: "New Registration Request",
+            body: `${data.fullName} registered as ${data.role} and is awaiting approval`,
+            targetUrl: "/admin",
+          }),
+        }).catch(() => {});
       }
     } catch {}
 

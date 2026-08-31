@@ -533,7 +533,7 @@ function AdminReportsPage() {
                   onClick={() => setPrincipalDeptTab(id)}
                   className={`flex-1 flex items-center justify-center gap-2.5 px-5 py-3.5 text-sm font-semibold border-b-2 transition-all ${
                     principalDeptTab === id
-                      ? "border-primary bg-primary/8 text-primary"
+                      ? "border-primary bg-primary/10 text-primary"
                       : "border-transparent bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                   }`}
                 >

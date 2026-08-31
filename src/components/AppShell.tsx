@@ -22,8 +22,9 @@ import {
   Sun,
   Settings2,
   Check,
+  WifiOff,
 } from "lucide-react";
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Sheet,
   SheetContent,
@@ -43,10 +44,30 @@ import { LeaveBot } from "@/components/LeaveBot";
 type NavItem = {
   to: string;
   label: string;
+  mobileLabel?: string; // shorter label for bottom nav if label truncates
   icon: typeof LayoutDashboard;
   roles: AppRole[];
   badge?: number;
 };
+
+function OfflineBanner() {
+  const [offline, setOffline] = useState(false);
+  useEffect(() => {
+    const up   = () => setOffline(false);
+    const down = () => setOffline(true);
+    window.addEventListener("online",  up);
+    window.addEventListener("offline", down);
+    setOffline(!navigator.onLine);
+    return () => { window.removeEventListener("online", up); window.removeEventListener("offline", down); };
+  }, []);
+  if (!offline) return null;
+  return (
+    <div className="fixed top-0 inset-x-0 z-[200] flex items-center justify-center gap-2 bg-destructive px-4 py-2 text-xs font-medium text-destructive-foreground">
+      <WifiOff className="size-3.5 shrink-0" />
+      You are offline — data may be stale
+    </div>
+  );
+}
 
 export function AppShell({
   title,
@@ -67,28 +88,25 @@ export function AppShell({
   const { theme, toggle: toggleTheme } = useTheme();
   const dark = theme === "dark";
 
-  // Mobile bottom nav pinned tabs — persisted per user account (not per role)
-  const storageKey = `mobile-tabs-${profile?.id ?? "guest"}`;
+  // Mobile bottom nav pinned tabs — persisted to Supabase user_metadata
   const [pinnedTabs, setPinnedTabs] = useState<string[]>([]);
+  const pinnedTabsLoaded = useRef(false);
 
-  // Load pinned tabs from localStorage once the user's profile is available
+  // Load pinned tabs from Supabase session (cached — no network)
   useEffect(() => {
     if (!profile?.id) return;
-    try {
-      const saved = localStorage.getItem(storageKey);
-      setPinnedTabs(saved ? JSON.parse(saved) : []);
-    } catch {
-      setPinnedTabs([]);
-    }
-  }, [profile?.id, storageKey]);
+    supabase.auth.getSession().then(({ data }) => {
+      const saved = data?.session?.user?.user_metadata?.pinned_tabs;
+      if (Array.isArray(saved)) setPinnedTabs(saved);
+      pinnedTabsLoaded.current = true;
+    }).catch(() => { pinnedTabsLoaded.current = true; });
+  }, [profile?.id]);
 
-  // Sync pinnedTabs to localStorage whenever they change (only when profile is known)
+  // Sync to Supabase only after initial load to prevent overwriting with []
   useEffect(() => {
-    if (!profile?.id) return;
-    if (pinnedTabs.length > 0) {
-      localStorage.setItem(storageKey, JSON.stringify(pinnedTabs));
-    }
-  }, [pinnedTabs, storageKey, profile?.id]);
+    if (!profile?.id || !pinnedTabsLoaded.current) return;
+    supabase.auth.updateUser({ data: { pinned_tabs: pinnedTabs } }).catch(() => {});
+  }, [pinnedTabs, profile?.id]);
 
   const { data: pendingProxies = 0 } = useQuery({
     queryKey: ["pending-proxy-count", profile?.id],
@@ -119,14 +137,14 @@ export function AppShell({
   const items: NavItem[] = [
     { to: "/admin",         label: "Admin Panel",       icon: ShieldCheck,    roles: ["admin"] },
     { to: "/hr",            label: "HR Panel",          icon: Briefcase,      roles: ["hr"], badge: pendingHR },
-    { to: "/admin-reports", label: "Reports",           icon: BarChart3,      roles: ["admin", "principal"] },
+    { to: "/admin-reports", label: "Reports",           mobileLabel: "Reports",  icon: BarChart3,      roles: ["admin", "principal"] },
     { to: "/dashboard",     label: "Dashboard",         icon: LayoutDashboard,roles: ["teacher", "hod", "principal"] },
     { to: "/apply",         label: "Apply Leave",       icon: CalendarPlus,   roles: ["teacher", "hod"] },
     { to: "/leaves",        label: "My Leaves",         icon: FileText,       roles: ["teacher", "hod"] },
     { to: "/schedule",      label: "My Schedule",       icon: CalendarDays,   roles: ["teacher", "hod"] },
-    { to: "/proxies",       label: "Proxy Assignments", icon: Repeat,         roles: ["teacher", "hod"], badge: pendingProxies },
+    { to: "/proxies",       label: "Proxy Assignments", mobileLabel: "Proxies",  icon: Repeat,         roles: ["teacher", "hod"], badge: pendingProxies },
     { to: "/payroll",       label: "Payroll",           icon: Wallet,         roles: ["teacher", "hod"] },
-    { to: "/requests",      label: "Leave Requests",    icon: ClipboardCheck, roles: ["hod", "principal", "admin"] },
+    { to: "/requests",      label: "Leave Requests",    mobileLabel: "Requests", icon: ClipboardCheck, roles: ["hod", "principal", "admin"] },
     { to: "/notices",       label: "Notices",           icon: Megaphone,      roles: ["hod", "principal", "admin"] },
     { to: "/teachers",      label: "Teachers",          icon: Users,          roles: ["hod", "principal", "admin"] },
     { to: "/departments",   label: "Departments",       icon: Building2,      roles: ["principal", "admin"] },
@@ -210,6 +228,7 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen bg-background">
+      <OfflineBanner />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex shadow-sm overflow-hidden">
         <div className="px-5 pb-6 shrink-0">
           <Logo />
@@ -290,7 +309,7 @@ export function AppShell({
                     </span>
                   )}
                 </div>
-                <span className="truncate max-w-[56px] text-center leading-tight">{item.label}</span>
+                <span className="truncate max-w-[56px] text-center leading-tight">{item.mobileLabel ?? item.label}</span>
               </Link>
             );
           })}
@@ -356,24 +375,39 @@ export function AppShell({
   );
 }
 
+// Cache avatar URLs so they're not re-fetched on every navigation
+const avatarCache = new Map<string, { url: string; expiresAt: number }>();
+
 function AvatarCircle({ name, userId }: { name?: string; userId?: string }) {
   const [src, setSrc] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
+    const cached = avatarCache.get(userId);
+    // Use cached URL if it expires more than 10 minutes from now
+    if (cached && cached.expiresAt - Date.now() > 10 * 60 * 1000) {
+      setSrc(cached.url);
+      return;
+    }
     supabase.storage.from("avatars").list("", { search: `${userId}.jpg` })
       .then(({ data }) => {
         if (data && data.some((f) => f.name === `${userId}.jpg`)) {
-          return supabase.storage.from("avatars").createSignedUrl(`${userId}.jpg`, 3600);
+          // 6-hour TTL — long enough for a full day session
+          return supabase.storage.from("avatars").createSignedUrl(`${userId}.jpg`, 6 * 3600);
         }
         return null;
       })
-      .then((res) => { if (res?.data?.signedUrl) setSrc(res.data.signedUrl); })
+      .then((res) => {
+        if (res?.data?.signedUrl) {
+          avatarCache.set(userId, { url: res.data.signedUrl, expiresAt: Date.now() + 6 * 3600 * 1000 });
+          setSrc(res.data.signedUrl);
+        }
+      })
       .catch(() => {});
   }, [userId]);
 
   if (src) {
-    return <img src={src} alt={name ?? ""} className="size-full object-cover" onError={() => setSrc(null)} />;
+    return <img src={src} alt={name ?? ""} className="size-full object-cover" onError={() => { avatarCache.delete(userId ?? ""); setSrc(null); }} />;
   }
   return <span>{name?.slice(0, 2).toUpperCase()}</span>;
 }

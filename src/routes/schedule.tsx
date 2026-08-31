@@ -183,7 +183,7 @@ function SubjectCombobox({
             <button
               key={s}
               type="button"
-              className={`w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors ${s === value ? "bg-primary/8 text-primary font-medium" : ""}`}
+              className={`w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors ${s === value ? "bg-primary/10 text-primary font-medium" : ""}`}
               onMouseDown={() => select(s)}
             >
               {s}

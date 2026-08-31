@@ -191,8 +191,8 @@ function DayCell_({
           "relative flex flex-col items-center justify-start rounded-lg border text-xs font-semibold pt-1 pb-0.5 min-h-[2.75rem] cursor-pointer transition-all duration-150",
           "hover:brightness-95 hover:scale-105 hover:z-10 hover:shadow-md active:scale-100",
           KIND_CLASS[cell.kind],
-          // Today ring — white/dark ring around the number
-          isToday && "ring-2 ring-offset-1 ring-primary shadow-md",
+          // Today highlight — bold outline that works on all bg colours
+          isToday && "outline outline-2 outline-offset-[-2px] outline-primary/70 shadow-md",
         )}
       >
         {/* Holiday star — top-right pip */}
@@ -308,7 +308,7 @@ export function MonthCalendar({
     for (const l of data?.leaves ?? []) {
       const unpaid  = Number(l.unpaid_days) > 0;
       const pending = l.status === "pending_hod";
-      const typeLabel   = leaveTypeLabel(l.leave_type as LeaveType);
+      const typeLabel   = leaveTypeLabel(l.leave_type as LeaveType) ?? l.leave_type ?? "leave";
       const statusLabel = pending ? "Pending HOD approval" : unpaid ? "Unpaid" : "Paid";
       for (const d of eachDate(l.from_date, l.to_date)) {
         leaveMap.set(d, {
@@ -462,6 +462,154 @@ export function MonthCalendar({
       {selectedCell && (
         <DayDetailCard cell={selectedCell} onClose={() => setSelectedCell(null)} />
       )}
+    </div>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DeptMonthCalendar — HOD-facing calendar showing ALL teachers in a department
+// ─────────────────────────────────────────────────────────────────────────────
+export function DeptMonthCalendar({ deptId }: { deptId: string }) {
+  const [month, setMonth] = useState(
+    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+  );
+
+  const first   = new Date(month.getFullYear(), month.getMonth(), 1);
+  const last    = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+  const fromISO = iso(first);
+  const toISO   = iso(last);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["dept-month-calendar", deptId, fromISO],
+    enabled: !!deptId,
+    staleTime: 2 * 60 * 1000,
+    queryFn: async () => {
+      const [holidayRes, leaveRes, profileRes] = await Promise.all([
+        supabase.from("holidays").select("holiday_date, occasion")
+          .gte("holiday_date", fromISO).lte("holiday_date", toISO),
+        supabase.from("leave_requests")
+          .select("teacher_id, from_date, to_date, leave_type, status")
+          .in("status", ["approved", "hod_approved", "pending_hod", "hod_recommended", "pending_principal"])
+          .lte("from_date", toISO).gte("to_date", fromISO),
+        supabase.from("profiles").select("id, full_name")
+          .eq("department_id", deptId).eq("approved", true),
+      ]);
+      return {
+        holidays: holidayRes.data ?? [],
+        leaves: leaveRes.data ?? [],
+        teachers: profileRes.data ?? [],
+      };
+    },
+  });
+
+  const holidaySet = new Set((data?.holidays ?? []).map(h => h.holiday_date));
+  const holidayMap = new Map((data?.holidays ?? []).map(h => [h.holiday_date, h.occasion]));
+
+  // Build date range for the month
+  const dates: string[] = [];
+  for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) {
+    dates.push(iso(new Date(d)));
+  }
+
+  // Build a lookup map from the already-fetched profileRes (no join needed)
+  const profileNameMap = new Map((data?.teachers ?? []).map(t => [t.id, t.full_name]));
+
+  // For each date: list of absent teacher names
+  const absentByDate = new Map<string, { name: string; type: string; pending: boolean }[]>();
+  for (const l of data?.leaves ?? []) {
+    const name = profileNameMap.get(l.teacher_id) ?? "Unknown";
+    const pending = ["pending_hod", "pending_principal", "hod_recommended"].includes(l.status);
+    for (const d of eachDate(l.from_date, l.to_date)) {
+      if (!absentByDate.has(d)) absentByDate.set(d, []);
+      absentByDate.get(d)!.push({ name, type: leaveTypeLabel(l.leave_type as LeaveType), pending });
+    }
+  }
+
+  const totalTeachers = data?.teachers.length ?? 0;
+
+  function navigateMonth(dir: "prev" | "next") {
+    setMonth(m => new Date(m.getFullYear(), m.getMonth() + (dir === "next" ? 1 : -1), 1));
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold">
+          {MONTH_NAMES[month.getMonth()]} {month.getFullYear()}
+        </p>
+        <div className="flex gap-1">
+          <button onClick={() => navigateMonth("prev")} className="rounded-lg border border-border p-1.5 hover:bg-muted transition-colors">
+            <ChevronLeft className="size-3.5" />
+          </button>
+          <button onClick={() => navigateMonth("next")} className="rounded-lg border border-border p-1.5 hover:bg-muted transition-colors">
+            <ChevronRight className="size-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="h-40 animate-pulse rounded-xl bg-muted" />
+      ) : (
+        <div className="overflow-x-auto">
+          <div className="grid gap-1.5 min-w-[500px]" style={{ gridTemplateColumns: `repeat(${dates.length}, minmax(36px, 1fr))` }}>
+            {/* Day headers */}
+            {dates.map(d => {
+              const dt = new Date(d + "T00:00:00");
+              const isSun = dt.getDay() === 0;
+              const isHol = holidaySet.has(d);
+              return (
+                <div key={d} className={`text-center text-[10px] font-medium rounded-t py-1 ${isSun || isHol ? "bg-destructive/10 text-destructive" : "text-muted-foreground"}`}>
+                  <div>{DAY_NAMES[dt.getDay()].slice(0, 2)}</div>
+                  <div className="font-semibold">{dt.getDate()}</div>
+                  {isHol && <div className="text-[9px] truncate px-0.5" title={holidayMap.get(d)}>{holidayMap.get(d)?.split(" ")[0]}</div>}
+                </div>
+              );
+            })}
+
+            {/* Absence cells */}
+            {dates.map(d => {
+              const dt = new Date(d + "T00:00:00");
+              const isSun = dt.getDay() === 0;
+              const isHol = holidaySet.has(d);
+              const absent = absentByDate.get(d) ?? [];
+              const absentCount = absent.length;
+              const presentCount = totalTeachers - absentCount;
+
+              if (isSun || isHol) {
+                return (
+                  <div key={d} className="rounded-b bg-destructive/5 border border-destructive/10 p-1 min-h-[52px] flex items-center justify-center">
+                    <span className="text-[9px] text-destructive/50">{isSun ? "Off" : "Holiday"}</span>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={d}
+                  className={`group relative rounded-b border p-1 min-h-[52px] cursor-default transition-colors ${absentCount === 0 ? "bg-success/5 border-success/20" : absentCount >= totalTeachers * 0.5 ? "bg-destructive/10 border-destructive/20" : "bg-warning/10 border-warning/20"}`}
+                  title={absent.length ? absent.map(a => `${a.name} (${a.type}${a.pending ? ", pending" : ""})`).join("\n") : "All present"}
+                >
+                  <div className="text-[10px] font-semibold">{presentCount}/{totalTeachers}</div>
+                  {absent.slice(0, 2).map((a, i) => (
+                    <div key={i} className={`text-[9px] truncate ${a.pending ? "text-warning-foreground/70" : "text-destructive"}`}>{a.name.split(" ")[0]}</div>
+                  ))}
+                  {absent.length > 2 && <div className="text-[9px] text-muted-foreground">+{absent.length - 2} more</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1"><span className="size-2.5 rounded bg-success/20 border border-success/30 inline-block" />All present</span>
+        <span className="flex items-center gap-1"><span className="size-2.5 rounded bg-warning/20 border border-warning/30 inline-block" />Some absent</span>
+        <span className="flex items-center gap-1"><span className="size-2.5 rounded bg-destructive/15 border border-destructive/20 inline-block" />Many absent</span>
+        <span className="flex items-center gap-1"><span className="size-2.5 rounded bg-destructive/5 border border-destructive/10 inline-block" />Holiday / Off</span>
+      </div>
+      <p className="text-[10px] text-muted-foreground">Hover a cell to see names. Counts show present/total.</p>
     </div>
   );
 }

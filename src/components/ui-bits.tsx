@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { statusClasses, STATUS_LABEL, type LeaveStatus } from "@/lib/leave";
+import { CheckCircle2, Clock, XCircle, ChevronRight } from "lucide-react";
 
 export function SectionCard({
   title,
@@ -88,14 +89,25 @@ export function ListSkeleton({ rows = 3 }: { rows?: number }) {
   );
 }
 
+const STATUS_ICON: Record<LeaveStatus, React.ReactNode> = {
+  approved:          <CheckCircle2 className="size-3 shrink-0" />,
+  hod_approved:      <CheckCircle2 className="size-3 shrink-0" />,
+  rejected:          <XCircle className="size-3 shrink-0" />,
+  hod_recommended:   <ChevronRight className="size-3 shrink-0" />,
+  pending_principal: <ChevronRight className="size-3 shrink-0" />,
+  pending_hod:       <Clock className="size-3 shrink-0" />,
+  cancelled:         <XCircle className="size-3 shrink-0" />,
+};
+
 export function StatusBadge({ status }: { status: LeaveStatus }) {
   return (
     <span
       className={cn(
-        "inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+        "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
         statusClasses(status),
       )}
     >
+      {STATUS_ICON[status]}
       {STATUS_LABEL[status]}
     </span>
   );

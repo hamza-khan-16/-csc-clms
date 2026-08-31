@@ -57,7 +57,7 @@ function TeachersPage() {
     },
   });
 
-  const { data: rows = [] } = useQuery({
+  const { data: rows = [], isLoading: rowsLoading, isError: rowsError } = useQuery({
     queryKey: ["staff", role, profile?.department_id],
     enabled: !!profile,
     queryFn: async () => {
@@ -68,6 +68,7 @@ function TeachersPage() {
       let q = supabase
         .from("profiles")
         .select("id, full_name, designation, department_id, date_of_joining, date_of_birth, gender, experience_years, subjects_taught, departments(name)")
+        .eq("approved", true)   // Fix: exclude unapproved/pending registrations
         .order("full_name");
       if (role === "hod") q = q.eq("department_id", profile!.department_id ?? "");
       const { data, error } = await q;

@@ -290,6 +290,7 @@ export type Database = {
         Row: {
           account_locked: boolean
           approved: boolean
+          cl_quota: number | null
           created_at: string
           date_of_birth: string | null
           date_of_joining: string | null
@@ -310,6 +311,7 @@ export type Database = {
         Insert: {
           account_locked?: boolean
           approved?: boolean
+          cl_quota?: number | null
           created_at?: string
           date_of_birth?: string | null
           date_of_joining?: string | null
@@ -330,6 +332,7 @@ export type Database = {
         Update: {
           account_locked?: boolean
           approved?: boolean
+          cl_quota?: number | null
           created_at?: string
           date_of_birth?: string | null
           date_of_joining?: string | null
@@ -525,6 +528,54 @@ export type Database = {
         }
         Relationships: []
       }
+      push_tokens: {
+        Row: {
+          id: string
+          user_id: string
+          onesignal_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          onesignal_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          onesignal_id?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      leave_audit_log: {
+        Row: {
+          id: string
+          leave_request_id: string | null
+          action: string
+          actor_id: string | null
+          note: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          leave_request_id?: string | null
+          action: string
+          actor_id?: string | null
+          note?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          leave_request_id?: string | null
+          action?: string
+          actor_id?: string | null
+          note?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           department_id: string | null
@@ -601,7 +652,7 @@ export type Database = {
     Enums: {
       app_role: "teacher" | "hod" | "principal" | "admin" | "hr"
       leave_session: "full_day" | "forenoon" | "afternoon"
-      leave_status: "pending_hod" | "hod_recommended" | "pending_principal" | "hod_approved" | "approved" | "rejected"
+      leave_status: "pending_hod" | "hod_recommended" | "pending_principal" | "hod_approved" | "approved" | "rejected" | "cancelled"
       leave_type: "casual" | "maternity" | "bereavement" | "medical" | "duty"
       proxy_status: "pending" | "accepted" | "rejected"
     }
@@ -733,7 +784,7 @@ export const Constants = {
     Enums: {
       app_role: ["teacher", "hod", "principal", "admin", "hr"],
       leave_session: ["full_day", "forenoon", "afternoon"],
-      leave_status: ["pending_hod", "hod_recommended", "pending_principal", "hod_approved", "approved", "rejected"],
+      leave_status: ["pending_hod", "hod_recommended", "pending_principal", "hod_approved", "approved", "rejected", "cancelled"],
       leave_type: ["casual", "maternity", "bereavement", "medical", "duty"],
       proxy_status: ["pending", "accepted", "rejected"],
     },

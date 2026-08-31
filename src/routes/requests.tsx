@@ -40,10 +40,11 @@ import {
   type DocStatus,
 } from "@/lib/leave";
 import { AlertCircle, Check, CheckCircle2, ChevronRight, Clock, FileText, Lightbulb, LockKeyhole } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { GuardedTextarea } from "@/components/GuardedField";
 import { useServerFn } from "@tanstack/react-start";
-import { sendPushNotification } from "@/lib/push.functions";
+import { firePush } from "@/lib/push.functions";
 import { unlockAccount } from "@/lib/admin.functions";
 
 export const Route = createFileRoute("/requests")({
@@ -181,8 +182,16 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
     ...manualSlots.map((s) => ({ ...s, lecture_id: "", isManual: true })),
   ], [autoSlots, manualSlots]);
 
-  function addManualSlot() {
-    setManualSlots((m) => [...m, { key: `manual-${Date.now()}`, date: fromDate, start_time: "09:00", end_time: "10:00", subject: "", class_name: "" }]);
+  function addManualSlot(_date?: string) {
+    const slotDate = _date ?? fromDate;
+    setManualSlots((m) => [...m, { key: `manual-${Date.now()}`, date: slotDate, start_time: "09:00", end_time: "10:00", subject: "", class_name: "" }]);
+  }
+
+  function isHolidayOrSunday(date: string, holidaySet?: Set<string>): boolean {
+    if (new Date(date + "T00:00:00").getDay() === 0) return true;
+    // Use holidaySet if provided (populated at submit time from the DB)
+    if (holidaySet && holidaySet.has(date)) return true;
+    return false;
   }
 
   async function submit() {
@@ -374,7 +383,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
               </li>
             ))}
           </ul>
-          <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={addManualSlot}>+ Add proxy lecture</Button>
+          <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => addManualSlot()}>+ Add proxy lecture</Button>
         </div>
       )}
 
@@ -505,12 +514,11 @@ function LockedAccountsPanel({ role, deptId }: { role: "hod" | "principal"; dept
 
 // ── Requests page ─────────────────────────────────────────────────────────────
 function RequestsPage() {
-  const sendPush = useServerFn(sendPushNotification);
   const { profile, role } = useAuth();
   const isHod = role === "hod";
   const qc = useQueryClient();
 
-  const { data: requests = [], isLoading } = useQuery({
+  const { data: requests = [], isLoading, isError } = useQuery({
     queryKey: ["review-requests", role, profile?.id],
     enabled: !!profile,
     staleTime: 30_000,
@@ -572,13 +580,38 @@ function RequestsPage() {
     if (selectedIds.size === 0) return;
     setBulkBusy(true);
     try {
+      const now = new Date().toISOString();
       const newStatus = isHod ? "hod_approved" : "approved";
+
+      // HOD bulk approve: exclude hodFinal leave types (duty/medical) because they need
+      // doc_status:"required" set individually — bulk update can't do that per-row here.
+      // Those leaves must be approved one-by-one via the RequestCard.
+      const eligibleIds = isHod
+        ? actionable
+            .filter((r) => selectedIds.has(r.id) && !isHodFinalLeave(r.leave_type as LeaveType))
+            .map((r) => r.id)
+        : Array.from(selectedIds);
+
+      if (eligibleIds.length === 0) {
+        toast.error("No eligible requests selected. Medical and duty leave must be approved individually.");
+        return;
+      }
+
+      const patch = isHod
+        ? { status: newStatus as "hod_approved", hod_acted_at: now }
+        : { status: newStatus as "approved", principal_acted_at: now };
+
       const { error } = await supabase
         .from("leave_requests")
-        .update({ status: newStatus })
-        .in("id", Array.from(selectedIds));
+        .update(patch)
+        .in("id", eligibleIds);
       if (error) { toast.error(error.message); return; }
-      toast.success(`${selectedIds.size} request(s) approved`);
+
+      const totalSelected = selectedIds.size;
+      const skipped = totalSelected - eligibleIds.length;
+      toast.success(
+        `${eligibleIds.length} request(s) approved${skipped > 0 ? ` · ${skipped} medical/duty skipped (approve individually)` : ""}`
+      );
       setSelectedIds(new Set());
       qc.invalidateQueries({ queryKey: ["review-requests", role, profile?.id] });
     } finally {
@@ -632,7 +665,11 @@ function RequestsPage() {
             ) : undefined
           }
         >
-          {isLoading ? <ListSkeleton rows={3} />
+          {isError ? (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-6 text-center text-sm text-destructive">
+              Failed to load requests. Please refresh and try again.
+            </div>
+          ) : isLoading ? <ListSkeleton rows={3} />
             : actionable.length === 0 ? <Empty illustration="check">Nothing waiting on you right now.</Empty>
             : <div className="space-y-4">{actionable.map((r) => (
                 <div key={r.id} className="relative">
@@ -692,7 +729,7 @@ function RequestsPage() {
                 ))}
               </div>
               {/* Desktop table */}
-              <div className="hidden sm:block overflow-x-auto">
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -742,7 +779,6 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [choices, setChoices] = useState<Record<string, string>>({});
-  const sendPush = useServerFn(sendPushNotification);
   const isHodFinal = isHodFinalLeave(request.leave_type as LeaveType);
   const isMedical = request.leave_type === "medical";
   const requiredDoc = docLabel(request.leave_type as LeaveType);
@@ -868,7 +904,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     for (const proxyId of uniqueProxyTeachers) {
       const slot = allSlots.find((s) => choices[s.key] === proxyId);
       if (slot) {
-        sendPush({ data: { userIds: [proxyId], title: "Proxy Lecture Assigned", body: `Cover ${slot.subject} for ${absenteeName} on ${slot.date}`, targetUrl: "/proxies" } }).catch((e) => console.error("[Push] proxy:", e));
+        firePush({ userIds: [proxyId], title: "Proxy Lecture Assigned", body: `Cover ${slot.subject} for ${absenteeName} on ${slot.date}`, targetUrl: "/proxies" });
       }
     }
     return true;
@@ -893,7 +929,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     // Notify principal a leave is awaiting their approval
     if (profile?.department_id) {
       // Notify principal (fire-and-forget) — they need to find principal by role server-side
-      sendPush({ data: { userIds: ["__principal__"], title: "Leave Awaiting Your Approval", body: `${request.teacher?.full_name ?? "A teacher"}'s ${request.leave_type} leave has been approved by HOD`, targetUrl: "/requests" } }).catch((e) => console.error("[Push] hod→principal:", e));
+      firePush({ userIds: ["__principal__"], title: "Leave Awaiting Your Approval", body: `${request.teacher?.full_name ?? "A teacher"}'s ${request.leave_type} leave has been approved by HOD`, targetUrl: "/requests" });
     }
     qc.invalidateQueries();
   }
@@ -908,8 +944,10 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     if (error) return toast.error(error.message);
     toast.success(`Leave approved — teacher must upload ${requiredDoc}`);
     // Notify teacher their leave was approved
-    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch((e) => console.error("[Push] hodDirectApprove:", e));
-    qc.invalidateQueries();
+    firePush({ userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" });
+    // Notify principal — they need to verify the document once the teacher uploads it
+    firePush({ userIds: ["__principal__"], title: "Document Verification Pending", body: `${request.teacher?.full_name ?? "A teacher"}'s ${request.leave_type} leave was approved by HOD — awaiting document upload`, targetUrl: "/requests" });
+    qc.invalidateQueries({ queryKey: ["leave-requests"] });
   }
 
   async function reject() {
@@ -933,7 +971,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     if (error) return toast.error(error.message);
     toast.success("Leave rejected");
     // Notify teacher their leave was rejected
-    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Rejected", body: note.trim() ? `Your ${request.leave_type} leave was rejected: ${note.trim()}` : `Your ${request.leave_type} leave request has been rejected`, targetUrl: "/leaves" } }).catch((e) => console.error("[Push] reject:", e));
+    firePush({ userIds: [request.teacher_id], title: "Leave Rejected", body: note.trim() ? `Your ${request.leave_type} leave was rejected: ${note.trim()}` : `Your ${request.leave_type} leave request has been rejected`, targetUrl: "/leaves" });
     qc.invalidateQueries();
   }
 
@@ -963,8 +1001,8 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     if (error) return toast.error(error.message);
     toast.success("Leave approved");
     // Notify teacher their leave was approved by principal
-    sendPush({ data: { userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" } }).catch((e) => console.error("[Push] principalApprove:", e));
-    qc.invalidateQueries();
+    firePush({ userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" });
+    qc.invalidateQueries({ queryKey: ["leave-requests"] });
   }
 
   const sessionLabel = SESSION_LABEL[request.session as LeaveSession] ?? request.session;
@@ -1078,7 +1116,25 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         {isHod && isHodFinal && <Button onClick={hodDirectApprove} disabled={busy}>Approve Leave</Button>}
         {isHod && !isHodFinal && <Button onClick={hodRecommend} disabled={busy}>Approve &amp; send to principal</Button>}
         {!isHod && <Button onClick={principalApprove} disabled={busy}>Approve Leave</Button>}
-        <Button variant="outline" onClick={reject} disabled={busy}>Reject</Button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" disabled={busy}>Reject</Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Reject this leave request?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. The teacher will be notified that their request was rejected.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={reject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                Yes, reject
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

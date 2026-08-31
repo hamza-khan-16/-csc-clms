@@ -11,8 +11,8 @@ import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, StatCardSkeleton, ListSkeleton, StatusBadge, Empty } from "@/components/ui-bits";
 import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL, MEDICAL_PAID_QUOTA, type LeaveStatus, type LeaveType, type LeaveSession } from "@/lib/leave";
 import { Button } from "@/components/ui/button";
-import { MonthCalendar } from "@/components/MonthCalendar";
-import { AlertTriangle, BookOpen, CheckCheck, Clock, Flame, PlusCircle, Settings, TrendingUp, Users, X } from "lucide-react";
+import { MonthCalendar, DeptMonthCalendar } from "@/components/MonthCalendar";
+import { AlertTriangle, BookOpen, CheckCheck, CheckCircle2, Clock, Flame, PlusCircle, Settings, TrendingUp, Users, X } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 const PW_EXPIRY_DAYS  = 90;
@@ -42,9 +42,16 @@ function PasswordExpiryBanner({ daysLeft }: { daysLeft: number }) {
 
 // ── Profile completeness banner ───────────────────────────────────────────────
 function ProfileCompletenessBanner({ profile }: { profile: any }) {
-  const [dismissed, setDismissed] = useState(() => {
-    try { return localStorage.getItem(`profile_banner_${profile?.id}`) === "1"; } catch { return false; }
-  });
+  const [dismissed, setDismissed] = useState(false);
+
+  // Load from Supabase session (cached — no network) on mount
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data?.session?.user?.user_metadata?.profile_banner_dismissed === true) {
+        setDismissed(true);
+      }
+    }).catch(() => {});
+  }, []);
 
   const fields = [
     { key: "date_of_birth", label: "Date of birth" },
@@ -54,6 +61,12 @@ function ProfileCompletenessBanner({ profile }: { profile: any }) {
   const pct = Math.round(((fields.length - missing.length) / fields.length) * 100);
 
   if (pct === 100 || dismissed) return null;
+
+  async function dismiss() {
+    setDismissed(true);
+    // Persist to Supabase user_metadata so it survives Median session resets
+    await supabase.auth.updateUser({ data: { profile_banner_dismissed: true } }).catch(() => {});
+  }
 
   return (
     <div className="flex items-center justify-between gap-4 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
@@ -70,10 +83,7 @@ function ProfileCompletenessBanner({ profile }: { profile: any }) {
         </Button>
         <button
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-          onClick={() => {
-            setDismissed(true);
-            try { localStorage.setItem(`profile_banner_${profile?.id}`, "1"); } catch {}
-          }}
+          onClick={dismiss}
           aria-label="Dismiss"
         ><X className="size-3.5"/></button>
       </div>
@@ -103,15 +113,18 @@ function DonutRing({ used, total, size = 44 }: { used: number; total: number; si
 }
 
 // ── Streak badge ──────────────────────────────────────────────────────────────
-function StreakBadge({ leaves }: { leaves: { from_date: string; to_date: string; status: string }[] }) {
+function StreakBadge({ leaves, holidays }: { leaves: { from_date: string; to_date: string; status: string }[]; holidays: { holiday_date: string }[] }) {
   const approved = leaves.filter(l => ["approved","hod_approved"].includes(l.status));
+  const holidaySet = new Set(holidays.map(h => h.holiday_date));
   const today = new Date();
   let streak = 0;
   for (let i = 0; i < 365; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
-    if (d.getDay() === 0) continue; // skip Sundays
+    const dow = d.getDay();
+    if (dow === 0) continue; // skip Sundays
     const ds = d.toISOString().slice(0, 10);
+    if (holidaySet.has(ds)) continue; // skip public holidays
     const onLeave = approved.some(l => l.from_date <= ds && l.to_date >= ds);
     if (onLeave) break;
     streak++;
@@ -125,16 +138,18 @@ function StreakBadge({ leaves }: { leaves: { from_date: string; to_date: string;
 }
 
 // ── Next lecture countdown ────────────────────────────────────────────────────
-function NextLectureBanner({ lectures }: { lectures: { start_time: string; end_time: string; subject: string; class_name: string; room: string | null }[] }) {
+function NextLectureBanner({ lectures }: { lectures: { start_time: string; end_time: string; subject: string; class_name: string; room: string | null; day_of_week: number }[] }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(t);
   }, []);
 
+  // Only consider lectures that are scheduled for today's day of week
+  const todayLectures = lectures.filter(l => l.day_of_week === now.getDay());
   const cur = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
-  const next = lectures.find(l => l.start_time > cur);
-  const current = lectures.find(l => l.start_time <= cur && l.end_time > cur);
+  const next = todayLectures.find(l => l.start_time > cur);
+  const current = todayLectures.find(l => l.start_time <= cur && l.end_time > cur);
 
   if (!next && !current) return null;
 
@@ -145,7 +160,7 @@ function NextLectureBanner({ lectures }: { lectures: { start_time: string; end_t
   })();
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/6 px-4 py-2.5 text-sm">
+    <div className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm">
       <span>{current ? <BookOpen className="size-5"/> : <Clock className="size-5"/>}</span>
       <div>
         <span className="font-semibold">{subject.subject}</span>
@@ -160,7 +175,9 @@ function NextLectureBanner({ lectures }: { lectures: { start_time: string; end_t
 
 // ── Leave trend chart (recharts) ──────────────────────────────────────────────
 function LeaveTrendChart({ data }: { data: { month: string; count: number }[] }) {
-  if (!data.length) return <Empty>No leave data this year.</Empty>;
+  if (!data.length || !data.some(d => d.count > 0)) return (
+    <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">No leave taken this year yet.</div>
+  );
   const colors = data.map(d => d.count > 3 ? "var(--destructive)" : d.count > 1 ? "var(--warning)" : "var(--success)");
   return (
     <ResponsiveContainer width="100%" height={140}>
@@ -266,9 +283,8 @@ function TeacherDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("lectures")
-        .select("id, start_time, end_time, subject, class_name, room")
+        .select("id, start_time, end_time, subject, class_name, room, day_of_week")
         .eq("teacher_id", profile!.id)
-        .eq("day_of_week", new Date().getDay())
         .order("start_time");
       if (error) throw error;
       return data;
@@ -391,8 +407,8 @@ function TeacherDashboard() {
       const today = todayISO();
       const { data } = await supabase
         .from("leave_requests")
-        .select("teacher_id, leave_type, from_date, to_date")
-        .in("status", ["approved","hod_approved"])
+        .select("id, teacher_id, leave_type, status, from_date, to_date")
+        .in("status", ["approved","hod_approved","pending_hod"])
         .eq("department_id", profile!.department_id ?? "")
         .lte("from_date", today)
         .gte("to_date", today);
@@ -423,6 +439,7 @@ function TeacherDashboard() {
   // Projected salary deduction estimate
   const projectedDeduction = (() => {
     if (!profile?.monthly_salary || !payroll.unpaidDays) return null;
+    // Use salary/30 to match perDaySalary() in leave.ts and payroll.tsx totals panel
     return Math.round((profile.monthly_salary / 30) * payroll.unpaidDays);
   })();
 
@@ -434,20 +451,14 @@ function TeacherDashboard() {
       {/* Profile completeness */}
       <ProfileCompletenessBanner profile={profile} />
 
-      {/* HOD panel + absence */}
+      {/* HOD panel */}
       {role === "hod" && (
-        <div className="surface flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="surface grid grid-cols-1 sm:grid-cols-[1fr_auto] items-center gap-3 p-4">
           <div>
-            <p className="text-sm font-semibold">HOD Panel</p>
+            <p className="text-sm font-semibold">HOD Panel — {profile?.department_name}</p>
             <p className="text-xs text-muted-foreground">
-              {pendingForHod} request(s) from {profile?.department_name} awaiting your review.
-              {deptAbsent.length > 0 && ` · ${deptAbsent.length} teacher(s) absent today.`}
+              {pendingForHod > 0 ? `${pendingForHod} request(s) awaiting your review.` : "No pending requests."}
             </p>
-            {deptAbsent.length > 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Absent: {deptAbsent.map(a => a.name).join(", ")}
-              </p>
-            )}
           </div>
           <Button asChild size="sm">
             <Link to="/requests">Review requests</Link>
@@ -455,14 +466,51 @@ function TeacherDashboard() {
         </div>
       )}
 
-      {/* Streak + next lecture banner */}
-      <div className="flex flex-wrap items-center gap-3">
-        <StreakBadge leaves={allLeavesYear} />
-      </div>
+      {/* HOD: Who's absent today — proper card */}
+      {role === "hod" && (
+        <SectionCard
+          title="Who's Absent Today"
+          subtitle={deptAbsent.length === 0 ? "All teachers present" : `${deptAbsent.length} teacher(s) on leave today`}
+        >
+          {deptAbsent.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+              <CheckCircle2 className="size-4 text-success" /> All teachers are present today
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {deptAbsent.map((a: any) => (
+                <div key={a.id} className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                  <div className="size-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary">
+                    {a.name?.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium">{a.name}</p>
+                    <p className="text-[10px] text-muted-foreground capitalize">{a.leave_type?.replace(/_/g, " ")} · {a.status === "pending_hod" ? "Pending" : "Approved"}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      )}
+
+      {/* HOD: Department leave calendar */}
+      {role === "hod" && profile?.department_id && (
+        <SectionCard title="Department Leave Calendar" subtitle="Who's absent each day this month">
+          <DeptMonthCalendar deptId={profile.department_id} />
+        </SectionCard>
+      )}
+
+      {/* Streak + next lecture banner — only render container when content exists */}
+      {allLeavesYear.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <StreakBadge leaves={allLeavesYear} holidays={holidays} />
+        </div>
+      )}
       {todayLectures.length > 0 && <NextLectureBanner lectures={todayLectures} />}
 
       {/* Stat cards with donut rings */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {balLoading ? (
           Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
         ) : (<>
@@ -571,12 +619,10 @@ function TeacherDashboard() {
         </div>
       </div>
 
-      {/* Leave trend chart */}
-      {monthlyTrend.some(d => d.count > 0) && (
-        <SectionCard title="Leave Trend" subtitle={`${new Date().getFullYear()} — days taken per month`}>
-          <LeaveTrendChart data={monthlyTrend} />
-        </SectionCard>
-      )}
+      {/* Leave trend chart — always shown, empty state handled inside */}
+      <SectionCard title="Leave Trend" subtitle={`${new Date().getFullYear()} — days taken per month`}>
+        <LeaveTrendChart data={monthlyTrend} />
+      </SectionCard>
 
       {/* Recent requests + Quick actions */}
       <div className="grid gap-6 lg:grid-cols-3">
@@ -653,7 +699,7 @@ function TeacherDashboard() {
                 const cur = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
                 const isNow = l.start_time <= cur && l.end_time > cur;
                 return (
-                  <li key={l.id} className={`flex items-center justify-between gap-3 text-sm rounded-lg px-2 py-1 ${isNow ? "bg-primary/8 ring-1 ring-primary/20" : ""}`}>
+                  <li key={l.id} className={`flex items-center justify-between gap-3 text-sm rounded-lg px-2 py-1 ${isNow ? "bg-primary/10 ring-1 ring-primary/20" : ""}`}>
                     <span className="text-muted-foreground">{fmtTime(l.start_time)} – {fmtTime(l.end_time)}</span>
                     <span className="flex-1 font-medium">{l.subject}</span>
                     <span className="text-xs text-muted-foreground">{l.class_name}{l.room && ` · ${l.room}`}</span>
@@ -725,7 +771,7 @@ function PrincipalDashboard() {
       const excludedIds = (excludedRoles ?? []).map(r => r.user_id);
       const [teachers, pending, approved, rejected, depts] = await Promise.all([
         supabase.from("profiles").select("id", { count: "exact", head: true }).eq("approved", true)
-          .not("id", "in", excludedIds.length ? `(${excludedIds.join(",")})` : `('00000000-0000-0000-0000-000000000000')`),
+          .not("id", "in", excludedIds.length ? `(${excludedIds.join(",")})` : "(00000000-0000-0000-0000-000000000000)"),
         supabase.from("leave_requests").select("id", { count: "exact", head: true }).in("status", ["hod_recommended","pending_principal"]),
         supabase.from("leave_requests").select("id", { count: "exact", head: true }).eq("status", "approved").gte("from_date", `${year}-01-01`),
         supabase.from("leave_requests").select("id", { count: "exact", head: true }).eq("status", "rejected").gte("from_date", `${year}-01-01`),
@@ -783,7 +829,7 @@ function PrincipalDashboard() {
     return counts.map((count, i) => ({ month: MONTH_SHORT[i], count })).filter((_, i) => i <= new Date().getMonth());
   })();
 
-  const { data: queue = [] } = useQuery({
+  const { data: queue, isLoading: queueLoading } = useQuery({
     queryKey: ["principal-queue"],
     queryFn: async () => {
       const { data: excludedRoles } = await supabase.from("user_roles").select("user_id").in("role", ["admin","principal"]);
@@ -814,7 +860,7 @@ function PrincipalDashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {!stats ? Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />) : (<>
           <StatCard label="Teaching Staff (College)"  value={stats.teachers}   />
           <StatCard label="Departments"               value={stats.departments} />
@@ -853,9 +899,9 @@ function PrincipalDashboard() {
         subtitle="HOD-recommended requests from all departments"
         action={<Button asChild size="sm"><Link to="/requests">Open panel</Link></Button>}
       >
-        {queue.length === 0 ? <Empty>Nothing awaiting your approval.</Empty> : (<>
+        {queueLoading ? <ListSkeleton rows={3} /> : (queue ?? []).length === 0 ? <Empty>Nothing awaiting your approval.</Empty> : (<>
           <div className="space-y-2 sm:hidden">
-            {queue.map(r => (
+            {(queue ?? []).map(r => (
               <div key={r.id} className="rounded-lg border border-border p-3 text-sm">
                 <p className="font-semibold">{r.person?.full_name}</p>
                 <p className="text-xs text-muted-foreground">{r.person?.department_name} · {leaveTypeLabel(r.leave_type as LeaveType)}</p>
@@ -875,7 +921,7 @@ function PrincipalDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {queue.map(r => (
+                {(queue ?? []).map(r => (
                   <tr key={r.id} className="border-t border-border">
                     <td className="py-3 pr-4 font-medium whitespace-nowrap">{r.person?.full_name}</td>
                     <td className="py-3 pr-4 whitespace-nowrap">{r.person?.department_name}</td>
@@ -909,7 +955,7 @@ function AdminHrDashboard() {
       const year = new Date().getFullYear();
       const [teachers, pendingLeaves, approvedLeaves, depts, hrPending] = await Promise.all([
         supabase.from("profiles").select("id", { count: "exact", head: true }).eq("approved", true)
-          .not("id", "in", excludedIds.length ? `(${excludedIds.join(",")})` : `('00000000-0000-0000-0000-000000000000')`),
+          .not("id", "in", excludedIds.length ? `(${excludedIds.join(",")})` : "(00000000-0000-0000-0000-000000000000)"),
         supabase.from("leave_requests").select("id", { count: "exact", head: true }).in("status", ["pending_hod","hod_recommended","pending_principal"]),
         supabase.from("leave_requests").select("id", { count: "exact", head: true }).in("status", ["approved","hod_approved"]).gte("from_date", `${year}-01-01`),
         supabase.from("departments").select("id", { count: "exact", head: true }),
@@ -984,7 +1030,7 @@ function AdminHrDashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <StatCard label="Teaching Staff"      value={stats?.teachers ?? "—"} />
         <StatCard label="Departments"         value={stats?.departments ?? "—"} />
         <StatCard label="Pending Leaves"      value={stats?.pendingLeaves ?? "—"} tone="warning" />
@@ -1019,11 +1065,9 @@ function AdminHrDashboard() {
       )}
 
       {/* College leave trend */}
-      {monthlyTrend.some(d => d.count > 0) && (
-        <SectionCard title="College Leave Trend" subtitle={`${new Date().getFullYear()} — approved leave days per month`}>
-          <LeaveTrendChart data={monthlyTrend} />
-        </SectionCard>
-      )}
+    <SectionCard title="College Leave Trend" subtitle={`${new Date().getFullYear()} — approved leave days per month`}>
+        <LeaveTrendChart data={monthlyTrend} />
+      </SectionCard>
 
       <SectionCard title="Quick Actions">
         <div className="grid gap-2 sm:grid-cols-2">

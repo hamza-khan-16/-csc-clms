@@ -6,7 +6,7 @@ import { Loader2, Trash2, Check, FileText, Download, BarChart2, ChevronRight } f
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { adminCreateStaff, adminDeleteStaff, directPasswordReset, unlockAccount, fetchPasswordResetRequests, completePasswordResetRequest } from "@/lib/admin.functions";
-import { sendPushNotification } from "@/lib/push.functions";
+import { firePush } from "@/lib/push.functions";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
@@ -68,7 +68,7 @@ type ProfilePatch = {
   designation?: string;
   department_id?: string | null;
   monthly_salary?: number;
-  
+  cl_quota?: number;
 };
 
 type StaffRow = {
@@ -148,7 +148,6 @@ function AdminPage() {
 
   const pending = staff.filter((s) => !s.approved);
   const payroll = staff.filter((s) => s.role !== "admin").reduce((s, r) => s + r.monthly_salary, 0);
-  const sendPush = useServerFn(sendPushNotification);
 
   // Approval dialog state
   const [approvalDialog, setApprovalDialog] = useState<{ id: string; name: string; currentSalary: number } | null>(null);
@@ -168,7 +167,7 @@ function AdminPage() {
     if (!approvalSalary || isNaN(salary) || salary <= 0) return toast.error("Enter a valid monthly salary");
     if (isNaN(clQuota) || clQuota < 0 || clQuota > 365) return toast.error("Casual leave quota must be between 0 and 365");
     // Don't close dialog until patch succeeds — let onSuccess close it
-    patch.mutate({ id: approvalDialog.id, values: { approved: true, monthly_salary: salary } });
+    patch.mutate({ id: approvalDialog.id, values: { approved: true, monthly_salary: salary, cl_quota: clQuota } });
   }
 
   const invalidate = () => {
@@ -192,12 +191,12 @@ function AdminPage() {
       setApprovalDialog(null);
       if (result?.approved && result.collegeId) {
         toast.success(`Approved — college ID ${result.collegeId}`);
-        sendPush({ data: {
+        firePush({
           userIds: [id],
           title: "Account Approved",
           body: `Your registration has been approved. Your college ID is ${result.collegeId}`,
           targetUrl: "/dashboard",
-        }}).catch((e) => console.error("[Push] teacher approved:", e));
+        });
       } else {
         toast.success("Saved");
       }
@@ -452,12 +451,14 @@ function StaffRowCard({
   }
 
   const departmentId = dept === "none" ? null : dept;
+  // CL quota only applies to teachers and HODs — principals and admins don't have leave quotas
+  const isTeacherOrHod = row.role === "teacher" || row.role === "hod" || row.role === null;
   const originalClQuota = row.cl_quota != null ? String(row.cl_quota) : "12";
   const dirtyProfile =
-    Number(salary) !== row.monthly_salary ||
+    (isTeacherOrHod && Number(salary) !== row.monthly_salary) ||
     designation !== row.designation ||
     departmentId !== row.department_id ||
-    clQuota !== originalClQuota;
+    (isTeacherOrHod && clQuota !== originalClQuota);
   const dirtyRole = role !== row.role;
 
   return (
@@ -483,12 +484,13 @@ function StaffRowCard({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {row.role !== "principal" && (
+        {isTeacherOrHod && (
         <div className="space-y-1.5">
           <Label className="text-xs">Monthly salary</Label>
           <Input type="number" min={0} value={salary} onChange={(e) => setSalary(e.target.value)} />
         </div>
         )}
+        {isTeacherOrHod && (
         <div className="space-y-1.5">
           <Label className="text-xs">Casual leave quota (days/yr)</Label>
           <Input
@@ -501,6 +503,7 @@ function StaffRowCard({
             title="Override the default 12-day annual casual leave quota for this teacher"
           />
         </div>
+        )}
         <div className="space-y-1.5">
           <Label className="text-xs">Designation</Label>
           <Select value={designation} onValueChange={setDesignation}>
@@ -550,12 +553,13 @@ function StaffRowCard({
           disabled={!dirtyProfile}
           onClick={async () => {
             const quota = Number(clQuota);
+            if (isTeacherOrHod && (isNaN(quota) || quota < 0 || quota > 365)) return toast.error("Casual leave quota must be between 0 and 365");
             onSaveProfile({
               monthly_salary: Number(salary) || 0,
               designation,
               department_id: departmentId,
+              ...(isTeacherOrHod ? { cl_quota: quota } : {}),
             });
-
           }}
         >
           Save details
@@ -914,6 +918,7 @@ function ExportsCard() {
           .select("id, teacher_id, leave_type, from_date, to_date, session, total_days, paid_days, unpaid_days, status, reason")
           .gte("from_date", `${year}-01-01`)
           .lte("from_date", `${year}-12-31`)
+          .in("status", ["approved", "hod_approved"])  // Fix: exclude pending/rejected/cancelled from analytics
           .order("from_date"),
         supabase
           .from("profiles")
@@ -1057,7 +1062,7 @@ function ExportsCard() {
             <button
               type="button"
               onClick={() => setActiveModule(m.key)}
-              className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/60 ${activeModule === m.key ? "bg-primary/8" : ""}`}
+              className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/60 ${activeModule === m.key ? "bg-primary/10" : ""}`}
             >
               <span className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${activeModule === m.key ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>
                 <FileText className="size-4" />

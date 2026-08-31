@@ -32,43 +32,41 @@ export const Route = createFileRoute("/api/push-sync-all")({
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        let offset = 0;
-        const limit = 300;
+        // Fetch all approved users from Supabase and sync each one via OneSignal Identity API
+        // This replaces the deprecated /api/v1/players paginated endpoint
         let totalSynced = 0;
         let totalSkipped = 0;
         const errors: string[] = [];
 
-        while (true) {
-          const res = await fetch(
-            `https://onesignal.com/api/v1/players?app_id=${appId}&limit=${limit}&offset=${offset}`,
-            { headers: { "Authorization": `Key ${apiKey}` } }
-          );
-          if (!res.ok) { errors.push(`OneSignal fetch failed at offset ${offset}: ${await res.text()}`); break; }
+        const { data: allUsers } = await (supabaseAdmin as any)
+          .from("profiles").select("id").eq("approved", true);
 
-          const data = await res.json() as any;
-          const players: any[] = data?.players ?? [];
-          if (players.length === 0) break;
-
-          for (const player of players) {
-            const userId = parseExternalId(player.external_user_id);
-            const onesignalId = player.id;
-            if (!userId || !onesignalId) { totalSkipped++; continue; }
-
-            await (supabaseAdmin as any).from("push_tokens").delete()
-              .eq("onesignal_id", onesignalId).neq("user_id", userId);
-            await (supabaseAdmin as any).from("push_tokens").delete()
-              .eq("user_id", userId).neq("onesignal_id", onesignalId);
-
-            const { error } = await (supabaseAdmin as any).from("push_tokens").upsert(
-              { user_id: userId, onesignal_id: onesignalId, updated_at: new Date().toISOString() },
-              { onConflict: "user_id,onesignal_id" }
+        for (const user of allUsers ?? []) {
+          const userId = user.id as string;
+          try {
+            const res = await fetch(
+              `https://onesignal.com/api/v1/apps/${appId}/users/by/external_id/${encodeURIComponent(userId)}`,
+              { headers: { "Authorization": `Key ${apiKey}` } }
             );
-            if (error) { errors.push(`Failed for ${userId}: ${error.message}`); totalSkipped++; }
-            else totalSynced++;
+            if (!res.ok) { totalSkipped++; continue; }
+            const data = await res.json() as any;
+            const subs: any[] = (data?.subscriptions ?? []).filter((s: any) =>
+              s.type === "AndroidPush" || s.type === "iOSPush" || s.type === "ChromePush"
+            );
+            for (const sub of subs) {
+              const onesignalId = sub.id;
+              if (!onesignalId) continue;
+              const { error } = await (supabaseAdmin as any).from("push_tokens").upsert(
+                { user_id: userId, onesignal_id: onesignalId, updated_at: new Date().toISOString() },
+                { onConflict: "user_id,onesignal_id" }
+              );
+              if (error) { errors.push(`Failed for ${userId}: ${error.message}`); totalSkipped++; }
+              else totalSynced++;
+            }
+          } catch (e) {
+            errors.push(`Error for ${userId}: ${String(e)}`);
+            totalSkipped++;
           }
-
-          if (players.length < limit) break;
-          offset += limit;
         }
 
         return json({ ok: true, synced: totalSynced, skipped: totalSkipped, errors: errors.length > 0 ? errors : undefined });

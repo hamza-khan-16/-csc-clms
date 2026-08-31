@@ -539,7 +539,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
               onClick={() => setRegisterRole(r.value)}
               className={`rounded-lg border px-3 py-2.5 text-left transition-all ${
                 registerRole === r.value
-                  ? "border-primary bg-primary/8 text-primary ring-1 ring-primary"
+                  ? "border-primary bg-primary/10 text-primary ring-1 ring-primary"
                   : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               }`}
             >
