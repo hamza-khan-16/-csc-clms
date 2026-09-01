@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -41,8 +41,8 @@ import {
 } from "@/lib/leave";
 import { AlertCircle, Check, CheckCircle2, ChevronRight, Clock, FileText, Lightbulb, LockKeyhole } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
-import { GuardedTextarea } from "@/components/GuardedField";
+import { GuardedInput, GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
+import { groqModerationCheck, localBlocklistCheck } from "@/lib/textGuard";
 import { useServerFn } from "@tanstack/react-start";
 import { firePush } from "@/lib/push.functions";
 import { unlockAccount } from "@/lib/admin.functions";
@@ -76,6 +76,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
   const [toDate, setToDate] = useState(today);
   const [session, setSession] = useState<LeaveSession>("full_day");
   const [reason, setReason] = useState("");
+  const reasonGuardRef = useRef<GuardHandle>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -201,14 +202,24 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
     if (overlap) return toast.error(`This teacher already has an active leave from ${fmtDate(overlap.from_date)} to ${fmtDate(overlap.to_date)}`);
     if (session !== "full_day" && fromDate !== toDate) return toast.error("Half-day leave must be a single date");
     if (reason.trim()) {
-      const check = validateMeaningfulText(reason, "Reason");
-      if (!check.valid) return toast.error(check.error!);
+      const guardErr = await reasonGuardRef.current?.validateNow();
+      if (guardErr) return; // error already shown inline
     }
 
     const missingProxy = allProxySlots.filter((s) => !choices[s.key]);
     if (missingProxy.length > 0) return toast.error("Assign a proxy for every lecture before submitting");
     const incompleteManual = manualSlots.some((s) => !s.subject.trim() || !s.class_name.trim());
     if (incompleteManual) return toast.error("Fill subject and class for every manual proxy slot");
+
+    // Moderate free-text fields in manual slots
+    const manualTexts = manualSlots.flatMap((s) => [s.subject.trim(), s.class_name.trim()].filter(Boolean));
+    for (const text of manualTexts) {
+      if (localBlocklistCheck(text)) { toast.error("Please use appropriate language in subject and class fields"); return; }
+    }
+    for (const text of manualTexts) {
+      const abusive = await groqModerationCheck(text);
+      if (abusive) { toast.error("Please use appropriate language in subject and class fields"); return; }
+    }
 
     setBusy(true);
 
@@ -331,7 +342,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
         </div>
         <div className="space-y-1 sm:col-span-2">
           <label className="text-xs font-medium text-muted-foreground">Reason (optional)</label>
-          <Input className="h-9 text-sm" placeholder="Reason for leave…" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} />
+          <GuardedInput ref={reasonGuardRef} fieldName="Reason" className="h-9 text-sm" placeholder="Reason for leave…" value={reason} onChange={setReason} maxLength={200} />
         </div>
       </div>
 
@@ -777,6 +788,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   const qc = useQueryClient();
   const { profile } = useAuth();
   const [note, setNote] = useState("");
+  const noteGuardRef = useRef<GuardHandle>(null);
   const [busy, setBusy] = useState(false);
   const [choices, setChoices] = useState<Record<string, string>>({});
   const isHodFinal = isHodFinalLeave(request.leave_type as LeaveType);
@@ -890,6 +902,16 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     if (missing.length > 0) { toast.error("Assign a proxy teacher for every lecture"); return false; }
     const incomplete = allSlots.some((s) => !s.subject.trim() || !s.class_name.trim());
     if (incomplete) { toast.error("Add subject and class for every proxy lecture"); return false; }
+
+    // Moderate free-text fields in manual slots
+    const manualTexts = allSlots.filter((s) => s.isManual).flatMap((s) => [s.subject.trim(), s.class_name.trim()].filter(Boolean));
+    for (const text of manualTexts) {
+      if (localBlocklistCheck(text)) { toast.error("Please use appropriate language in subject and class fields"); return false; }
+    }
+    for (const text of manualTexts) {
+      const abusive = await groqModerationCheck(text);
+      if (abusive) { toast.error("Please use appropriate language in subject and class fields"); return false; }
+    }
     const { error: pErr } = await supabase.from("proxy_assignments").insert(
       allSlots.map((s) => {
         const isHodSelf = profile?.id && choices[s.key] === profile.id;
@@ -910,11 +932,10 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     return true;
   }
 
-  function checkNote(): boolean {
+  async function checkNote(): Promise<boolean> {
     if (!note.trim()) return true; // notes are optional — only validate if filled
-    const r = validateMeaningfulText(note, "Note");
-    if (!r.valid) { toast.error(r.error!); return false; }
-    return true;
+    const guardErr = await noteGuardRef.current?.validateNow();
+    return !guardErr;
   }
 
   async function hodRecommend() {
@@ -1110,7 +1131,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-info/8 border border-info/30 p-2 flex items-center gap-1.5"><FileText className="size-3 shrink-0" /> Approving will require the teacher to upload a <strong>{requiredDoc}</strong>.</p>
       )}
 
-      <GuardedTextarea fieldName="Note" className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={setNote} />
+      <GuardedTextarea ref={noteGuardRef} fieldName="Note" className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={setNote} />
       <p className="text-right text-xs text-muted-foreground mt-1">{note.length}/300</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {isHod && isHodFinal && <Button onClick={hodDirectApprove} disabled={busy}>Approve Leave</Button>}
@@ -1162,6 +1183,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
 function DocCard({ request }: { request: RequestRow }) {
   const qc = useQueryClient();
   const [note, setNote] = useState("");
+  const docNoteGuardRef = useRef<GuardHandle>(null);
   const [payment, setPayment] = useState<"paid" | "unpaid">("paid");
   const [busy, setBusy] = useState(false);
   const requiredDoc = docLabel(request.leave_type as LeaveType) ?? "Document";
@@ -1169,6 +1191,10 @@ function DocCard({ request }: { request: RequestRow }) {
   const dates = useMemo(() => eachDate(request.from_date, request.to_date), [request.from_date, request.to_date]);
 
   async function verifyAndApprove() {
+    if (note.trim()) {
+      const guardErr = await docNoteGuardRef.current?.validateNow();
+      if (guardErr) return;
+    }
     setBusy(true);
     const total = Number(request.total_days);
     const { error } = await supabase.from("leave_requests").update({
@@ -1183,6 +1209,10 @@ function DocCard({ request }: { request: RequestRow }) {
   }
 
   async function rejectDoc() {
+    if (note.trim()) {
+      const guardErr = await docNoteGuardRef.current?.validateNow();
+      if (guardErr) return;
+    }
     setBusy(true);
     const { error } = await supabase.from("leave_requests").update({
       doc_status: "required", doc_note: note.trim() || null, doc_url: null,
@@ -1224,7 +1254,7 @@ function DocCard({ request }: { request: RequestRow }) {
           </div>
         </div>
       )}
-      <GuardedTextarea fieldName="Note" className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={setNote} />
+      <GuardedTextarea ref={docNoteGuardRef} fieldName="Note" className="mt-4" rows={2} maxLength={300} placeholder="Add a note (optional)" value={note} onChange={setNote} />
       <p className="text-right text-xs text-muted-foreground mt-1">{note.length}/300</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {docUploaded && <Button onClick={verifyAndApprove} disabled={busy}>Verify Document</Button>}

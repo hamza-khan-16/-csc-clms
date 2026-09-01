@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Pencil, Trash2, X, Check } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import { SectionCard, Empty } from "@/components/ui-bits";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { GuardedInput, type GuardHandle } from "@/components/GuardedField";
 
 export const Route = createFileRoute("/departments")({
   head: () => ({
@@ -58,6 +59,8 @@ function CourseManager({ dept, isAdmin }: { dept: Department; isAdmin: boolean }
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [editVal, setEditVal] = useState("");
   const [busy, setBusy] = useState(false);
+  const newCourseGuardRef = useRef<GuardHandle>(null);
+  const editValGuardRef   = useRef<GuardHandle>(null);
 
   const courses = parseCourses(dept.courses);
 
@@ -79,6 +82,8 @@ function CourseManager({ dept, isAdmin }: { dept: Department; isAdmin: boolean }
   async function addCourse() {
     const trimmed = newCourse.trim();
     if (!trimmed) return;
+    const guardErr = await newCourseGuardRef.current?.validateNow();
+    if (guardErr) return; // error shown inline
     if (courses.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
       toast.error("Course already exists in this department");
       return;
@@ -95,6 +100,8 @@ function CourseManager({ dept, isAdmin }: { dept: Department; isAdmin: boolean }
   async function confirmEdit(idx: number) {
     const trimmed = editVal.trim();
     if (!trimmed) return;
+    const guardErr = await editValGuardRef.current?.validateNow();
+    if (guardErr) return; // error shown inline
     if (
       courses.some((c, i) => i !== idx && c.toLowerCase() === trimmed.toLowerCase())
     ) {
@@ -124,11 +131,13 @@ function CourseManager({ dept, isAdmin }: { dept: Department; isAdmin: boolean }
             <li key={idx} className="flex items-center gap-2">
               {editIdx === idx ? (
                 <>
-                  <Input
+                  <GuardedInput
+                    ref={editValGuardRef}
+                    fieldName="Course name"
                     className="h-7 flex-1 text-sm"
                     value={editVal}
                     autoFocus
-                    onChange={(e) => setEditVal(e.target.value)}
+                    onChange={setEditVal}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") confirmEdit(idx);
                       if (e.key === "Escape") setEditIdx(null);
@@ -177,11 +186,13 @@ function CourseManager({ dept, isAdmin }: { dept: Department; isAdmin: boolean }
 
       {/* Add new course */}
       <div className="flex gap-2 pt-1">
-        <Input
+        <GuardedInput
+          ref={newCourseGuardRef}
+          fieldName="Course name"
           className="h-8 flex-1 text-sm"
           placeholder="New course name…"
           value={newCourse}
-          onChange={(e) => setNewCourse(e.target.value)}
+          onChange={setNewCourse}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCourse(); } }}
           disabled={busy}
         />

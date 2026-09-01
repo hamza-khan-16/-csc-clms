@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
 import {
   Select,
   SelectContent,
@@ -255,6 +256,7 @@ function TeacherDetailPanel({
   const [doj, setDoj] = useState<string>(teacher.date_of_joining ?? "");
   const [gender, setGender] = useState<string>((teacher as any).gender ?? "");
   const [subjects, setSubjects] = useState<string>(teacher.subjects_taught ?? "");
+  const subjectsGuardRef = useRef<GuardHandle>(null);
   const [saving, setSaving] = useState(false);
 
   // DOB: stored as "DD-MM" or "DD-MM-YYYY"; split into 3 fields
@@ -280,6 +282,10 @@ function TeacherDetailPanel({
   }
 
   async function saveDetails() {
+    if (subjects.trim()) {
+      const guardErr = await subjectsGuardRef.current?.validateNow();
+      if (guardErr) return; // error already shown inline
+    }
     setSaving(true);
     const { error } = await supabase
       .from("profiles")
@@ -468,10 +474,12 @@ function TeacherDetailPanel({
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Subjects taught (comma-separated)</Label>
-              <Textarea
+              <GuardedTextarea
+                ref={subjectsGuardRef}
+                fieldName="Subjects"
                 rows={2}
                 value={subjects}
-                onChange={(e) => setSubjects(e.target.value)}
+                onChange={setSubjects}
                 className="text-sm resize-none"
                 placeholder="e.g. Data Structures, DBMS, OS"
               />

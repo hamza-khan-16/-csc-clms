@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Loader2, Trash2, Check, FileText, Download, BarChart2, ChevronRight } from "lucide-react";
@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { GuardedInput, type GuardHandle } from "@/components/GuardedField";
+import { groqModerationCheck, localBlocklistCheck } from "@/lib/textGuard";
 import {
   Dialog,
   DialogContent,
@@ -614,6 +616,7 @@ function AddStaffCard({
   onDone: () => void;
 }) {
   const createFn = useServerFn(adminCreateStaff);
+  const fullNameGuardRef = useRef<GuardHandle>(null);
   const [form, setForm] = useState({
     email: "",
     password: "",
@@ -654,17 +657,21 @@ function AddStaffCard({
     >
       <form
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
+          const guardErr = await fullNameGuardRef.current?.validateNow();
+          if (guardErr) return;
           create.mutate();
         }}
       >
         <div className="space-y-1.5">
           <Label>Full name</Label>
-          <Input
+          <GuardedInput
+            ref={fullNameGuardRef}
+            fieldName="Full name"
             required
             value={form.fullName}
-            onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+            onChange={(v) => setForm({ ...form, fullName: v })}
           />
         </div>
         <div className="space-y-1.5">
@@ -1108,6 +1115,7 @@ function ExportsCard() {
 function DepartmentsCard({ departments }: { departments: { id: string; name: string }[] }) {
   const qc = useQueryClient();
   const [name, setName] = useState("");
+  const deptNameGuardRef = useRef<GuardHandle>(null);
   const [deptDeleteConfirm, setDeptDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const add = useMutation({
@@ -1139,15 +1147,20 @@ function DepartmentsCard({ departments }: { departments: { id: string; name: str
     <SectionCard title="Departments" subtitle="Add or remove departments">
       <form
         className="mb-4 flex gap-2"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          if (name.trim()) add.mutate();
+          if (!name.trim()) return;
+          const guardErr = await deptNameGuardRef.current?.validateNow();
+          if (guardErr) return;
+          add.mutate();
         }}
       >
-        <Input
+        <GuardedInput
+          ref={deptNameGuardRef}
+          fieldName="Department name"
           placeholder="New department name"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={setName}
         />
         <Button type="submit" disabled={add.isPending}>
           Add

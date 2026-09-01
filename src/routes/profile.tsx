@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,6 +11,7 @@ import { SectionCard } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { GuardedInput, type GuardHandle } from "@/components/GuardedField";
 import {
   Select,
   SelectContent,
@@ -161,6 +162,7 @@ function ProfilePage() {
   const { profile, role, session } = useAuth();
   const qc = useQueryClient();
   const [name, setName] = useState(profile?.full_name ?? "");
+  const nameGuardRef = useRef<GuardHandle>(null);
   const [gender, setGender] = useState(profile?.gender ?? "");
   const [dob, setDob] = useState(profile?.date_of_birth ?? "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -212,6 +214,8 @@ function ProfilePage() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (name.trim().length < 3) return toast.error("Enter your full name");
+    const guardErr = await nameGuardRef.current?.validateNow();
+    if (guardErr) return;
     setBusy(true);
     const { error } = await supabase
       .from("profiles")
@@ -345,7 +349,7 @@ function ProfilePage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="name">Full name</Label>
-              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
+              <GuardedInput ref={nameGuardRef} fieldName="Full name" id="name" value={name} onChange={setName} />
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
