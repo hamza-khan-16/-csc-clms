@@ -68,7 +68,7 @@ Text: """${data.text}"""`;
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
           body: JSON.stringify({
             model,
-            max_tokens: 100,
+            max_tokens: 512, // reasoning models use tokens internally before outputting content
             temperature: 0,
             messages: [{ role: "user", content: prompt }],
           }),
@@ -77,8 +77,7 @@ Text: """${data.text}"""`;
           console.warn(`[moderateText] model ${model} failed (${res.status}) — trying next`);
           continue; // try next model on rate limit (429), 404, 5xx, etc.
         }
-        const json = await res.json() as { choices?: { message?: { content?: string; reasoning_content?: string } }[] };
-        console.warn(`[moderateText] raw response from ${model}:`, JSON.stringify(json?.choices?.[0]?.message));
+        const json = await res.json() as { choices?: { message?: { content?: string } }[] };
         const raw = (json?.choices?.[0]?.message?.content ?? "").trim().toUpperCase();
         if (!raw) {
           console.warn(`[moderateText] model ${model} returned empty — trying next`);
