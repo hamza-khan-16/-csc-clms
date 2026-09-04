@@ -15,75 +15,6 @@ import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import { Toaster } from "@/components/ui/sonner";
 
-// JSON-LD structured data — tells Google about the site and enables sitelinks
-// in search results (the 2–3 link buttons shown below the main result).
-const STRUCTURED_DATA = {
-  "@context": "https://schema.org",
-  "@graph": [
-    {
-      "@type": "WebSite",
-      "name": "CSC Leave Management System",
-      "alternateName": "CSC LMS",
-      "description": "Official leave management portal for Chandrabhan Sharma College. Teachers apply for leave, track approvals, and view proxy assignments. HODs and the Principal manage and approve requests online.",
-      "url": "https://csc-clms2.vercel.app",
-      // SiteLinksSearchBox — enables the search box in Google results (optional)
-      "potentialAction": {
-        "@type": "SearchAction",
-        "target": {
-          "@type": "EntryPoint",
-          "urlTemplate": "https://csc-clms2.vercel.app/leaves?filter={search_term_string}"
-        },
-        "query-input": "required name=search_term_string"
-      }
-    },
-    {
-      // Sitelinks — Google picks these up automatically but this helps signal priority
-      "@type": "ItemList",
-      "name": "Quick Links",
-      "itemListElement": [
-        {
-          "@type": "SiteLinksSearchBox",
-          "@id": "https://csc-clms2.vercel.app/#sitelinks"
-        },
-        {
-          "@type": "ListItem",
-          "position": 1,
-          "name": "Login",
-          "description": "Sign in to the leave management portal",
-          "url": "https://csc-clms2.vercel.app/login"
-        },
-        {
-          "@type": "ListItem",
-          "position": 2,
-          "name": "Apply for Leave",
-          "description": "Submit a new leave application",
-          "url": "https://csc-clms2.vercel.app/apply"
-        },
-        {
-          "@type": "ListItem",
-          "position": 3,
-          "name": "My Leaves",
-          "description": "Track your leave history and approval status",
-          "url": "https://csc-clms2.vercel.app/leaves"
-        },
-        {
-          "@type": "ListItem",
-          "position": 4,
-          "name": "Leave Requests",
-          "description": "Review and approve pending leave requests (HOD / Principal)",
-          "url": "https://csc-clms2.vercel.app/requests"
-        }
-      ]
-    },
-    {
-      "@type": "Organization",
-      "name": "Chandrabhan Sharma College",
-      "alternateName": "CSC",
-      "url": "https://csc-clms2.vercel.app"
-    }
-  ]
-};
-
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -153,20 +84,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "description",
         content:
-          "Official leave management portal for Chandrabhan Sharma College. Teachers can apply for leave, track approvals, view proxy assignments and payroll deductions. HODs and the Principal manage and approve requests online.",
+          "Leave management for Chandrabhan Sharma College — teacher, HOD and principal panels.",
       },
-      // Open Graph — controls previews in WhatsApp, Teams, social media
-      { property: "og:type",        content: "website" },
-      { property: "og:title",       content: "CSC Leave Management System" },
-      { property: "og:description", content: "Apply for leave, track approvals, and manage proxy assignments — Chandrabhan Sharma College's official leave portal for teachers, HODs and the Principal." },
-      { property: "og:site_name",   content: "CSC Leave Management" },
-      { property: "og:url",         content: "https://csc-clms2.vercel.app" },
-      // Twitter / X
-      { name: "twitter:card",        content: "summary" },
-      { name: "twitter:title",       content: "CSC Leave Management System" },
-      { name: "twitter:description", content: "Official leave portal for Chandrabhan Sharma College — apply, track, and approve leaves online." },
-      // Let Google index the login page but not internal authenticated pages
-      { name: "robots", content: "index, follow" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -192,12 +113,6 @@ function RootShell({ children }: { children: ReactNode }) {
         <HeadContent />
         {/* Blocking script — applies dark class before paint to prevent flash */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})();` }} />
-        {/* JSON-LD structured data — enables Google sitelinks (the 2–3 link buttons below the search result) */}
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }}
-        />
-        <meta name="google-site-verification" content="Gappp0r5rWLgFoGflSVQiC2TQ0LFrjSutMFGJtimN-M" />
       </head>
       <body>
         {children}

@@ -92,11 +92,11 @@ export function ListSkeleton({ rows = 3 }: { rows?: number }) {
 const STATUS_ICON: Record<LeaveStatus, React.ReactNode> = {
   approved:          <CheckCircle2 className="size-3 shrink-0" />,
   hod_approved:      <CheckCircle2 className="size-3 shrink-0" />,
-  rejected:          <XCircle      className="size-3 shrink-0" />,
-  hod_recommended:   <ChevronRight className="size-3 shrink-0" />,  // HOD forwarded it
-  pending_principal: <ChevronRight className="size-3 shrink-0" />,  // now with principal
-  pending_hod:       <Clock        className="size-3 shrink-0" />,  // still waiting for HOD
-  cancelled:         <XCircle      className="size-3 shrink-0" />,
+  rejected:          <XCircle className="size-3 shrink-0" />,
+  hod_recommended:   <ChevronRight className="size-3 shrink-0" />,
+  pending_principal: <ChevronRight className="size-3 shrink-0" />,
+  pending_hod:       <Clock className="size-3 shrink-0" />,
+  cancelled:         <XCircle className="size-3 shrink-0" />,
 };
 
 export function StatusBadge({ status }: { status: LeaveStatus }) {

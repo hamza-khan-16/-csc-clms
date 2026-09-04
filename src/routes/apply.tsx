@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, useBlocker } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -17,7 +17,7 @@ import { validateMeaningfulText } from "@/lib/validateText";
 import { GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
 import { firePush } from "@/lib/push.functions";
 import { useRef } from "react";
-import { AlertTriangle, Baby, Briefcase, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock, FileText, Flower2, Info, ShieldCheck, Stethoscope, XCircle } from "lucide-react";
+import { AlertTriangle, Baby, Briefcase, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock, FileText, Flower2, Info, ShieldCheck, Stethoscope, XCircle } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -67,28 +67,21 @@ const schema = z.object({
 });
 
 const STEPS = ["Leave Type", "Dates & Session", "Review & Submit"];
-const STEPS_SHORT = ["Type", "Dates", "Review"]; // fits on very small screens
 
 function StepIndicator({ current }: { current: number }) {
   return (
     <div className="flex items-center gap-0 mb-6">
       {STEPS.map((label, i) => (
-        <div key={i} className="flex items-center flex-1 last:flex-none min-w-0">
-          <div className="flex flex-col items-center gap-1 min-w-0">
-            <div className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold border-2 transition-colors ${
+        <div key={i} className="flex items-center flex-1 last:flex-none">
+          <div className="flex flex-col items-center gap-1">
+            <div className={`flex size-7 items-center justify-center rounded-full text-xs font-bold border-2 transition-colors ${
               i < current ? "bg-primary border-primary text-primary-foreground"
               : i === current ? "border-primary text-primary bg-background"
               : "border-muted text-muted-foreground bg-background"
             }`}>
               {i < current ? <CheckCircle2 className="size-4" /> : i + 1}
             </div>
-            {/* Full label on sm+, short label on xs */}
-            <span className={`hidden sm:block text-[10px] font-medium text-center leading-tight whitespace-nowrap ${i === current ? "text-primary" : "text-muted-foreground"}`}>
-              {label}
-            </span>
-            <span className={`sm:hidden text-[10px] font-medium text-center leading-tight whitespace-nowrap ${i === current ? "text-primary" : "text-muted-foreground"}`}>
-              {STEPS_SHORT[i]}
-            </span>
+            <span className={`text-[10px] font-medium text-center max-w-[60px] leading-tight ${i === current ? "text-primary" : "text-muted-foreground"}`}>{label}</span>
           </div>
           {i < STEPS.length - 1 && (
             <div className={`flex-1 h-px mx-2 mb-4 transition-all duration-500 ${i < current ? "bg-primary" : "bg-border"}`} />
@@ -305,7 +298,7 @@ function ApplyPage() {
       supabase.auth.updateUser({ data: { leave_draft: {
         leaveType, fromDate, toDate, session, reason, _savedAt: Date.now(),
       }}}).catch(() => {});
-    }, 3000); // 3s — avoids a Supabase write on every keystroke
+    }, 1500);
     return () => clearTimeout(t);
   }, [draftLoaded, leaveType, fromDate, toDate, session, reason]);
 
@@ -382,19 +375,6 @@ function ApplyPage() {
     if (err) return toast.error(err);
     setStep((s) => s + 1);
   }
-
-  // ── Navigation guard — warn before leaving with unsaved wizard progress ───
-  // isDirty: user has moved past step 0 OR changed any default value
-  const isDirty = step > 0
-    || leaveType !== "casual"
-    || fromDate !== todayISO()
-    || toDate !== todayISO()
-    || reason.trim().length > 0;
-
-  const { proceed, reset, status } = useBlocker({
-    blockerFn: () => isDirty && !busy,
-    condition: isDirty && !busy,
-  });
 
   async function submit() {
     if (reasonError) return toast.error(reasonError);
@@ -600,7 +580,7 @@ function ApplyPage() {
               <div className="space-y-4">
                 <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-2 text-sm">
                   <p className="font-semibold text-base">Review your request</p>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm [&>span:nth-child(odd)]:min-w-0 [&>span:nth-child(even)]:min-w-0 [&>span:nth-child(even)]:break-words">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
                     <span className="text-muted-foreground">Leave type</span>
                     <span className="font-medium capitalize">{leaveType.replace(/_/g," ")}</span>
                     <span className="text-muted-foreground">From</span>
@@ -695,45 +675,25 @@ function ApplyPage() {
           <ApplySidebar leaveType={leaveType} balances={balances} holidays={holidays} />
         </div>
 
-        {/* Mobile info accordion — full sidebar content, collapsible ───── */}
+        {/* Mobile balance preview — inline below wizard ─────────────────── */}
         <div className="lg:hidden">
-          <details className="group rounded-xl border border-border bg-muted/20 overflow-hidden">
-            <summary className="flex cursor-pointer select-none items-center justify-between px-4 py-3 text-sm font-semibold list-none">
-              <span className="flex items-center gap-2">
-                <Info className="size-4 text-primary" />
-                Leave info &amp; balance
-              </span>
-              <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
-            </summary>
-            <div className="px-4 pb-4 pt-1">
-              <ApplySidebar leaveType={leaveType} balances={balances} holidays={holidays} />
-            </div>
-          </details>
+          {(balances ?? []).length > 0 && (() => {
+            const casualBal2 = balances.find(b => b.type === "casual");
+            if (!casualBal2) return null;
+            const remY = Math.max(casualBal2.yearlyCap - casualBal2.usedYear, 0);
+            const remM = casualBal2.monthlyCap != null ? Math.max(casualBal2.monthlyCap - casualBal2.usedMonth, 0) : null;
+            return (
+              <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Casual balance</span>
+                <span className="font-semibold">
+                  {remM !== null ? `${remM}/${casualBal2.monthlyCap} this month` : `${remY}/${casualBal2.yearlyCap} this year`}
+                </span>
+              </div>
+            );
+          })()}
         </div>
 
       </div>
-
-      {/* ── Unsaved changes dialog ──────────────────────────────────────────── */}
-      {status === "blocked" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={reset} />
-          <div className="relative z-10 w-full max-w-sm rounded-2xl bg-background border border-border shadow-2xl p-6 animate-in fade-in-0 zoom-in-95 duration-200">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="flex size-10 items-center justify-center rounded-full bg-warning/15">
-                <AlertTriangle className="size-5 text-warning-foreground" />
-              </div>
-              <div>
-                <p className="font-semibold text-sm">Leave this page?</p>
-                <p className="text-xs text-muted-foreground">Your draft is saved and will be restored when you return.</p>
-              </div>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <Button variant="outline" className="flex-1" onClick={reset}>Stay</Button>
-              <Button variant="destructive" className="flex-1" onClick={proceed}>Leave anyway</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </AppShell>
   );
 }

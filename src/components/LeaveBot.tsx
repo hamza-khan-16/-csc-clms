@@ -641,7 +641,6 @@ export function LeaveBot() {
   const [inputErr, setInputErr] = useState<string|null>(null);
   const [ctxStr,   setCtxStr]   = useState("");
   const [ctxReady, setCtxReady] = useState(false);
-  const ctxFetchedRef = useRef(false); // prevent double-fetch on re-renders
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
 
@@ -696,17 +695,14 @@ export function LeaveBot() {
     rec.start();
   }
 
-  // ── Context fetch — eager, fires as soon as profile is ready after login ──
-  // Loads in the background so data is ready before the user opens the chat.
-  // ctxFetchedRef prevents double-fetch on re-renders or profile object identity changes.
+  // Pre-fetch context on mount (background) — ready before user opens chat
   useEffect(() => {
-    if (!profile?.id || !role || ctxFetchedRef.current) return;
-    ctxFetchedRef.current = true;
+    if (!profile?.id || ctxReady) return;
     const deptId = (profile as any).department_id ?? null;
-    buildFullContext(profile.id, role, deptId)
+    buildFullContext(profile.id, role ?? "teacher", deptId)
       .then(ctx => { setCtxStr(ctx); setCtxReady(true); })
       .catch(() => setCtxReady(true));
-  }, [profile?.id, role]); // profile.id + role — both must be set before fetching
+  }, [profile?.id, role]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages, open]);
   useEffect(() => { if(open) setTimeout(()=>inputRef.current?.focus(),100); }, [open]);
@@ -890,7 +886,7 @@ export function LeaveBot() {
       )}
 
       {/* FAB */}
-      <button onClick={() => setOpen(o=>!o)}
+      <button onClick={()=>setOpen(o=>!o)}
         className={cn(
           "fixed bottom-20 right-4 z-50 lg:bottom-6 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-200",
           open ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground hover:scale-105"

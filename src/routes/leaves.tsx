@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,7 +23,6 @@ import {
   type DocStatus,
 } from "@/lib/leave";
 import { AlertTriangle, Calendar, CheckCircle2, FileText, List, Paperclip, Upload } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -35,14 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-type FilterTab = "all" | "pending" | "approved" | "rejected" | "with_docs";
-
 export const Route = createFileRoute("/leaves")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    filter: (["all","pending","approved","rejected","with_docs"].includes(search.filter as string)
-      ? search.filter as FilterTab
-      : "all") satisfies FilterTab,
-  }),
   head: () => ({
     meta: [
       { title: "My Leaves — CSC Leave Management" },
@@ -61,6 +53,8 @@ export const Route = createFileRoute("/leaves")({
   ),
 });
 
+type FilterTab = "all" | "pending" | "approved" | "rejected" | "with_docs";
+
 const FILTER_OPTIONS: { value: FilterTab; label: string }[] = [
   { value: "all",       label: "All Leaves" },
   { value: "pending",   label: "Pending" },
@@ -74,12 +68,7 @@ const PENDING_STATUSES: string[] = ["pending_hod", "hod_recommended", "pending_p
 function MyLeavesPage() {
   const { profile } = useAuth();
   const qc = useQueryClient();
-  const { filter } = Route.useSearch();
-  const navigate = useNavigate({ from: "/leaves" });
-
-  function setFilter(f: FilterTab) {
-    navigate({ search: { filter: f }, replace: true });
-  }
+  const [filter, setFilter] = useState<FilterTab>("all");
 
   const { data: leaves = [] } = useQuery({
     queryKey: ["my-leaves", profile?.id],
@@ -224,35 +213,8 @@ function MyLeavesPage() {
 
         {/* Filter + view mode toggle */}
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Pill tabs — desktop */}
-          <div className="hidden sm:flex items-center gap-1 rounded-xl border border-border bg-muted/40 p-1">
-            {FILTER_OPTIONS.map((opt) => {
-              const count = opt.value !== "all" ? (filterCounts[opt.value as keyof typeof filterCounts] ?? 0) : null;
-              return (
-                <button
-                  key={opt.value}
-                  onClick={() => setFilter(opt.value)}
-                  className={cn(
-                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150 flex items-center gap-1.5",
-                    filter === opt.value
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {opt.label}
-                  {count !== null && count > 0 && (
-                    <span className={cn(
-                      "rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
-                      filter === opt.value ? "bg-primary text-primary-foreground" : "bg-muted-foreground/20 text-muted-foreground"
-                    )}>{count}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          {/* Select — mobile only */}
           <Select value={filter} onValueChange={(v) => setFilter(v as FilterTab)}>
-            <SelectTrigger className="w-44 sm:hidden">
+            <SelectTrigger className="w-48">
               <SelectValue placeholder="Filter leaves" />
             </SelectTrigger>
             <SelectContent>
@@ -268,6 +230,14 @@ function MyLeavesPage() {
               ))}
             </SelectContent>
           </Select>
+          {filter !== "all" && (
+            <button
+              className="text-xs text-muted-foreground underline"
+              onClick={() => setFilter("all")}
+            >
+              Clear filter
+            </button>
+          )}
           <div className="ml-auto flex items-center gap-1 rounded-lg border border-border p-0.5">
             <button
               onClick={() => setViewMode("list")}

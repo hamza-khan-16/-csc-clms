@@ -78,13 +78,13 @@ export const SESSION_LABEL: Record<LeaveSession, string> = {
 };
 
 export const STATUS_LABEL: Record<LeaveStatus, string> = {
-  pending_hod:       "Awaiting HOD",
-  hod_recommended:   "HOD Recommended",
-  pending_principal: "With Principal",
-  hod_approved:      "Approved",
-  approved:          "Approved",
-  rejected:          "Rejected",
-  cancelled:         "Withdrawn",
+  pending_hod: "Pending with HOD",
+  hod_recommended: "HOD Recommended",
+  pending_principal: "Pending with Principal",
+  hod_approved: "Approved",
+  approved: "Approved",
+  rejected: "Rejected",
+  cancelled: "Withdrawn",
 };
 
 export function statusClasses(status: LeaveStatus) {
@@ -93,17 +93,13 @@ export function statusClasses(status: LeaveStatus) {
     case "hod_approved":
       return "bg-success/12 text-success border-success/25";
     case "hod_recommended":
-      // HOD has reviewed & recommended — teal, distinct from plain pending
-      return "bg-teal-500/10 text-teal-700 dark:text-teal-400 border-teal-500/25";
     case "pending_principal":
-      // In principal's queue — indigo, clearly further along than pending_hod
-      return "bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border-indigo-500/25";
+      return "bg-info/12 text-info border-info/25";
     case "rejected":
       return "bg-destructive/12 text-destructive border-destructive/25";
     case "cancelled":
       return "bg-muted text-muted-foreground border-muted";
     default:
-      // pending_hod — amber, first stage
       return "bg-warning/18 text-warning-foreground border-warning/35";
   }
 }

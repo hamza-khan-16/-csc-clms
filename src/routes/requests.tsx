@@ -367,44 +367,29 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
           )}
           <ul className="space-y-2">
             {allProxySlots.map((s) => (
-              <li key={s.key} className="rounded-lg border border-border bg-background p-3 space-y-2 text-sm">
+              <li key={s.key} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background p-3 text-sm">
                 {s.isManual ? (
-                  <>
-                    {/* Row 1: date + time range */}
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      <Input type="date" value={s.date} min={fromDate} max={toDate} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, date: e.target.value } : x))} className="h-8 text-xs col-span-2 sm:col-span-1" />
-                      <Input type="time" value={s.start_time} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, start_time: e.target.value } : x))} className="h-8 text-xs" />
-                      <Input type="time" value={s.end_time} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, end_time: e.target.value } : x))} className="h-8 text-xs" />
-                    </div>
-                    {/* Row 2: subject + class */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <Input placeholder="Subject" value={s.subject} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, subject: e.target.value } : x))} className="h-8 text-xs" />
-                      <Input placeholder="Class" value={s.class_name} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, class_name: e.target.value } : x))} className="h-8 text-xs" />
-                    </div>
-                    {/* Row 3: proxy picker + remove */}
-                    <div className="flex gap-2 items-center">
-                      <Select value={choices[s.key] ?? ""} onValueChange={(v) => setChoices((c) => ({ ...c, [s.key]: v }))}>
-                        <SelectTrigger className="flex-1 h-8 text-xs"><SelectValue placeholder="Select proxy…" /></SelectTrigger>
-                        <SelectContent>
-                          {deptPeople.map((p) => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <Button type="button" variant="ghost" size="sm" className="h-8 text-xs px-2 shrink-0" onClick={() => setManualSlots((m) => m.filter((x) => x.key !== s.key))}>Remove</Button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-xs">{s.subject} · {s.class_name}</p>
-                      <p className="text-xs text-muted-foreground">{fmtDate(s.date)} · {fmtTime(s.start_time)} – {fmtTime(s.end_time)}</p>
-                    </div>
-                    <Select value={choices[s.key] ?? ""} onValueChange={(v) => setChoices((c) => ({ ...c, [s.key]: v }))}>
-                      <SelectTrigger className="w-full sm:w-52 h-8 text-xs"><SelectValue placeholder="Select proxy…" /></SelectTrigger>
-                      <SelectContent>
-                        {deptPeople.map((p) => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-5">
+                    <Input type="date" value={s.date} min={fromDate} max={toDate} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, date: e.target.value } : x))} className="h-8 text-xs" />
+                    <Input type="time" value={s.start_time} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, start_time: e.target.value } : x))} className="h-8 text-xs" />
+                    <Input type="time" value={s.end_time} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, end_time: e.target.value } : x))} className="h-8 text-xs" />
+                    <Input placeholder="Subject" value={s.subject} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, subject: e.target.value } : x))} className="h-8 text-xs" />
+                    <Input placeholder="Class" value={s.class_name} onChange={(e) => setManualSlots((m) => m.map((x) => x.key === s.key ? { ...x, class_name: e.target.value } : x))} className="h-8 text-xs" />
                   </div>
+                ) : (
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-xs">{s.subject} · {s.class_name}</p>
+                    <p className="text-xs text-muted-foreground">{fmtDate(s.date)} · {fmtTime(s.start_time)} – {fmtTime(s.end_time)}</p>
+                  </div>
+                )}
+                <Select value={choices[s.key] ?? ""} onValueChange={(v) => setChoices((c) => ({ ...c, [s.key]: v }))}>
+                  <SelectTrigger className="w-full sm:w-52 h-8 text-xs"><SelectValue placeholder="Select proxy…" /></SelectTrigger>
+                  <SelectContent>
+                    {deptPeople.map((p) => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {s.isManual && (
+                  <Button type="button" variant="ghost" size="sm" className="h-8 text-xs px-2" onClick={() => setManualSlots((m) => m.filter((x) => x.key !== s.key))}>Remove</Button>
                 )}
               </li>
             ))}
@@ -556,6 +541,10 @@ function RequestsPage() {
       if (isHod) {
         q = q.eq("department_id", profile!.department_id ?? "");
       } else {
+        // Principal sees leaves that:
+        // 1. Are in the principal's workflow (recommended/pending/hod_approved/approved)
+        // 2. Were rejected BUT by the principal themselves (principal_acted_at is set)
+        // HOD-rejected leaves (rejected + hod_acted_at set + principal_acted_at null) stay with HOD only
         q = q.or(
           "status.in.(hod_recommended,pending_principal,hod_approved,approved)," +
           "and(status.eq.rejected,principal_acted_at.not.is.null)"
@@ -564,10 +553,7 @@ function RequestsPage() {
       const { data, error } = await q;
       if (error) throw error;
       const filtered = (data ?? []).filter((r) => !excludedIds.has(r.teacher_id));
-      // Sort IDs before fetching so fetchPeople always receives the same key order,
-      // preventing duplicate cache misses when the leave list comes back in different order
-      const sortedIds = [...new Set(filtered.map((r) => r.teacher_id))].sort();
-      const people = await fetchPeople(sortedIds);
+      const people = await fetchPeople(filtered.map((r) => r.teacher_id));
       return filtered.map((r) => ({ ...r, teacher: people[r.teacher_id] }));
     },
   });
@@ -1075,52 +1061,32 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
               const options = candidates(s.date, s.start_time, s.end_time);
               const isManual = s.lecture_id === null;
               return (
-                <li key={s.key} className="rounded-lg border border-border p-3 space-y-2 text-sm">
+                <li key={s.key} className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3 text-sm">
                   {isManual ? (
-                    <>
-                      {/* Row 1: date + times */}
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        <Input type="date" value={s.date} min={request.from_date} max={request.to_date} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, date: e.target.value } : x))} className="h-8 text-xs col-span-2 sm:col-span-1" />
-                        <Input type="time" value={s.start_time} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, start_time: e.target.value } : x))} className="h-8 text-xs" />
-                        <Input type="time" value={s.end_time} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, end_time: e.target.value } : x))} className="h-8 text-xs" />
-                      </div>
-                      {/* Row 2: subject + class */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <Input placeholder="Subject" value={s.subject} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, subject: e.target.value } : x))} className="h-8 text-xs" />
-                        <Input placeholder="Class" value={s.class_name} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, class_name: e.target.value } : x))} className="h-8 text-xs" />
-                      </div>
-                      {/* Row 3: proxy + badge + remove */}
-                      <div className="flex flex-wrap gap-2 items-center">
-                        <Select value={choices[s.key] ?? ""} onValueChange={(v) => setChoices((c) => ({ ...c, [s.key]: v }))}>
-                          <SelectTrigger className="flex-1 min-w-[160px] h-8 text-xs"><SelectValue placeholder="Select proxy teacher" /></SelectTrigger>
-                          <SelectContent>
-                            {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.full_name} {o.free ? "· Free" : "· Busy"}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                        {choices[s.key] && (
-                          <Badge variant="secondary" className="shrink-0">{options.find((o) => o.id === choices[s.key])?.free ? "Available" : "Has a lecture"}</Badge>
-                        )}
-                        <Button type="button" variant="ghost" size="sm" className="h-8 text-xs px-2 shrink-0" onClick={() => setManual((m) => m.filter((x) => x.key !== s.key))}>Remove</Button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-xs">{s.subject} · {s.class_name}</p>
-                        <p className="text-xs text-muted-foreground">{fmtDate(s.date)} · {fmtTime(s.start_time)} – {fmtTime(s.end_time)}</p>
-                      </div>
-                      <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">
-                        <Select value={choices[s.key] ?? ""} onValueChange={(v) => setChoices((c) => ({ ...c, [s.key]: v }))}>
-                          <SelectTrigger className="flex-1 sm:w-64 h-8 text-xs"><SelectValue placeholder="Select proxy teacher" /></SelectTrigger>
-                          <SelectContent>
-                            {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.full_name} {o.free ? "· Free" : "· Busy"}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                        {choices[s.key] && (
-                          <Badge variant="secondary" className="shrink-0">{options.find((o) => o.id === choices[s.key])?.free ? "Available" : "Has a lecture"}</Badge>
-                        )}
-                      </div>
+                    <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-5">
+                      <Input type="date" value={s.date} min={request.from_date} max={request.to_date} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, date: e.target.value } : x))} />
+                      <Input type="time" value={s.start_time} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, start_time: e.target.value } : x))} />
+                      <Input type="time" value={s.end_time} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, end_time: e.target.value } : x))} />
+                      <Input placeholder="Subject" value={s.subject} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, subject: e.target.value } : x))} />
+                      <Input placeholder="Class" value={s.class_name} onChange={(e) => setManual((m) => m.map((x) => x.key === s.key ? { ...x, class_name: e.target.value } : x))} />
                     </div>
+                  ) : (
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold">{s.subject} · {s.class_name}</p>
+                      <p className="text-xs text-muted-foreground">{fmtDate(s.date)} · {fmtTime(s.start_time)} – {fmtTime(s.end_time)}</p>
+                    </div>
+                  )}
+                  <Select value={choices[s.key] ?? ""} onValueChange={(v) => setChoices((c) => ({ ...c, [s.key]: v }))}>
+                    <SelectTrigger className="w-full sm:w-64"><SelectValue placeholder="Select proxy teacher" /></SelectTrigger>
+                    <SelectContent>
+                      {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.full_name} {o.free ? "· Free" : "· Busy"}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {choices[s.key] && (
+                    <Badge variant="secondary">{options.find((o) => o.id === choices[s.key])?.free ? "Available" : "Has a lecture"}</Badge>
+                  )}
+                  {isManual && (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setManual((m) => m.filter((x) => x.key !== s.key))}>Remove</Button>
                   )}
                 </li>
               );
