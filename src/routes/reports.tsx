@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { savePDF, saveXLSX } from "../lib/download";
@@ -111,6 +111,39 @@ function fmtTime(t: string): string {
   if (!t) return "";
   const [h, m] = t.split(":").map(Number);
   return `${h%12||12}:${String(m).padStart(2,"0")} ${h>=12?"PM":"AM"}`;
+}
+
+// ── Subject abbreviation system ───────────────────────────────────────────────
+// Generates a short 3-5 char abbreviation from a subject name and tracks
+// the full mapping so we can render a legend below the table.
+const _abbrevRegistry = new Map<string, string>(); // abbrev → full name
+const _subjectToAbbrev = new Map<string, string>(); // full name → abbrev
+
+function toAbbrev(subject: string): string {
+  if (!subject) return "—";
+  const key = subject.trim();
+  if (_subjectToAbbrev.has(key)) return _subjectToAbbrev.get(key)!;
+
+  // Strategy: take first letter of each word, max 5 chars, uppercase
+  const words = key.replace(/[()[\]]/g, " ").split(/\s+/).filter(Boolean);
+  let abbr = words.map(w => w[0].toUpperCase()).join("").slice(0, 5);
+
+  // Deduplicate if collision with a different subject
+  let suffix = 2;
+  while (_abbrevRegistry.has(abbr) && _abbrevRegistry.get(abbr) !== key) {
+    abbr = words.map(w => w[0].toUpperCase()).join("").slice(0, 4) + suffix;
+    suffix++;
+  }
+
+  _abbrevRegistry.set(abbr, key);
+  _subjectToAbbrev.set(key, abbr);
+  return abbr;
+}
+
+// Call before rendering each report to clear stale mappings
+function resetAbbrevRegistry() {
+  _abbrevRegistry.clear();
+  _subjectToAbbrev.clear();
 }
 
 // ── Period filter ─────────────────────────────────────────────────────────────
@@ -682,6 +715,9 @@ function ReportsPage() {
   const [selectedTeacher, setSelectedTeacher] = useState<string>("all");
   const [expandedTeacher, setExpandedTeacher] = useState<string | null>(null);
 
+  // Reset abbreviation registry whenever data refreshes so mappings stay correct
+  useEffect(() => { resetAbbrevRegistry(); }, [filteredSummaries]);
+
   const isHod       = role === "hod";
   const isPrincipal = role === "principal";
   const deptName    = profile?.department_name ?? "Department";
@@ -1068,6 +1104,21 @@ function ReportsPage() {
               </div>
             )}
 
+            {/* Abbreviation legend — shows what each abbrev means */}
+            {!monthLoading && filteredSummaries.length > 0 && _abbrevRegistry.size > 0 && (
+              <div className="rounded-xl border border-border bg-muted/40 px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Subject Abbreviations</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {[..._abbrevRegistry.entries()].map(([abbr, full]) => (
+                    <span key={abbr} className="text-xs text-foreground">
+                      <span className="font-bold">{abbr}</span>
+                      <span className="text-muted-foreground"> — {full}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Department totals row */}
             {!monthLoading && filteredSummaries.length > 1 && (
               <DeptTotalsCard summaries={filteredSummaries} weeks={weeks} />
@@ -1293,13 +1344,13 @@ function DayCard({ day, info }: { day: Date; info: DayInfo }) {
         <div className="space-y-0.5 flex-1 overflow-hidden">
           {info.ownLectures.map((l, i) => (
             <div key={i} className="rounded bg-blue-100 dark:bg-blue-900/40 px-1 py-0.5" title={`${l.subject} · ${l.class_name} · ${fmtTime(l.start_time)}–${fmtTime(l.end_time)}`}>
-              <p className="font-semibold text-blue-800 dark:text-blue-200 truncate leading-tight text-[9px] sm:text-[10px]">{l.subject}</p>
+              <p className="font-semibold text-blue-800 dark:text-blue-200 truncate leading-tight text-[9px] sm:text-[10px]">{toAbbrev(l.subject)}</p>
               <p className="text-blue-600 dark:text-blue-400 text-[8px] sm:text-[9px] leading-tight truncate">{l.class_name}</p>
             </div>
           ))}
           {info.proxyLectures.map((l, i) => (
             <div key={i} className="rounded bg-amber-100 dark:bg-amber-900/40 px-1 py-0.5" title={`PROXY: ${l.subject} · ${l.class_name} · ${fmtTime(l.start_time)}–${fmtTime(l.end_time)}`}>
-              <p className="font-semibold text-amber-800 dark:text-amber-200 truncate leading-tight text-[9px] sm:text-[10px]">P: {l.subject}</p>
+              <p className="font-semibold text-amber-800 dark:text-amber-200 truncate leading-tight text-[9px] sm:text-[10px]">P: {toAbbrev(l.subject)}</p>
               <p className="text-amber-600 dark:text-amber-400 text-[8px] sm:text-[9px] leading-tight truncate">{l.class_name}</p>
             </div>
           ))}

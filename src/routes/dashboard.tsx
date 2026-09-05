@@ -855,7 +855,7 @@ function PrincipalDashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 xl:grid-cols-5">
         {!stats ? Array.from({ length: 5 }).map((_, i) => <StatCardSkeleton key={i} />) : (<>
           <StatCard label="Teaching Staff"         value={stats.teachers}   />
           <StatCard label="Departments"            value={stats.departments} />
@@ -1026,10 +1026,10 @@ function AdminHrDashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        <StatCard label="Teaching Staff"      value={stats?.teachers ?? "—"} />
-        <StatCard label="Departments"         value={stats?.departments ?? "—"} />
-        <StatCard label="Pending Leaves"      value={stats?.pendingLeaves ?? "—"} tone="warning" />
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Teaching Staff"       value={stats?.teachers ?? "—"} />
+        <StatCard label="Departments"          value={stats?.departments ?? "—"} />
+        <StatCard label="Pending Leaves"       value={stats?.pendingLeaves ?? "—"} tone="warning" />
         <StatCard label="Approved (This Year)" value={stats?.approvedLeaves ?? "—"} tone="success" />
       </div>
 

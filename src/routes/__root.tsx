@@ -200,8 +200,9 @@ function RootShell({ children }: { children: ReactNode }) {
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }}
-        />
+        />  
         <meta name="google-site-verification" content="Gappp0r5rWLgFoGflSVQiC2TQ0LFrjSutMFGJtimN-M" />
+
       </head>
       <body>
         {children}
