@@ -27,23 +27,23 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 
-// Lock mobile orientation to portrait — Screen Orientation API
-// Falls back silently if the browser/device doesn't support it.
+// Lock mobile orientation to portrait via the Screen Orientation API.
+// Only runs on real touch devices (phones/tablets). Fails silently everywhere else.
+// Note: iOS Safari does not support orientation.lock() — nothing we can do there via JS.
 function useLockPortrait() {
   useEffect(() => {
     const lock = async () => {
       try {
-        // Only attempt on touch devices to avoid breaking desktop multi-monitor
-        if (!navigator.maxTouchPoints) return;
-        await (screen.orientation as any).lock?.("portrait");
+        if (!navigator.maxTouchPoints || navigator.maxTouchPoints < 1) return;
+        if (typeof (screen.orientation as any)?.lock !== "function") return;
+        await (screen.orientation as any).lock("portrait");
       } catch {
-        // NotSupportedError or SecurityError — no-op; CSS fallback handles it
+        // NotSupportedError or SecurityError — acceptable, no lock on those devices.
       }
     };
     lock();
-    return () => {
-      try { (screen.orientation as any).unlock?.(); } catch { /* ignore */ }
-    };
+    // Do NOT unlock on unmount — that causes the device to immediately rotate
+    // back to landscape if the user has auto-rotate enabled.
   }, []);
 }
 import {
@@ -256,13 +256,18 @@ export function AppShell({
           </Link>
         );
       })}
-      <button
-        onClick={handleSignOut}
-        className="mt-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-muted"
-      >
-        <LogOut className="size-4.5" />
-        Logout
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={handleSignOut}
+            className="mt-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-muted"
+          >
+            <LogOut className="size-4.5" />
+            Logout
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">Sign out of your account</TooltipContent>
+      </Tooltip>
     </nav>
   );
 
@@ -285,13 +290,18 @@ export function AppShell({
           <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-sidebar py-6 overflow-hidden shadow-xl">
             <div className="flex items-center justify-between px-5 pb-6 shrink-0">
               <Logo />
-              <button
-                onClick={() => setOpen(false)}
-                aria-label="Close menu"
-                className="flex items-center justify-center size-8 rounded-full bg-muted/60 hover:bg-muted text-sidebar-foreground transition-colors shrink-0"
-              >
-                <X className="size-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setOpen(false)}
+                    aria-label="Close menu"
+                    className="flex items-center justify-center size-8 rounded-full bg-muted/60 hover:bg-muted text-sidebar-foreground transition-colors shrink-0"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Close menu</TooltipContent>
+              </Tooltip>
             </div>
             <div className="flex-1 overflow-y-auto">
               {nav}
@@ -339,18 +349,23 @@ export function AppShell({
             </TooltipTrigger>
             <TooltipContent side="bottom">{dark ? "Switch to light mode" : "Switch to dark mode"}</TooltipContent>
           </Tooltip>
-          <div className="hidden items-center gap-3 sm:flex">
-            <div className="text-right">
-              <p className="text-sm font-semibold">{profile?.full_name}</p>
-              <p className="text-xs capitalize text-muted-foreground">
-                {role === "hod" ? "HOD" : role === "principal" ? "Principal" : role === "admin" ? "Admin" : role === "hr" ? "HR" : role}
-                {(role === "teacher" || role === "hod") && profile?.department_name ? ` · ${profile.department_name}` : ""}
-              </p>
-            </div>
-            <div className="size-10 rounded-full overflow-hidden ring-2 ring-border">
-              <AvatarCircle name={profile?.full_name} userId={profile?.id} />
-            </div>
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link to="/profile" className="hidden items-center gap-3 sm:flex rounded-lg px-2 py-1 hover:bg-muted/60 transition-colors">
+                <div className="text-right">
+                  <p className="text-sm font-semibold">{profile?.full_name}</p>
+                  <p className="text-xs capitalize text-muted-foreground">
+                    {role === "hod" ? "HOD" : role === "principal" ? "Principal" : role === "admin" ? "Admin" : role === "hr" ? "HR" : role}
+                    {(role === "teacher" || role === "hod") && profile?.department_name ? ` · ${profile.department_name}` : ""}
+                  </p>
+                </div>
+                <div className="size-10 rounded-full overflow-hidden ring-2 ring-border">
+                  <AvatarCircle name={profile?.full_name} userId={profile?.id} />
+                </div>
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">View your profile</TooltipContent>
+          </Tooltip>
         </header>
         <main className="flex-1 px-3 py-4 pb-20 sm:px-6 sm:py-6 lg:pb-6 page-enter">{children}</main>
 
@@ -376,41 +391,50 @@ export function AppShell({
             const active = pathname === item.to;
             const Icon = item.icon;
             return (
-              <Link
-                key={item.to}
-                to={item.to}
-                search={item.search as any}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium transition-colors",
-                  active ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <div className={cn("relative rounded-lg p-1 transition-colors", active && "bg-primary/10")}>
-                  <Icon className="size-5" />
-                  {!!item.badge && (
-                    <span className="absolute -top-1 -right-1.5 rounded-full bg-primary px-1 py-px text-[8px] font-bold text-primary-foreground leading-none">
-                      {item.badge}
-                    </span>
-                  )}
-                </div>
-                <span className="truncate max-w-[56px] text-center leading-tight">{item.mobileLabel ?? item.label}</span>
-              </Link>
+              <Tooltip key={item.to}>
+                <TooltipTrigger asChild>
+                  <Link
+                    to={item.to}
+                    search={item.search as any}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium transition-colors",
+                      active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <div className={cn("relative rounded-lg p-1 transition-colors", active && "bg-primary/10")}>
+                      <Icon className="size-5" />
+                      {!!item.badge && (
+                        <span className="absolute -top-1 -right-1.5 rounded-full bg-primary px-1 py-px text-[8px] font-bold text-primary-foreground leading-none">
+                          {item.badge}
+                        </span>
+                      )}
+                    </div>
+                    <span className="truncate max-w-[56px] text-center leading-tight">{item.mobileLabel ?? item.label}</span>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="top">{item.label}{item.badge ? ` (${item.badge} pending)` : ""}</TooltipContent>
+              </Tooltip>
             );
           })}
 
           {/* Customise button */}
           <Sheet open={customizeOpen} onOpenChange={setCustomizeOpen}>
             <SheetTrigger asChild>
-              <button
-                className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
-                aria-label="Customise navigation tabs"
-              >
-                <div className="rounded-lg p-1">
-                  <Settings2 className="size-5" />
-                </div>
-                <span className="leading-tight">More</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Customise navigation tabs"
+                  >
+                    <div className="rounded-lg p-1">
+                      <Settings2 className="size-5" />
+                    </div>
+                    <span className="leading-tight">More</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Customise tabs</TooltipContent>
+              </Tooltip>
             </SheetTrigger>
             <SheetContent side="bottom" className="max-h-[70vh] overflow-y-auto rounded-t-2xl px-4 pb-safe">
               <SheetHeader className="pb-2 pt-1">

@@ -614,6 +614,8 @@ async function exportPDF(month: number, year: number, label: string, summaries: 
     "Total\nLects", "Leave\nDays", "Proxy\nDuties",
   ]];
 
+  // Build abbreviations fresh for this export so the legend is accurate
+  resetAbbrevRegistry();
   const body = summaries.map((s) => [
     s.name,
     s.role === "hod" ? "HOD" : "Teacher",
@@ -623,8 +625,8 @@ async function exportPDF(month: number, year: number, label: string, summaries: 
       const p = d.proxyLectures.length;
       if (!n && !p) return "\u2014";
       const parts: string[] = [];
-      if (n) parts.push(d.ownLectures.map((l) => l.subject.slice(0, 6)).join("\n"));
-      if (p) parts.push(d.proxyLectures.map((l) => `P:${l.subject.slice(0, 5)}`).join("\n"));
+      if (n) parts.push(d.ownLectures.map((l) => toAbbrev(l.subject)).join("\n"));
+      if (p) parts.push(d.proxyLectures.map((l) => `P:${toAbbrev(l.subject)}`).join("\n"));
       return parts.join("\n");
     }),
     ...s.weeklyOwn,
@@ -701,6 +703,54 @@ async function exportPDF(month: number, year: number, label: string, summaries: 
       doc.setTextColor(0, 0, 0);
     },
   });
+
+  // ── Abbreviation legend — append on a new section after table ───────────
+  if (_abbrevRegistry.size > 0) {
+    const abbrevEntries = [..._abbrevRegistry.entries()];
+    const finalY = (doc as any).lastAutoTable?.finalY ?? doc.internal.pageSize.getHeight() - 30;
+    const pageH  = doc.internal.pageSize.getHeight();
+    const legendH = 8 + Math.ceil(abbrevEntries.length / 4) * 6 + 4;
+
+    // Add new page if legend won't fit
+    let startY = finalY + 8;
+    if (startY + legendH > pageH - 14) {
+      doc.addPage();
+      startY = 14;
+    }
+
+    // Legend header bar
+    doc.setFillColor(241, 245, 249);
+    doc.roundedRect(14, startY, pageW - 28, legendH, 2, 2, "F");
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(14, startY, pageW - 28, legendH, 2, 2, "S");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text("SUBJECT ABBREVIATIONS", 20, startY + 5.5);
+
+    // Legend entries — 4 columns
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    const colW    = (pageW - 28 - 12) / 4;
+    const rowH    = 5.5;
+    abbrevEntries.forEach(([abbr, full], idx) => {
+      const col = idx % 4;
+      const row = Math.floor(idx / 4);
+      const x   = 20 + col * colW;
+      const y   = startY + 9 + row * rowH;
+      // Abbreviation in bold+blue, full name in gray
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 64, 175);
+      doc.text(abbr, x, y);
+      const abbrW = doc.getTextWidth(abbr);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(71, 85, 105);
+      doc.text(` — ${full}`, x + abbrW, y);
+    });
+
+    doc.setTextColor(0, 0, 0);
+  }
 
   await savePDF(doc, `${label.replace(/[^a-zA-Z0-9 _-]/g, "_")}_${MONTH_NAMES[month]}_${year}.pdf`);
 }

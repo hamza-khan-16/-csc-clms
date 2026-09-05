@@ -9,6 +9,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fmtDate } from "@/lib/leave";
 import type { AppRole } from "@/lib/auth";
 
@@ -244,14 +245,21 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
   return (
     <DropdownMenu open={open} onOpenChange={handleOpen}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
-          <Bell className="size-5" />
-          {unreadCount > 0 && (
-            <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground leading-none">
-              {unreadCount > 9 ? "9+" : unreadCount}
-            </span>
-          )}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
+              <Bell className="size-5" />
+              {unreadCount > 0 && (
+                <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground leading-none">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? "s" : ""}` : "Notifications"}
+          </TooltipContent>
+        </Tooltip>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[calc(100vw-16px)] max-w-80 p-0 sm:w-80">
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -292,14 +300,18 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
                     {item.kind === "notice" && item.dept ? ` · ${item.dept}` : ""}
                   </p>
                 </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); markRead(item.id); }}
-                  className="mt-0.5 shrink-0 rounded-full p-1 hover:bg-primary/20 text-muted-foreground hover:text-primary transition-colors"
-                  title="Mark as read"
-                  aria-label="Mark as read"
-                >
-                  <CheckCircle2 className="size-4" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); markRead(item.id); }}
+                      className="mt-0.5 shrink-0 rounded-full p-1 hover:bg-primary/20 text-muted-foreground hover:text-primary transition-colors"
+                      aria-label="Mark as read"
+                    >
+                      <CheckCircle2 className="size-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">Mark as read</TooltipContent>
+                </Tooltip>
               </li>
             ))}
           </ul>
