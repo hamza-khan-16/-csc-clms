@@ -26,6 +26,26 @@ import {
   X,
 } from "lucide-react";
 import { useState, useEffect, useRef, type ReactNode } from "react";
+
+// Lock mobile orientation to portrait — Screen Orientation API
+// Falls back silently if the browser/device doesn't support it.
+function useLockPortrait() {
+  useEffect(() => {
+    const lock = async () => {
+      try {
+        // Only attempt on touch devices to avoid breaking desktop multi-monitor
+        if (!navigator.maxTouchPoints) return;
+        await (screen.orientation as any).lock?.("portrait");
+      } catch {
+        // NotSupportedError or SecurityError — no-op; CSS fallback handles it
+      }
+    };
+    lock();
+    return () => {
+      try { (screen.orientation as any).unlock?.(); } catch { /* ignore */ }
+    };
+  }, []);
+}
 import {
   Sheet,
   SheetContent,
@@ -88,6 +108,7 @@ export function AppShell({
   subtitle?: string;
   children: ReactNode;
 }) {
+  useLockPortrait();
   const { profile, role, signOut } = useAuth();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -267,9 +288,9 @@ export function AppShell({
               <button
                 onClick={() => setOpen(false)}
                 aria-label="Close menu"
-                className="rounded-lg p-1.5 text-sidebar-foreground hover:bg-muted/60 transition-colors"
+                className="flex items-center justify-center size-8 rounded-full bg-muted/60 hover:bg-muted text-sidebar-foreground transition-colors shrink-0"
               >
-                <X className="size-5" />
+                <X className="size-4" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
@@ -284,20 +305,32 @@ export function AppShell({
           className="sticky z-20 flex items-center gap-2 border-b border-border bg-background/90 px-3 py-3 backdrop-blur-md shadow-sm sm:gap-3 sm:px-6 sm:py-4"
           style={{ top: offline ? BANNER_H : 0 }}
         >
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0 lg:hidden"
-            onClick={() => setOpen(true)}
-            aria-label="Open menu"
-          >
-            <Menu className="size-5" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0 lg:hidden"
+                onClick={() => setOpen(true)}
+                aria-label="Open menu"
+              >
+                <Menu className="size-5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Open menu</TooltipContent>
+          </Tooltip>
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-base font-bold tracking-tight sm:text-xl">{title}</h1>
             {subtitle && <p className="truncate text-[11px] text-muted-foreground sm:text-sm">{subtitle}</p>}
           </div>
-          <NoticeBell role={role} userId={profile?.id} />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <NoticeBell role={role} userId={profile?.id} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Notices</TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon" aria-label="Toggle dark mode" onClick={toggleTheme}>

@@ -190,3 +190,20 @@ textarea:not([disabled]):not([readonly]):hover {
 @media (max-width: 640px) {
   .page-enter { animation-duration: 0.12s; }
 }
+
+/* Lock orientation to portrait on mobile — ignores device auto-rotate setting */
+@media screen and (max-width: 1024px) {
+  html {
+    /* CSS-only orientation lock: rotate the viewport if the device is landscape */
+    @media (orientation: landscape) and (max-height: 600px) {
+      transform: rotate(-90deg);
+      transform-origin: left top;
+      width: 100svh;
+      height: 100svw;
+      overflow-x: hidden;
+      position: absolute;
+      top: 100%;
+      left: 0;
+    }
+  }
+}

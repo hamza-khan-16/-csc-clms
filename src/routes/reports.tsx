@@ -715,9 +715,6 @@ function ReportsPage() {
   const [selectedTeacher, setSelectedTeacher] = useState<string>("all");
   const [expandedTeacher, setExpandedTeacher] = useState<string | null>(null);
 
-  // Reset abbreviation registry whenever data refreshes so mappings stay correct
-  useEffect(() => { resetAbbrevRegistry(); }, [filteredSummaries]);
-
   const isHod       = role === "hod";
   const isPrincipal = role === "principal";
   const deptName    = profile?.department_name ?? "Department";
@@ -811,6 +808,9 @@ function ReportsPage() {
     }
     return rows;
   }, [allSummaries, selectedTeacher, periodFilter, filterWorkingDays, monthlyData]);
+
+  // Reset abbreviation registry whenever filtered summaries change so mappings stay correct
+  useEffect(() => { resetAbbrevRegistry(); }, [filteredSummaries]);
 
   const displayWorkingDays = periodFilter !== "month" ? filterWorkingDays : viewWorkingDays;
   const weeks = getWeeksInMonth(displayWorkingDays);
