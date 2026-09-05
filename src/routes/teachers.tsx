@@ -29,6 +29,7 @@ import { fmtDate, leaveTypeLabel, type LeaveType } from "@/lib/leave";
 export const Route = createFileRoute("/teachers")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "Teachers — CSC Leave Management" },
       { name: "description", content: "Directory of teaching staff with department, designation and leave usage." },
       { property: "og:title", content: "Teachers — CSC Leave Management" },

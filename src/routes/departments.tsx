@@ -16,6 +16,7 @@ import { GuardedInput, type GuardHandle } from "@/components/GuardedField";
 export const Route = createFileRoute("/departments")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "Departments — CSC Leave Management" },
       {
         name: "description",

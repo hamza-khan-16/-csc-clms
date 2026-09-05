@@ -27,6 +27,7 @@ import { BookOpen, CalendarClock, CheckCircle2, Clock3, Gift, Info, UserCheck, X
 export const Route = createFileRoute("/proxies")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "Proxy Duties — CSC Leave Management" },
       { name: "description", content: "Accept or decline proxy lectures assigned to you by your head of department." },
       { property: "og:title", content: "Proxy Duties — CSC Leave Management" },

@@ -250,7 +250,7 @@ export function useTextGuard(value: string, fieldName = "Text"): TextGuardResult
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [value, fieldName]);
+  }, [value, fieldName, callModerate]);
 
   /**
    * validateNow — call this before submitting.

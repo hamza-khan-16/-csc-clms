@@ -198,6 +198,7 @@ function SubjectCombobox({
 export const Route = createFileRoute("/schedule")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "My Schedule — CSC Leave Management" },
       {
         name: "description",

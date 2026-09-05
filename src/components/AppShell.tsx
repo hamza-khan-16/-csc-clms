@@ -48,21 +48,29 @@ type NavItem = {
   icon: typeof LayoutDashboard;
   roles: AppRole[];
   badge?: number;
+  search?: Record<string, unknown>; // optional default search params for routes that require them
 };
 
-function OfflineBanner() {
+const BANNER_H = 32; // px — matches py-2 + text-xs line height
+
+function OfflineBanner({ onToggle }: { onToggle: (v: boolean) => void }) {
   const [offline, setOffline] = useState(false);
   useEffect(() => {
-    const up   = () => setOffline(false);
-    const down = () => setOffline(true);
+    const up   = () => { setOffline(false); onToggle(false); };
+    const down = () => { setOffline(true);  onToggle(true);  };
     window.addEventListener("online",  up);
     window.addEventListener("offline", down);
-    setOffline(!navigator.onLine);
+    const initial = !navigator.onLine;
+    setOffline(initial);
+    onToggle(initial);
     return () => { window.removeEventListener("online", up); window.removeEventListener("offline", down); };
-  }, []);
+  }, []); // eslint-disable-line
   if (!offline) return null;
   return (
-    <div className="fixed top-0 inset-x-0 z-[200] flex items-center justify-center gap-2 bg-destructive px-4 py-2 text-xs font-medium text-destructive-foreground">
+    <div
+      className="fixed top-0 inset-x-0 z-[200] flex items-center justify-center gap-2 bg-destructive px-4 text-xs font-medium text-destructive-foreground"
+      style={{ height: BANNER_H }}
+    >
       <WifiOff className="size-3.5 shrink-0" />
       You are offline — data may be stale
     </div>
@@ -82,6 +90,7 @@ export function AppShell({
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
   // Dark mode — use shared ThemeProvider so login page and app stay in sync
@@ -91,6 +100,7 @@ export function AppShell({
   // Mobile bottom nav pinned tabs — persisted to Supabase user_metadata
   const [pinnedTabs, setPinnedTabs] = useState<string[]>([]);
   const pinnedTabsLoaded = useRef(false);
+  const pinnedTabsDirty  = useRef(false); // true only after user actually changes tabs
 
   // Load pinned tabs from Supabase session (cached — no network)
   useEffect(() => {
@@ -102,11 +112,17 @@ export function AppShell({
     }).catch(() => { pinnedTabsLoaded.current = true; });
   }, [profile?.id]);
 
-  // Sync to Supabase only after initial load to prevent overwriting with []
+  // Sync to Supabase only when the user actually changed the tabs (not on initial load)
   useEffect(() => {
-    if (!profile?.id || !pinnedTabsLoaded.current) return;
+    if (!profile?.id || !pinnedTabsLoaded.current || !pinnedTabsDirty.current) return;
     supabase.auth.updateUser({ data: { pinned_tabs: pinnedTabs } }).catch(() => {});
   }, [pinnedTabs, profile?.id]);
+
+  // Wrap setPinnedTabs so any user-triggered change sets the dirty flag
+  function updatePinnedTabs(tabs: string[] | ((prev: string[]) => string[])) {
+    pinnedTabsDirty.current = true;
+    setPinnedTabs(tabs);
+  }
 
   const { data: pendingProxies = 0 } = useQuery({
     queryKey: ["pending-proxy-count", profile?.id],
@@ -140,7 +156,7 @@ export function AppShell({
     { to: "/admin-reports", label: "Reports",           mobileLabel: "Reports",  icon: BarChart3,      roles: ["admin", "principal"] },
     { to: "/dashboard",     label: "Dashboard",         icon: LayoutDashboard,roles: ["teacher", "hod", "principal"] },
     { to: "/apply",         label: "Apply Leave",       icon: CalendarPlus,   roles: ["teacher", "hod"] },
-    { to: "/leaves",        label: "My Leaves",         icon: FileText,       roles: ["teacher", "hod"] },
+    { to: "/leaves",        label: "My Leaves",         icon: FileText,       roles: ["teacher", "hod"], search: { filter: "all" } },
     { to: "/schedule",      label: "My Schedule",       icon: CalendarDays,   roles: ["teacher", "hod"] },
     { to: "/proxies",       label: "Proxy Assignments", mobileLabel: "Proxies",  icon: Repeat,         roles: ["teacher", "hod"], badge: pendingProxies },
     { to: "/payroll",       label: "Payroll",           icon: Wallet,         roles: ["teacher", "hod"] },
@@ -172,7 +188,7 @@ export function AppShell({
   })();
 
   function togglePinned(to: string) {
-    setPinnedTabs((prev) => {
+    updatePinnedTabs((prev) => {
       // Seed from the current default display on first manual interaction
       const base = prev.length === 0 ? mobileNavItems.map((i) => i.to) : prev;
       if (base.includes(to)) {
@@ -197,6 +213,7 @@ export function AppShell({
           <Link
             key={item.to}
             to={item.to}
+            search={item.search as any}
             onClick={() => setOpen(false)}
             aria-current={active ? "page" : undefined}
             className={cn(
@@ -228,7 +245,7 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen bg-background">
-      <OfflineBanner />
+      <OfflineBanner onToggle={setOffline} />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex shadow-sm overflow-hidden">
         <div className="px-5 pb-6 shrink-0">
           <Logo />
@@ -253,7 +270,10 @@ export function AppShell({
       )}
 
       <div className="flex min-w-0 flex-1 flex-col lg:pl-64">
-        <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border bg-background/90 px-3 py-3 backdrop-blur-md shadow-sm sm:gap-3 sm:px-6 sm:py-4">
+        <header
+          className="sticky z-20 flex items-center gap-2 border-b border-border bg-background/90 px-3 py-3 backdrop-blur-md shadow-sm sm:gap-3 sm:px-6 sm:py-4"
+          style={{ top: offline ? BANNER_H : 0 }}
+        >
           <Button
             variant="ghost"
             size="icon"
@@ -279,12 +299,23 @@ export function AppShell({
                 {(role === "teacher" || role === "hod") && profile?.department_name ? ` · ${profile.department_name}` : ""}
               </p>
             </div>
-            <div className="grid size-10 place-items-center rounded-full bg-accent text-sm font-bold text-accent-foreground overflow-hidden">
+            <div className="size-10 rounded-full overflow-hidden ring-2 ring-border">
               <AvatarCircle name={profile?.full_name} userId={profile?.id} />
             </div>
           </div>
         </header>
         <main className="flex-1 px-3 py-4 pb-20 sm:px-6 sm:py-6 lg:pb-6 page-enter">{children}</main>
+
+        {/* Mobile FAB — Apply Leave shortcut for teachers/HODs only */}
+        {(role === "teacher" || role === "hod") && pathname !== "/apply" && (
+          <Link
+            to="/apply"
+            aria-label="Apply for leave"
+            className="fixed bottom-20 right-4 z-40 lg:hidden flex items-center justify-center size-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:bg-primary/90 active:scale-95 transition-all duration-150"
+          >
+            <CalendarPlus className="size-6" />
+          </Link>
+        )}
 
         {/* Mobile bottom nav — customisable */}
         <nav className="fixed bottom-0 inset-x-0 z-30 flex lg:hidden border-t border-border bg-background/95 backdrop-blur-md pb-safe">
@@ -295,6 +326,7 @@ export function AppShell({
               <Link
                 key={item.to}
                 to={item.to}
+                search={item.search as any}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium transition-colors",
@@ -375,39 +407,101 @@ export function AppShell({
   );
 }
 
-// Cache avatar URLs so they're not re-fetched on every navigation
+// Avatar URL cache — two layers:
+//   1. In-memory Map  : instant, lives for the JS lifetime (navigation within SPA)
+//   2. sessionStorage : survives hard reloads; cleared when tab closes
+const AVATAR_SS_PREFIX = "avatar_url:";
 const avatarCache = new Map<string, { url: string; expiresAt: number }>();
+
+function avatarCacheGet(userId: string): { url: string; expiresAt: number } | null {
+  const mem = avatarCache.get(userId);
+  if (mem && mem.expiresAt - Date.now() > 10 * 60 * 1000) return mem;
+  try {
+    const raw = sessionStorage.getItem(AVATAR_SS_PREFIX + userId);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { url: string; expiresAt: number };
+      if (parsed.expiresAt - Date.now() > 10 * 60 * 1000) {
+        avatarCache.set(userId, parsed); // warm memory layer
+        return parsed;
+      }
+      sessionStorage.removeItem(AVATAR_SS_PREFIX + userId);
+    }
+  } catch (e) {
+    // sessionStorage may be blocked (private mode, quota exceeded) — fail silently
+    if (process.env.NODE_ENV === "development") console.warn("[avatar cache]", e);
+  }
+  return null;
+}
+
+function avatarCacheSet(userId: string, url: string, expiresAt: number) {
+  const entry = { url, expiresAt };
+  avatarCache.set(userId, entry);
+  try { sessionStorage.setItem(AVATAR_SS_PREFIX + userId, JSON.stringify(entry)); } catch (e) {
+    if (process.env.NODE_ENV === "development") console.warn("[avatar cache set]", e);
+  }
+}
+
+// Deterministic pastel background per user — hashes userId to one of 12 distinct hues
+const AVATAR_PALETTES = [
+  { bg: "bg-red-100    dark:bg-red-900/40",    text: "text-red-700    dark:text-red-300" },
+  { bg: "bg-orange-100 dark:bg-orange-900/40", text: "text-orange-700 dark:text-orange-300" },
+  { bg: "bg-amber-100  dark:bg-amber-900/40",  text: "text-amber-700  dark:text-amber-300" },
+  { bg: "bg-yellow-100 dark:bg-yellow-900/40", text: "text-yellow-700 dark:text-yellow-300" },
+  { bg: "bg-lime-100   dark:bg-lime-900/40",   text: "text-lime-700   dark:text-lime-300" },
+  { bg: "bg-green-100  dark:bg-green-900/40",  text: "text-green-700  dark:text-green-300" },
+  { bg: "bg-teal-100   dark:bg-teal-900/40",   text: "text-teal-700   dark:text-teal-300" },
+  { bg: "bg-cyan-100   dark:bg-cyan-900/40",   text: "text-cyan-700   dark:text-cyan-300" },
+  { bg: "bg-sky-100    dark:bg-sky-900/40",    text: "text-sky-700    dark:text-sky-300" },
+  { bg: "bg-blue-100   dark:bg-blue-900/40",   text: "text-blue-700   dark:text-blue-300" },
+  { bg: "bg-violet-100 dark:bg-violet-900/40", text: "text-violet-700 dark:text-violet-300" },
+  { bg: "bg-pink-100   dark:bg-pink-900/40",   text: "text-pink-700   dark:text-pink-300" },
+];
+
+function avatarPalette(userId?: string) {
+  if (!userId) return AVATAR_PALETTES[0];
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTES[hash % AVATAR_PALETTES.length];
+}
 
 function AvatarCircle({ name, userId }: { name?: string; userId?: string }) {
   const [src, setSrc] = useState<string | null>(null);
+  const palette = avatarPalette(userId);
 
   useEffect(() => {
     if (!userId) return;
-    const cached = avatarCache.get(userId);
-    // Use cached URL if it expires more than 10 minutes from now
-    if (cached && cached.expiresAt - Date.now() > 10 * 60 * 1000) {
-      setSrc(cached.url);
-      return;
-    }
+    const cached = avatarCacheGet(userId);
+    if (cached) { setSrc(cached.url); return; }
     supabase.storage.from("avatars").list("", { search: `${userId}.jpg` })
       .then(({ data }) => {
         if (data && data.some((f) => f.name === `${userId}.jpg`)) {
-          // 6-hour TTL — long enough for a full day session
           return supabase.storage.from("avatars").createSignedUrl(`${userId}.jpg`, 6 * 3600);
         }
         return null;
       })
       .then((res) => {
         if (res?.data?.signedUrl) {
-          avatarCache.set(userId, { url: res.data.signedUrl, expiresAt: Date.now() + 6 * 3600 * 1000 });
+          avatarCacheSet(userId, res.data.signedUrl, Date.now() + 6 * 3600 * 1000);
           setSrc(res.data.signedUrl);
         }
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (process.env.NODE_ENV === "development") console.warn("[avatar fetch]", e);
+      });
   }, [userId]);
 
   if (src) {
-    return <img src={src} alt={name ?? ""} className="size-full object-cover" onError={() => { avatarCache.delete(userId ?? ""); setSrc(null); }} />;
+    return <img src={src} alt={name ?? ""} className="size-full object-cover" onError={() => {
+      avatarCache.delete(userId ?? "");
+      try { sessionStorage.removeItem(AVATAR_SS_PREFIX + (userId ?? "")); } catch (e) {
+        if (process.env.NODE_ENV === "development") console.warn("[avatar cache clear]", e);
+      }
+      setSrc(null);
+    }} />;
   }
-  return <span>{name?.slice(0, 2).toUpperCase()}</span>;
+  return (
+    <span className={cn("grid size-full place-items-center rounded-full text-sm font-bold", palette.bg, palette.text)}>
+      {name?.slice(0, 2).toUpperCase()}
+    </span>
+  );
 }

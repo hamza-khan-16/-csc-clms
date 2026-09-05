@@ -25,6 +25,7 @@ import { LEAVE_TYPES, todayISO, type LeaveType } from "@/lib/leave";
 export const Route = createFileRoute("/mark-leave")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "Mark Leave for a Teacher — CSC Leave Management" },
       {
         name: "description",

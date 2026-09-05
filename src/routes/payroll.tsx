@@ -18,6 +18,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/payroll")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "Payroll — CSC Leave Management" },
       {
         name: "description",
@@ -113,7 +114,7 @@ function PayrollPage() {
       const deduction  = Math.round(dayRate * unpaidDays);
       return { month: m, unpaidDays, deduction, net: salary - deduction };
     });
-  }, [yearlyLeaves, salary, filterYear]);
+  }, [yearlyLeaves, salary, filterYear, dayRate]);
 
   const totals = useMemo(() => {
     // Only deduct for leaves that have BOTH HOD and Principal approval

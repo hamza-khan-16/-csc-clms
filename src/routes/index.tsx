@@ -335,7 +335,7 @@ function ForgotPasswordDialog() {
       }
     }, 500);
     return () => clearTimeout(t);
-  }, [collegeId]);
+  }, [collegeId, verify]);
 
   function handleClose() {
     setOpen(false); setSent(false); setCollegeId(""); setVerified(null);
@@ -471,7 +471,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [firstName]);
+  }, [firstName, resolveId]);
 
   const { data: departments = [] } = useQuery({
     queryKey: ["departments-public"],

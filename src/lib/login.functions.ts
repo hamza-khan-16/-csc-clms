@@ -16,7 +16,7 @@ async function syncPushTokenForUser(userId: string): Promise<void> {
       const parsed = JSON.parse(raw);
       if (typeof parsed === "string") return parsed;
       if (parsed?.externalId) return parsed.externalId;
-    } catch {}
+    } catch (e) { if (process.env.NODE_ENV==="development") console.warn("[login parseOS]",e); }
     const match = raw.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
     return match ? match[0] : null;
   }
@@ -48,7 +48,7 @@ async function syncPushTokenForUser(userId: string): Promise<void> {
         { user_id: userId, onesignal_id: onesignalId },
         { onConflict: "user_id,onesignal_id" }
       );
-      console.log(`[Push] Auto-synced token for user ${userId}: ${onesignalId}`);
+      if (process.env.NODE_ENV==="development") console.log(`[Push] Auto-synced token for user ${userId}: ${onesignalId}`);
     }
 
     if (players.length < 300) break;
@@ -64,7 +64,7 @@ async function syncPushTokenForUser(userId: string): Promise<void> {
  * and blocks login when the account is locked.
  */
 export const signInWithIdentifier = createServerFn({ method: "POST" })
-  .inputValidator((data: { identifier: string; password: string }) => {
+  .validator((data: { identifier: string; password: string }) => {
     const identifier = String(data?.identifier ?? "").trim();
     const password = String(data?.password ?? "");
     if (!identifier || !password) throw new Error("Enter your user ID and password");
@@ -180,7 +180,7 @@ export const signInWithIdentifier = createServerFn({ method: "POST" })
  * - Saves gender and dob to profiles
  */
 export const registerStaff = createServerFn({ method: "POST" })
-  .inputValidator(
+  .validator(
     (data: {
       email: string;
       password: string;
@@ -337,7 +337,7 @@ export const registerStaff = createServerFn({ method: "POST" })
           }),
         }).catch(() => {});
       }
-    } catch {}
+    } catch (e) { if (process.env.NODE_ENV==="development") console.warn("[registerStaff]",e); }
 
     return { role: data.role as "teacher" | "hod" | "hr", collegeUserId };
   });
@@ -348,7 +348,7 @@ export const registerStaff = createServerFn({ method: "POST" })
  * Safe to call unauthenticated — returns only the candidate ID string.
  */
 export const resolvePreviewUserId = createServerFn({ method: "POST" })
-  .inputValidator((data: { firstName: string }) => {
+  .validator((data: { firstName: string }) => {
     const firstName = String(data?.firstName ?? "").trim();
     return { firstName };
   })
@@ -387,7 +387,7 @@ export const resolvePreviewUserId = createServerFn({ method: "POST" })
  * Safe to call unauthenticated — returns only existence + masked name.
  */
 export const verifyCollegeId = createServerFn({ method: "POST" })
-  .inputValidator((data: { collegeId: string }) => {
+  .validator((data: { collegeId: string }) => {
     let collegeId = String(data?.collegeId ?? "").trim().toUpperCase();
     if (!collegeId) throw new Error("College ID is required");
     // Append domain if user typed only the local part
@@ -396,13 +396,13 @@ export const verifyCollegeId = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    console.log("[verifyCollegeId] looking up:", data.collegeId);
+    if (process.env.NODE_ENV==="development") console.log("[verifyCollegeId] looking up:", data.collegeId);
     const { data: profile, error } = await supabaseAdmin
       .from("profiles")
       .select("id, full_name, user_id")
       .ilike("user_id", data.collegeId)
       .maybeSingle();
-    console.log("[verifyCollegeId] result:", profile, "error:", error);
+    if (process.env.NODE_ENV==="development") console.log("[verifyCollegeId] result:", profile, "error:", error);
     if (!profile) return { exists: false as const };
     const masked = profile.full_name
       .split(" ")
@@ -416,7 +416,7 @@ export const verifyCollegeId = createServerFn({ method: "POST" })
  * Safe to call unauthenticated.
  */
 export const submitForgotPasswordRequest = createServerFn({ method: "POST" })
-  .inputValidator((data: { collegeId: string }) => {
+  .validator((data: { collegeId: string }) => {
     let collegeId = String(data?.collegeId ?? "").trim().toUpperCase();
     if (!collegeId) throw new Error("College ID is required");
     if (!collegeId.includes("@")) collegeId = `${collegeId}@CSC.COM`;
@@ -424,14 +424,14 @@ export const submitForgotPasswordRequest = createServerFn({ method: "POST" })
   })
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    console.log("[submitForgotPw] looking up:", data.collegeId);
+    if (process.env.NODE_ENV==="development") console.log("[submitForgotPw] looking up:", data.collegeId);
 
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
       .select("id, full_name, user_id")
       .ilike("user_id", data.collegeId)
       .maybeSingle();
-    console.log("[submitForgotPw] profile:", profile, "error:", profileErr);
+    if (process.env.NODE_ENV==="development") console.log("[submitForgotPw] profile:", profile, "error:", profileErr);
 
     if (!profile) return { error: "No account found with that College ID" as const };
 
@@ -453,7 +453,7 @@ export const submitForgotPasswordRequest = createServerFn({ method: "POST" })
         college_id: profile.user_id,
         status:     "pending",
       });
-    console.log("[submitForgotPw] insert error:", error);
+    if (process.env.NODE_ENV==="development") console.log("[submitForgotPw] insert error:", error);
     if (error) return { error: `DB error: ${error.message}` as const };
     return { ok: true as const };
   });

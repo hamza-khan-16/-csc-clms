@@ -45,6 +45,7 @@ import {
 export const Route = createFileRoute("/admin")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "Admin Panel — CSC Leave Management" },
       {
         name: "description",

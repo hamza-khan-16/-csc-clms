@@ -22,6 +22,7 @@ import {
 export const Route = createFileRoute("/holidays")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "Holiday Calendar — CSC Leave Management" },
       { name: "description", content: "Indian public holidays. Upload a yearly Excel file or add custom holidays." },
       { property: "og:title", content: "Holiday Calendar — CSC Leave Management" },

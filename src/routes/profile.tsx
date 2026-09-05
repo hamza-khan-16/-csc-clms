@@ -115,6 +115,7 @@ function DobPicker({ value, onChange }: { value: string; onChange: (v: string) =
 export const Route = createFileRoute("/profile")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "My Profile — CSC Leave Management" },
       { name: "description", content: "Your staff profile, role, department and current leave entitlement." },
       { property: "og:title", content: "My Profile — CSC Leave Management" },

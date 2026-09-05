@@ -42,7 +42,7 @@ export type ModerationVerdict = "CLEAN" | "ABUSIVE" | "UNCLEAR";
 
 // ── Text moderation (Groq / Llama fallback chain) ─────────────────────────────
 export const moderateText = createServerFn({ method: "POST" })
-  .inputValidator((data: { text: string }) => ({
+  .validator((data: { text: string }) => ({
     text: String(data?.text ?? "").slice(0, 500),
   }))
   .handler(async ({ data }): Promise<{ verdict: ModerationVerdict }> => {
@@ -100,7 +100,7 @@ Text: """${data.text}"""`;
 interface ChatMessage { role: "user" | "assistant"; content: string; }
 
 export const leaveBotChat = createServerFn({ method: "POST" })
-  .inputValidator((data: { messages: ChatMessage[]; systemPrompt: string }) => ({
+  .validator((data: { messages: ChatMessage[]; systemPrompt: string }) => ({
     messages: (data?.messages ?? []).slice(-20) as ChatMessage[], // last 20 messages max
     systemPrompt: String(data?.systemPrompt ?? "").slice(0, 80000),
   }))

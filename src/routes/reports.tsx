@@ -39,6 +39,7 @@ import {
 export const Route = createFileRoute("/reports")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "Leave Reports — CSC Leave Management" },
       { name: "description", content: "Yearly leave usage and monthly schedule for HODs." },
       { property: "og:title", content: "Leave Reports — CSC Leave Management" },
@@ -692,12 +693,12 @@ function ReportsPage() {
   const COMMERCE_ARTS_KEYWORDS   = ["commerce", "arts", "economics", "history", "english", "sociology", "philosophy", "political", "geography", "hindi", "marathi"];
   const SCIENCE_TECH_KEYWORDS    = ["science", "technology", "physics", "chemistry", "biology", "maths", "mathematics", "computer", "it", "information", "botany", "zoology", "microbiology"];
 
-  function getDeptGroup(deptName: string): "commerce_arts" | "science_tech" | "other" {
+  const getDeptGroup = useCallback((deptName: string): "commerce_arts" | "science_tech" | "other" => {
     const n = (deptName ?? "").toLowerCase();
     if (SCIENCE_TECH_KEYWORDS.some((k) => n.includes(k))) return "science_tech";
     if (COMMERCE_ARTS_KEYWORDS.some((k) => n.includes(k))) return "commerce_arts";
     return "other";
-  }
+  }, []); // depends only on module-level constants — stable
 
   // ── Yearly leave data (all roles) ─────────────────────────────────────────
   const { data } = useQuery({
@@ -800,7 +801,7 @@ function ReportsPage() {
       });
     }
     return rows;
-  }, [allLeaves, isHod, isPrincipal, downloadRange, selectedTeacher, principalDeptTab, data?.people]);
+  }, [allLeaves, isHod, isPrincipal, downloadRange, selectedTeacher, principalDeptTab, data?.people, getDeptGroup]);
 
   const leaves = (isHod || isPrincipal) ? filteredLeaves : allLeaves;
   const totalDays  = leaves.reduce((s, l) => s + Number(l.total_days), 0);
@@ -844,7 +845,7 @@ function ReportsPage() {
         console.error(e);
       } finally { setDownloading(null); }
     }, 50);
-  }, [selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, isPrincipal, principalDeptTab, filteredLeaves, data?.people]);
+  }, [selectedMonth, year, downloadLabel, filteredSummaries, displayWorkingDays, monthlyData, isPrincipal, principalDeptTab, filteredLeaves, data?.people]);
 
   return (
     <AppShell

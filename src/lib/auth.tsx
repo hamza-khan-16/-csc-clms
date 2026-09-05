@@ -124,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sub.subscription.unsubscribe();
       clearTimeout(fallback);
     };
-  }, []);
+  }, [loadProfile]);
 
   // ── Realtime: re-fetch profile when HR changes hr_approved / approved ──────
   // This makes the teacher's UI update automatically (no page refresh needed)
@@ -153,7 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [session?.user.id]);
+  }, [session?.user.id, loadProfile]);
 
   const value: AuthState = {
     session,

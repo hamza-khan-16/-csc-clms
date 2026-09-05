@@ -12,7 +12,7 @@ import { SectionCard, StatCard, StatCardSkeleton, ListSkeleton, StatusBadge, Emp
 import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL, MEDICAL_PAID_QUOTA, type LeaveStatus, type LeaveType, type LeaveSession } from "@/lib/leave";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar, DeptMonthCalendar } from "@/components/MonthCalendar";
-import { AlertTriangle, BookOpen, CheckCheck, CheckCircle2, Clock, Flame, PlusCircle, Settings, TrendingUp, Users, X } from "lucide-react";
+import { AlertTriangle, BarChart3, BookOpen, Briefcase, Building2, CalendarDays, CalendarPlus, CheckCheck, CheckCircle2, ClipboardCheck, Clock, Flame, Megaphone, PartyPopper, PlusCircle, Repeat, Settings, ShieldCheck, TrendingUp, Users, X } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 const PW_EXPIRY_DAYS  = 90;
@@ -41,14 +41,19 @@ function PasswordExpiryBanner({ daysLeft }: { daysLeft: number }) {
 }
 
 // ── Profile completeness banner ───────────────────────────────────────────────
+const BANNER_DISMISS_DAYS = 30;
+
 function ProfileCompletenessBanner({ profile }: { profile: any }) {
   const [dismissed, setDismissed] = useState(false);
 
-  // Load from Supabase session (cached — no network) on mount
+  // Load dismiss timestamp from session metadata (cached — no network)
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data?.session?.user?.user_metadata?.profile_banner_dismissed === true) {
-        setDismissed(true);
+      const dismissedAt: number | undefined = data?.session?.user?.user_metadata?.profile_banner_dismissed_at;
+      if (dismissedAt) {
+        const daysAgo = (Date.now() - dismissedAt) / (1000 * 60 * 60 * 24);
+        if (daysAgo < BANNER_DISMISS_DAYS) setDismissed(true);
+        // else: expired — show banner again even though user dismissed before
       }
     }).catch(() => {});
   }, []);
@@ -64,8 +69,8 @@ function ProfileCompletenessBanner({ profile }: { profile: any }) {
 
   async function dismiss() {
     setDismissed(true);
-    // Persist to Supabase user_metadata so it survives Median session resets
-    await supabase.auth.updateUser({ data: { profile_banner_dismissed: true } }).catch(() => {});
+    // Store a timestamp so the dismiss expires after 30 days
+    await supabase.auth.updateUser({ data: { profile_banner_dismissed_at: Date.now() } }).catch(() => {});
   }
 
   return (
@@ -84,7 +89,7 @@ function ProfileCompletenessBanner({ profile }: { profile: any }) {
         <button
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
           onClick={dismiss}
-          aria-label="Dismiss"
+          aria-label="Dismiss for 30 days"
         ><X className="size-3.5"/></button>
       </div>
     </div>
@@ -180,7 +185,7 @@ function LeaveTrendChart({ data }: { data: { month: string; count: number }[] })
   );
   const colors = data.map(d => d.count > 3 ? "var(--destructive)" : d.count > 1 ? "var(--warning)" : "var(--success)");
   return (
-    <ResponsiveContainer width="100%" height={140}>
+    <ResponsiveContainer width="100%" height={180}>
       <BarChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
         <XAxis dataKey="month" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
         <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
@@ -199,6 +204,7 @@ function LeaveTrendChart({ data }: { data: { month: string; count: number }[] })
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "Dashboard — CSC Leave Management" },
       { name: "description", content: "Leave balance, schedule, proxy duties and pending approvals at a glance." },
       { property: "og:title", content: "Dashboard — CSC Leave Management" },
@@ -260,26 +266,64 @@ function TeacherDashboard() {
     },
   });
 
-  // All leaves this year (for streak + trend)
-  const { data: allLeavesYear = [] } = useQuery({
-    queryKey: ["my-leaves-year", profile?.id],
+  // ── Single batched query for all leave data needed this year ────────────────
+  // Replaces 3 separate queries: my-leaves-year, dash-payroll, medical-days-used
+  const { data: yearLeaveData } = useQuery({
+    queryKey: ["teacher-year-leaves", profile?.id],
     enabled: !!profile,
     staleTime: 60_000,
     queryFn: async () => {
-      const year = new Date().getFullYear();
-      const { data } = await supabase
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const first = `${year}-${String(month).padStart(2,"0")}-01`;
+      const last  = new Date(year, month, 0);
+      const lastISO = `${last.getFullYear()}-${String(last.getMonth()+1).padStart(2,"0")}-${String(last.getDate()).padStart(2,"0")}`;
+
+      const { data, error } = await supabase
         .from("leave_requests")
-        .select("leave_type, from_date, to_date, total_days, status")
+        .select("leave_type, from_date, to_date, total_days, paid_days, unpaid_days, status")
         .eq("teacher_id", profile!.id)
         .gte("from_date", `${year}-01-01`);
-      return data ?? [];
+      if (error) throw error;
+      const rows = data ?? [];
+
+      // ── allLeavesYear (for streak + trend chart) ────────────────────────
+      const allLeavesYear = rows;
+
+      // ── payroll: this month's paid/unpaid split ─────────────────────────
+      let paidDays = 0, unpaidDays = 0;
+      for (const r of rows) {
+        if (!["approved","hod_approved"].includes(r.status)) continue;
+        if (r.to_date < first || r.from_date > lastISO) continue;
+        const totalDays = Number(r.total_days);
+        if (!totalDays) continue;
+        const cf = r.from_date < first   ? first   : r.from_date;
+        const ct = r.to_date   > lastISO ? lastISO : r.to_date;
+        const dim = Math.round((new Date(ct+"T00:00:00").getTime() - new Date(cf+"T00:00:00").getTime()) / 86400000) + 1;
+        const ratio = Math.min(dim / totalDays, 1);
+        paidDays   += Number(r.paid_days)   * ratio;
+        unpaidDays += Number(r.unpaid_days) * ratio;
+      }
+      const payroll = { paidDays: Math.round(paidDays*2)/2, unpaidDays: Math.round(unpaidDays*2)/2 };
+
+      // ── medicalUsed: approved medical days this year ────────────────────
+      const medicalUsed = rows
+        .filter(r => r.leave_type === "medical" && ["hod_approved","approved"].includes(r.status))
+        .reduce((s, r) => s + Number(r.total_days), 0);
+
+      return { allLeavesYear, payroll, medicalUsed };
     },
   });
+
+  const allLeavesYear = yearLeaveData?.allLeavesYear ?? [];
+  const payroll       = yearLeaveData?.payroll       ?? { paidDays: 0, unpaidDays: 0 };
+  const medicalUsed   = yearLeaveData?.medicalUsed   ?? 0;
 
   const { data: todayLectures = [] } = useQuery({
     queryKey: ["today-lectures", profile?.id],
     enabled: !!profile,
-    staleTime: 60_000,
+    staleTime: 30_000, // matches NextLectureBanner 30s clock tick
     queryFn: async () => {
       const { data, error } = await supabase
         .from("lectures")
@@ -322,81 +366,28 @@ function TeacherDashboard() {
     },
   });
 
-  const { data: payroll = { paidDays: 0, unpaidDays: 0 } } = useQuery({
-    queryKey: ["dash-payroll", profile?.id],
+  // ── Batch: notices preview + HOD pending count (parallel, single cache entry) ─
+  const { data: sideData } = useQuery({
+    queryKey: ["teacher-side-data", profile?.id, role, profile?.department_id],
     enabled: !!profile,
-    queryFn: async () => {
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth() + 1;
-      const first = `${year}-${String(month).padStart(2,"0")}-01`;
-      const last  = new Date(year, month, 0);
-      const lastISO = `${last.getFullYear()}-${String(last.getMonth()+1).padStart(2,"0")}-${String(last.getDate()).padStart(2,"0")}`;
-      const { data, error } = await supabase
-        .from("leave_requests")
-        .select("from_date, to_date, paid_days, unpaid_days, total_days")
-        .eq("teacher_id", profile!.id)
-        .in("status", ["approved","hod_approved"])
-        .lte("from_date", lastISO)
-        .gte("to_date", first);
-      if (error) throw error;
-      let paidDays = 0, unpaidDays = 0;
-      for (const r of data ?? []) {
-        const totalDays = Number(r.total_days);
-        if (!totalDays) continue;
-        const cf = r.from_date < first   ? first   : r.from_date;
-        const ct = r.to_date   > lastISO ? lastISO : r.to_date;
-        const dim = Math.round((new Date(ct+"T00:00:00").getTime() - new Date(cf+"T00:00:00").getTime()) / 86400000) + 1;
-        const ratio = Math.min(dim / totalDays, 1);
-        paidDays   += Number(r.paid_days)   * ratio;
-        unpaidDays += Number(r.unpaid_days) * ratio;
-      }
-      return { paidDays: Math.round(paidDays*2)/2, unpaidDays: Math.round(unpaidDays*2)/2 };
-    },
-  });
-
-  const { data: medicalUsed = 0 } = useQuery({
-    queryKey: ["medical-days-used", profile?.id],
-    enabled: !!profile,
-    queryFn: async () => {
-      const year = new Date().getFullYear();
-      const { data } = await supabase
-        .from("leave_requests")
-        .select("total_days")
-        .eq("teacher_id", profile!.id)
-        .eq("leave_type", "medical")
-        .in("status", ["hod_approved","approved"])
-        .gte("from_date", `${year}-01-01`);
-      return (data ?? []).reduce((s, r) => s + Number(r.total_days), 0);
-    },
-  });
-
-  // Latest 2 notices for inline preview
-  const { data: noticePreview = [] } = useQuery({
-    queryKey: ["notice-preview"],
     staleTime: 120_000,
     queryFn: async () => {
-      const { data } = await supabase
-        .from("notices")
-        .select("id, title, body, created_at")
-        .order("created_at", { ascending: false })
-        .limit(2);
-      return data ?? [];
+      const [noticesRes, hodCountRes] = await Promise.all([
+        supabase.from("notices").select("id, title, body, created_at")
+          .order("created_at", { ascending: false }).limit(2),
+        role === "hod" && profile?.department_id
+          ? supabase.from("leave_requests").select("id", { count: "exact", head: true })
+              .eq("status", "pending_hod").eq("department_id", profile.department_id)
+          : Promise.resolve({ count: 0 }),
+      ]);
+      return {
+        noticePreview: noticesRes.data ?? [],
+        pendingForHod: ("count" in hodCountRes ? hodCountRes.count : 0) ?? 0,
+      };
     },
   });
-
-  const { data: pendingForHod = 0 } = useQuery({
-    queryKey: ["hod-pending-count", profile?.department_id],
-    enabled: role === "hod",
-    queryFn: async () => {
-      const { count } = await supabase
-        .from("leave_requests")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "pending_hod")
-        .eq("department_id", profile!.department_id ?? "");
-      return count ?? 0;
-    },
-  });
+  const noticePreview = sideData?.noticePreview ?? [];
+  const pendingForHod = sideData?.pendingForHod ?? 0;
 
   // HOD: who's absent today in dept
   const { data: deptAbsent = [] } = useQuery({
@@ -497,16 +488,16 @@ function TeacherDashboard() {
       {/* HOD: Department leave calendar */}
       {role === "hod" && profile?.department_id && (
         <SectionCard title="Department Leave Calendar" subtitle="Who's absent each day this month">
-          <DeptMonthCalendar deptId={profile.department_id} />
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <DeptMonthCalendar deptId={profile.department_id} />
+          </div>
         </SectionCard>
       )}
 
-      {/* Streak + next lecture banner — only render container when content exists */}
-      {allLeavesYear.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3">
-          <StreakBadge leaves={allLeavesYear} holidays={holidays} />
-        </div>
-      )}
+      {/* Streak + next lecture banner */}
+      <div className="flex flex-wrap items-center gap-3">
+        <StreakBadge leaves={allLeavesYear} holidays={holidays} />
+      </div>
       {todayLectures.length > 0 && <NextLectureBanner lectures={todayLectures} />}
 
       {/* Stat cards with donut rings */}
@@ -519,7 +510,7 @@ function TeacherDashboard() {
             const remMonth = b.monthlyCap !== undefined
               ? Math.min(Math.max(b.monthlyCap - b.usedMonth, 0), remYear) : undefined;
             return (
-              <div key={b.type} className="surface p-4 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow" onClick={() => navigate({ to: "/leaves" })}>
+              <div key={b.type} className="surface p-4 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow" onClick={() => navigate({ to: "/leaves", search: { filter: "all" } })}>
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">{b.label}</p>
@@ -537,7 +528,7 @@ function TeacherDashboard() {
           })}
 
           {/* Medical paid quota */}
-          <div className="surface p-4 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow" onClick={() => navigate({ to: "/leaves" })}>
+          <div className="surface p-4 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow" onClick={() => navigate({ to: "/leaves", search: { filter: "all" } })}>
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-xs font-medium text-muted-foreground">Medical Leave (Paid)</p>
@@ -629,7 +620,7 @@ function TeacherDashboard() {
         <SectionCard
           title="Recent Leave Requests"
           className="lg:col-span-2"
-          action={<Button asChild variant="ghost" size="sm"><Link to="/leaves">View all</Link></Button>}
+          action={<Button asChild variant="ghost" size="sm"><Link to="/leaves" search={{ filter: "all" }}>View all</Link></Button>}
         >
           {leavesLoading ? <ListSkeleton rows={3} /> : leaves.length === 0 ? <Empty>No leave requests yet.</Empty> : (
             <>
@@ -681,10 +672,14 @@ function TeacherDashboard() {
 
         <SectionCard title="Quick Actions">
           <div className="space-y-2">
-            <Button asChild className="w-full justify-start"><Link to="/apply">Apply for leave</Link></Button>
-            <Button asChild variant="secondary" className="w-full justify-start"><Link to="/schedule">My lecture schedule</Link></Button>
-            <Button asChild variant="secondary" className="w-full justify-start"><Link to="/proxies">Proxy assignments</Link></Button>
-            <Button asChild variant="secondary" className="w-full justify-start"><Link to="/holidays">Holidays</Link></Button>
+            <Button asChild size="lg" className="w-full justify-start gap-2 shadow-sm shadow-primary/20">
+              <Link to="/apply"><CalendarPlus className="size-4 shrink-0" />Apply for Leave</Link>
+            </Button>
+            <div className="grid grid-cols-1 gap-1.5 pt-0.5">
+              <Button asChild variant="outline" className="w-full justify-start gap-2 h-9 text-sm"><Link to="/schedule"><CalendarDays className="size-4 shrink-0 text-muted-foreground" />My Lecture Schedule</Link></Button>
+              <Button asChild variant="outline" className="w-full justify-start gap-2 h-9 text-sm"><Link to="/proxies"><Repeat className="size-4 shrink-0 text-muted-foreground" />Proxy Assignments</Link></Button>
+              <Button asChild variant="outline" className="w-full justify-start gap-2 h-9 text-sm"><Link to="/holidays"><PartyPopper className="size-4 shrink-0 text-muted-foreground" />Holidays</Link></Button>
+            </div>
           </div>
         </SectionCard>
       </div>
@@ -860,12 +855,13 @@ function PrincipalDashboard() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {!stats ? Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />) : (<>
-          <StatCard label="Teaching Staff (College)"  value={stats.teachers}   />
-          <StatCard label="Departments"               value={stats.departments} />
-          <StatCard label="Awaiting Your Approval"    value={stats.pending}     tone="warning" onClick={() => navigate({ to: "/requests" })} />
-          <StatCard label="Approved (This Year)"      value={stats.approved}    tone="success" onClick={() => navigate({ to: "/admin-reports" })} />
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {!stats ? Array.from({ length: 5 }).map((_, i) => <StatCardSkeleton key={i} />) : (<>
+          <StatCard label="Teaching Staff"         value={stats.teachers}   />
+          <StatCard label="Departments"            value={stats.departments} />
+          <StatCard label="Awaiting Approval"      value={stats.pending}     tone="warning"     onClick={() => navigate({ to: "/requests" })} />
+          <StatCard label="Approved (This Year)"   value={stats.approved}    tone="success"     onClick={() => navigate({ to: "/admin-reports" })} />
+          <StatCard label="Rejected (This Year)"   value={stats.rejected}    tone="destructive" onClick={() => navigate({ to: "/admin-reports" })} />
         </>)}
       </div>
 
@@ -1070,19 +1066,27 @@ function AdminHrDashboard() {
       </SectionCard>
 
       <SectionCard title="Quick Actions">
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="space-y-2">
           {isHr ? (<>
-            <Button asChild className="w-full justify-start"><Link to="/hr">HR Panel</Link></Button>
-            <Button asChild variant="secondary" className="w-full justify-start"><Link to="/teachers">View Teachers</Link></Button>
-            <Button asChild variant="secondary" className="w-full justify-start"><Link to="/holidays">Holidays</Link></Button>
-            <Button asChild variant="secondary" className="w-full justify-start"><Link to="/notices">Notices</Link></Button>
+            <Button asChild size="lg" className="w-full justify-start gap-2 shadow-sm shadow-primary/20">
+              <Link to="/hr"><Briefcase className="size-4 shrink-0" />HR Panel</Link>
+            </Button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-0.5">
+              <Button asChild variant="outline" className="w-full justify-start gap-2 h-9 text-sm"><Link to="/teachers"><Users className="size-4 shrink-0 text-muted-foreground" />View Teachers</Link></Button>
+              <Button asChild variant="outline" className="w-full justify-start gap-2 h-9 text-sm"><Link to="/holidays"><PartyPopper className="size-4 shrink-0 text-muted-foreground" />Holidays</Link></Button>
+              <Button asChild variant="outline" className="w-full justify-start gap-2 h-9 text-sm"><Link to="/notices"><Megaphone className="size-4 shrink-0 text-muted-foreground" />Notices</Link></Button>
+            </div>
           </>) : (<>
-            <Button asChild className="w-full justify-start"><Link to="/admin">Admin Panel</Link></Button>
-            <Button asChild variant="secondary" className="w-full justify-start"><Link to="/admin-reports">Reports</Link></Button>
-            <Button asChild variant="secondary" className="w-full justify-start"><Link to="/teachers">Teachers</Link></Button>
-            <Button asChild variant="secondary" className="w-full justify-start"><Link to="/departments">Departments</Link></Button>
-            <Button asChild variant="secondary" className="w-full justify-start"><Link to="/requests">Leave Requests</Link></Button>
-            <Button asChild variant="secondary" className="w-full justify-start"><Link to="/holidays">Holidays</Link></Button>
+            <Button asChild size="lg" className="w-full justify-start gap-2 shadow-sm shadow-primary/20">
+              <Link to="/requests"><ClipboardCheck className="size-4 shrink-0" />Leave Requests</Link>
+            </Button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-0.5">
+              <Button asChild variant="outline" className="w-full justify-start gap-2 h-9 text-sm"><Link to="/admin"><ShieldCheck className="size-4 shrink-0 text-muted-foreground" />Admin Panel</Link></Button>
+              <Button asChild variant="outline" className="w-full justify-start gap-2 h-9 text-sm"><Link to="/admin-reports"><BarChart3 className="size-4 shrink-0 text-muted-foreground" />Reports</Link></Button>
+              <Button asChild variant="outline" className="w-full justify-start gap-2 h-9 text-sm"><Link to="/teachers"><Users className="size-4 shrink-0 text-muted-foreground" />Teachers</Link></Button>
+              <Button asChild variant="outline" className="w-full justify-start gap-2 h-9 text-sm"><Link to="/departments"><Building2 className="size-4 shrink-0 text-muted-foreground" />Departments</Link></Button>
+              <Button asChild variant="outline" className="w-full justify-start gap-2 h-9 text-sm"><Link to="/holidays"><PartyPopper className="size-4 shrink-0 text-muted-foreground" />Holidays</Link></Button>
+            </div>
           </>)}
         </div>
       </SectionCard>

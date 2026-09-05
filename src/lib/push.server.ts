@@ -7,7 +7,7 @@
 import { createServerFn } from "@tanstack/react-start";
 
 export const savePushToken = createServerFn({ method: "POST" })
-  .inputValidator((data: { userId: string; onesignalId: string }) => data)
+  .validator((data: { userId: string; onesignalId: string }) => data)
   .handler(async ({ data }) => {
     try {
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");

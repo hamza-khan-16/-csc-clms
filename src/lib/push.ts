@@ -27,13 +27,13 @@ async function saveTokenViaPost(userId: string, onesignalId: string): Promise<vo
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId, onesignalId }),
     });
-  } catch {}
+  } catch (e) { if (process.env.NODE_ENV==="development") console.warn("[push]",e); }
 }
 
 async function syncFromServer(userId: string): Promise<void> {
   try {
     await fetch(`/api/push-token?userId=${encodeURIComponent(userId)}`);
-  } catch {}
+  } catch (e) { if (process.env.NODE_ENV==="development") console.warn("[push]",e); }
 }
 
 export function initPush(userId: string): void {
@@ -111,7 +111,7 @@ export function logoutPush(): void {
     clearTimeout(pendingInit);
     pendingInit = null;
   }
-  try { getOS()?.logout?.(); } catch {}
+  try { getOS()?.logout?.(); } catch (e) { if (process.env.NODE_ENV==="development") console.warn("[push logout]",e); }
 }
 
 export function registerNotificationTapHandler(): void {

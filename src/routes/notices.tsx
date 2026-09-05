@@ -81,6 +81,7 @@ import { fmtDate, fmtTime } from "@/lib/leave";
 export const Route = createFileRoute("/notices")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "Notices — CSC Leave Management" },
       {
         name: "description",

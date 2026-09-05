@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -29,6 +29,7 @@ import {
 export const Route = createFileRoute("/admin-reports")({
   head: () => ({
     meta: [
+      { name: "robots", content: "noindex, nofollow" },
       { title: "Reports — CSC Leave Management" },
       { name: "description", content: "College-wide leave analytics and exports." },
     ],
@@ -291,12 +292,13 @@ function AdminReportsPage() {
   const COMMERCE_ARTS_KEYWORDS = ["commerce", "arts", "economics", "history", "english", "sociology", "philosophy", "political", "geography", "hindi", "marathi"];
   const SCIENCE_TECH_KEYWORDS  = ["science", "technology", "physics", "chemistry", "biology", "maths", "mathematics", "computer", "it", "information", "botany", "zoology", "microbiology"];
 
-  function getDeptGroup(deptName: string): "commerce_arts" | "science_tech" | "other" {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const getDeptGroup = useCallback((deptName: string): "commerce_arts" | "science_tech" | "other" => {
     const n = (deptName ?? "").toLowerCase();
     if (SCIENCE_TECH_KEYWORDS.some((k) => n.includes(k))) return "science_tech";
     if (COMMERCE_ARTS_KEYWORDS.some((k) => n.includes(k))) return "commerce_arts";
     return "other";
-  }
+  }, []); // stable — depends only on module-level constants
 
   // Departments
   const { data: departments = [] } = useQuery({
@@ -349,8 +351,8 @@ function AdminReportsPage() {
     },
   });
 
-  const allLeaves = reportData?.leaves ?? [];
-  const people    = reportData?.people ?? {};
+  const allLeaves = useMemo(() => reportData?.leaves ?? [], [reportData]);
+  const people    = useMemo(() => reportData?.people ?? {}, [reportData]);
 
   // Apply filters
   const filteredLeaves = useMemo(() => allLeaves.filter((l) => {
@@ -369,7 +371,7 @@ function AdminReportsPage() {
       const grp = getDeptGroup(deptName);
       return grp === principalDeptTab || grp === "other";
     });
-  }, [filteredLeaves, showDeptTabs, principalDeptTab, people]);
+  }, [filteredLeaves, showDeptTabs, principalDeptTab, people, getDeptGroup]);
 
   const effectiveLeaves = showDeptTabs ? principalFilteredLeaves : filteredLeaves;
 

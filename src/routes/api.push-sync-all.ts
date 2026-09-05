@@ -26,7 +26,7 @@ export const Route = createFileRoute("/api/push-sync-all")({
             const parsed = JSON.parse(raw);
             if (typeof parsed === "string") return parsed;
             if (parsed?.externalId) return parsed.externalId;
-          } catch {}
+          } catch (e) { if (process.env.NODE_ENV==="development") console.warn("[push-sync-all parse]",e); }
           const match = raw.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
           return match ? match[0] : null;
         }

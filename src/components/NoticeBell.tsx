@@ -37,7 +37,7 @@ function loadFromSession(userId?: string): Set<string> {
 }
 
 function saveToSession(ids: Set<string>, userId?: string) {
-  try { sessionStorage.setItem(ssKey(userId), JSON.stringify([...ids].slice(-200))); } catch {}
+  try { sessionStorage.setItem(ssKey(userId), JSON.stringify([...ids].slice(-200))); } catch (e) { if (process.env.NODE_ENV==="development") console.warn("[NoticeBell session save]",e); }
 }
 
 let _supabaseSyncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -48,7 +48,7 @@ function saveSeenIds(ids: Set<string>, userId?: string) {
   if (!userId) return;
   if (_supabaseSyncTimer) clearTimeout(_supabaseSyncTimer);
   _supabaseSyncTimer = setTimeout(() => {
-    supabase.auth.updateUser({ data: { notif_seen_ids: [...ids].slice(-200) } }).catch(() => {});
+    supabase.auth.updateUser({ data: { notif_seen_ids: [...ids].slice(-200) } }).catch((e) => { if (process.env.NODE_ENV==="development") console.warn("[NoticeBell sync]",e); });
   }, 2000);
 }
 
@@ -65,7 +65,7 @@ async function loadSeenIds(userId?: string): Promise<Set<string>> {
       saveToSession(merged, userId);
       return merged;
     }
-  } catch {}
+  } catch (e) { if (process.env.NODE_ENV==="development") console.warn("[NoticeBell loadSeenIds]",e); }
   return local;
 }
 
@@ -79,7 +79,7 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
   useEffect(() => {
     loadSeenIds(userId).then(ids => {
       if (ids.size > 0) setSeenIds(ids);
-    }).catch(() => {});
+    }).catch((e) => { if (process.env.NODE_ENV==="development") console.warn("[NoticeBell load]",e); });
   }, [userId]);
   const prevCountRef = useRef(0);
 

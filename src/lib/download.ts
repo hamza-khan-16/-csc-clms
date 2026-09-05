@@ -64,7 +64,7 @@ function browserDownload(blob: Blob, filename: string) {
 }
 
 async function downloadBlob(blob: Blob, filename: string): Promise<void> {
-  console.log("[download] isMedian:", isMedian(), "isWebView:", isWebView());
+  if (process.env.NODE_ENV === "development") console.log("[download] isMedian:", isMedian(), "isWebView:", isWebView());
 
   if (isMedian()) {
     // Median native download
