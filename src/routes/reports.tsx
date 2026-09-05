@@ -14,6 +14,7 @@ import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -995,14 +996,24 @@ function ReportsPage() {
                 </p>
               </div>
               <div className="flex gap-2 shrink-0">
-                <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadExcel} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
-                  <FileSpreadsheet className="size-4 text-emerald-600" />
-                  <span className="hidden xs:inline">{downloading === "excel" ? "…" : "Excel"}</span>
-                </Button>
-                <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadPDF} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
-                  <FileText className="size-4 text-red-600 dark:text-red-400" />
-                  <span className="hidden xs:inline">{downloading === "pdf" ? "…" : "PDF"}</span>
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadExcel} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
+                      <FileSpreadsheet className="size-4 text-emerald-600" />
+                      <span className="hidden xs:inline">{downloading === "excel" ? "…" : "Excel"}</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Download schedule as Excel spreadsheet</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={handleDownloadPDF} disabled={!!downloading || monthLoading || !filteredSummaries.length}>
+                      <FileText className="size-4 text-red-600 dark:text-red-400" />
+                      <span className="hidden xs:inline">{downloading === "pdf" ? "…" : "PDF"}</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Download schedule as PDF</TooltipContent>
+                </Tooltip>
               </div>
             </div>
           </div>
@@ -1202,6 +1213,8 @@ function TeacherScheduleCard({
   return (
     <div className={`rounded-xl border transition-all ${expanded ? "border-primary/40 shadow-sm" : "border-border hover:border-border/80"}`}>
       {/* Header — always visible */}
+      <Tooltip>
+      <TooltipTrigger asChild>
       <button onClick={onToggle} className="w-full text-left px-4 py-3 sm:px-5 sm:py-4">
         <div className="flex items-center gap-3">
           {/* Avatar */}
@@ -1234,6 +1247,9 @@ function TeacherScheduleCard({
           ))}
         </div>
       </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{expanded ? "Collapse" : "Expand"} {summary.name}'s schedule</TooltipContent>
+      </Tooltip>
 
       {/* Expanded detail */}
       {expanded && (

@@ -257,7 +257,7 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? "s" : ""}` : "Notifications"}
+            {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? "s" : " "}` : "Notifications"}
           </TooltipContent>
         </Tooltip>
       </DropdownMenuTrigger>

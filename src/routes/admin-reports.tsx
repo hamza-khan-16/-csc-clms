@@ -8,6 +8,7 @@ import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { supabase } from "@/integrations/supabase/client";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigger as UITooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
@@ -848,14 +849,24 @@ function AdminReportsPage() {
 
               {/* Export buttons */}
               <div className="flex flex-col sm:flex-row gap-3 mt-4 pt-4 border-t border-border">
-                <Button variant="outline" className="gap-2 flex-1" onClick={exportPDF} disabled={exporting || rows.length === 0}>
-                  <FileText className="size-4 text-red-600 shrink-0" />
-                  {exporting ? "Preparing…" : "Download PDF"}
-                </Button>
-                <Button variant="outline" className="gap-2 flex-1" onClick={exportExcel} disabled={rows.length === 0}>
-                  <BarChart2 className="size-4 text-emerald-600 shrink-0" />
-                  Download Excel
-                </Button>
+                <UITooltip>
+                  <UITooltipTrigger asChild>
+                    <Button variant="outline" className="gap-2 flex-1" onClick={exportPDF} disabled={exporting || rows.length === 0}>
+                      <FileText className="size-4 text-red-600 shrink-0" />
+                      {exporting ? "Preparing…" : "Download PDF"}
+                    </Button>
+                  </UITooltipTrigger>
+                  <UITooltipContent side="bottom">Export this report as a PDF document</UITooltipContent>
+                </UITooltip>
+                <UITooltip>
+                  <UITooltipTrigger asChild>
+                    <Button variant="outline" className="gap-2 flex-1" onClick={exportExcel} disabled={rows.length === 0}>
+                      <BarChart2 className="size-4 text-emerald-600 shrink-0" />
+                      Download Excel
+                    </Button>
+                  </UITooltipTrigger>
+                  <UITooltipContent side="bottom">Export this report as an Excel spreadsheet</UITooltipContent>
+                </UITooltip>
               </div>
             </SectionCard>
           </div>
