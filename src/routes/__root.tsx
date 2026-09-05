@@ -149,6 +149,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" },
+      // Lock to portrait — the app layout is portrait-only, landscape breaks bottom nav
+      { name: "screen-orientation", content: "portrait" },
       { title: "CSC Leave Management System" },
       {
         name: "description",
@@ -192,6 +194,8 @@ function RootShell({ children }: { children: ReactNode }) {
         <HeadContent />
         {/* Blocking script — applies dark class before paint to prevent flash */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})();` }} />
+        {/* Lock orientation to portrait — prevents layout breaking on phone rotation */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{if(screen.orientation&&screen.orientation.lock){screen.orientation.lock('portrait').catch(function(){});}}catch(e){}})();` }} />
         {/* JSON-LD structured data — enables Google sitelinks (the 2–3 link buttons below the search result) */}
         <script
           type="application/ld+json"

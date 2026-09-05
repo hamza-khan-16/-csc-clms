@@ -23,6 +23,7 @@ import {
   Settings2,
   Check,
   WifiOff,
+  X,
 } from "lucide-react";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
@@ -38,6 +39,7 @@ import { useTheme } from "@/lib/theme";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { NoticeBell } from "@/components/NoticeBell";
 import { LeaveBot } from "@/components/LeaveBot";
 
@@ -154,17 +156,17 @@ export function AppShell({
     { to: "/admin",         label: "Admin Panel",       icon: ShieldCheck,    roles: ["admin"] },
     { to: "/hr",            label: "HR Panel",          icon: Briefcase,      roles: ["hr"], badge: pendingHR },
     { to: "/admin-reports", label: "Reports",           mobileLabel: "Reports",  icon: BarChart3,      roles: ["admin", "principal"] },
-    { to: "/dashboard",     label: "Dashboard",         icon: LayoutDashboard,roles: ["teacher", "hod", "principal"] },
+    { to: "/dashboard",     label: "Dashboard",         icon: LayoutDashboard,roles: ["teacher", "hod", "principal", "hr"] },
     { to: "/apply",         label: "Apply Leave",       icon: CalendarPlus,   roles: ["teacher", "hod"] },
     { to: "/leaves",        label: "My Leaves",         icon: FileText,       roles: ["teacher", "hod"], search: { filter: "all" } },
     { to: "/schedule",      label: "My Schedule",       icon: CalendarDays,   roles: ["teacher", "hod"] },
     { to: "/proxies",       label: "Proxy Assignments", mobileLabel: "Proxies",  icon: Repeat,         roles: ["teacher", "hod"], badge: pendingProxies },
     { to: "/payroll",       label: "Payroll",           icon: Wallet,         roles: ["teacher", "hod"] },
     { to: "/requests",      label: "Leave Requests",    mobileLabel: "Requests", icon: ClipboardCheck, roles: ["hod", "principal", "admin"] },
-    { to: "/notices",       label: "Notices",           icon: Megaphone,      roles: ["hod", "principal", "admin"] },
-    { to: "/teachers",      label: "Teachers",          icon: Users,          roles: ["hod", "principal", "admin"] },
+    { to: "/notices",       label: "Notices",           icon: Megaphone,      roles: ["hod", "principal", "admin", "hr"] },
+    { to: "/teachers",      label: "Teachers",          icon: Users,          roles: ["hod", "principal", "admin", "hr"] },
     { to: "/departments",   label: "Departments",       icon: Building2,      roles: ["principal", "admin"] },
-    { to: "/holidays",      label: "Holidays",          icon: PartyPopper,    roles: ["teacher", "hod", "principal", "admin"] },
+    { to: "/holidays",      label: "Holidays",          icon: PartyPopper,    roles: ["teacher", "hod", "principal", "admin", "hr"] },
     { to: "/reports",       label: "Reports",           icon: BarChart3,      roles: ["hod"] },
     { to: "/profile",       label: "Profile",           icon: UserRound,      roles: ["teacher", "hod", "principal", "admin", "hr"] },
   ];
@@ -244,6 +246,7 @@ export function AppShell({
   );
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="flex min-h-screen bg-background">
       <OfflineBanner onToggle={setOffline} />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex shadow-sm overflow-hidden">
@@ -258,9 +261,16 @@ export function AppShell({
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-foreground/30" onClick={() => setOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-sidebar py-6 overflow-hidden">
-            <div className="px-5 pb-6 shrink-0">
+          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-sidebar py-6 overflow-hidden shadow-xl">
+            <div className="flex items-center justify-between px-5 pb-6 shrink-0">
               <Logo />
+              <button
+                onClick={() => setOpen(false)}
+                aria-label="Close menu"
+                className="rounded-lg p-1.5 text-sidebar-foreground hover:bg-muted/60 transition-colors"
+              >
+                <X className="size-5" />
+              </button>
             </div>
             <div className="flex-1 overflow-y-auto">
               {nav}
@@ -288,9 +298,14 @@ export function AppShell({
             {subtitle && <p className="truncate text-[11px] text-muted-foreground sm:text-sm">{subtitle}</p>}
           </div>
           <NoticeBell role={role} userId={profile?.id} />
-          <Button variant="ghost" size="icon" aria-label="Toggle dark mode" onClick={toggleTheme}>
-            {dark ? <Sun className="size-5" /> : <Moon className="size-5" />}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Toggle dark mode" onClick={toggleTheme}>
+                {dark ? <Sun className="size-5" /> : <Moon className="size-5" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{dark ? "Switch to light mode" : "Switch to dark mode"}</TooltipContent>
+          </Tooltip>
           <div className="hidden items-center gap-3 sm:flex">
             <div className="text-right">
               <p className="text-sm font-semibold">{profile?.full_name}</p>
@@ -308,13 +323,18 @@ export function AppShell({
 
         {/* Mobile FAB — Apply Leave shortcut for teachers/HODs only */}
         {(role === "teacher" || role === "hod") && pathname !== "/apply" && (
-          <Link
-            to="/apply"
-            aria-label="Apply for leave"
-            className="fixed bottom-20 right-4 z-40 lg:hidden flex items-center justify-center size-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:bg-primary/90 active:scale-95 transition-all duration-150"
-          >
-            <CalendarPlus className="size-6" />
-          </Link>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to="/apply"
+                aria-label="Apply for leave"
+                className="fixed bottom-20 right-4 z-40 lg:hidden flex items-center justify-center size-14 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:bg-primary/90 active:scale-95 transition-all duration-150"
+              >
+                <CalendarPlus className="size-6" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="left">Apply for leave</TooltipContent>
+          </Tooltip>
         )}
 
         {/* Mobile bottom nav — customisable */}
@@ -404,6 +424,7 @@ export function AppShell({
       </div>
       <LeaveBot />
     </div>
+    </TooltipProvider>
   );
 }
 
