@@ -12,6 +12,7 @@ import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -350,12 +351,22 @@ function TimetableModal({
             <p className="text-xs sm:text-sm text-white/50">{teacherName}</p>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={downloadPDF} className="rounded-lg p-2 hover:bg-white/10 transition-colors" title="Download timetable as PDF">
-              <Printer className="size-4" />
-            </button>
-            <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-white/10 transition-colors">
-              <X className="size-5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" onClick={downloadPDF} className="rounded-lg p-2 hover:bg-white/10 transition-colors" aria-label="Download timetable as PDF">
+                  <Printer className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Download timetable as PDF</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-white/10 transition-colors" aria-label="Close">
+                  <X className="size-5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Close</TooltipContent>
+            </Tooltip>
           </div>
         </div>
 
@@ -787,28 +798,38 @@ function SchedulePage() {
             const isCurrentWeek = weekOffset === 0;
             return (
               <div className="flex items-center justify-between rounded-xl border border-border bg-muted/30 px-3 py-2">
-                <button
-                  type="button"
-                  onClick={() => setWeekOffset((w) => w - 1)}
-                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                  aria-label="Previous week"
-                >
-                  <ChevronLeft className="size-4" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setWeekOffset((w) => w - 1)}
+                      className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                      aria-label="Previous week"
+                    >
+                      <ChevronLeft className="size-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Previous week</TooltipContent>
+                </Tooltip>
                 <div className="text-center">
                   <p className="text-sm font-semibold">
                     {isCurrentWeek ? "This week" : weekOffset === 1 ? "Next week" : weekOffset === -1 ? "Last week" : `Week of ${fmt(weekStart)}`}
                   </p>
                   <p className="text-xs text-muted-foreground">{fmt(weekStart)} – {fmt(weekEnd)}</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setWeekOffset((w) => w + 1)}
-                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                  aria-label="Next week"
-                >
-                  <ChevronRight className="size-4" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setWeekOffset((w) => w + 1)}
+                      className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                      aria-label="Next week"
+                    >
+                      <ChevronRight className="size-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Next week</TooltipContent>
+                </Tooltip>
               </div>
             );
           })()}
@@ -1079,9 +1100,14 @@ function LectureRow({
           </div>
         </div>
         {onRemove && (
-          <Button variant="ghost" size="icon" className="shrink-0 -mt-1" onClick={() => onRemove(l.id)}>
-            <Trash2 className="size-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="shrink-0 -mt-1" onClick={() => onRemove(l.id)}>
+                <Trash2 className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Remove lecture</TooltipContent>
+          </Tooltip>
         )}
       </div>
     </li>

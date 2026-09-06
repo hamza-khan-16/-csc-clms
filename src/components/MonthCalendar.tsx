@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { eachDate, leaveTypeLabel, type LeaveType } from "@/lib/leave";
 
@@ -144,9 +145,14 @@ function DayDetailCard({ cell, onClose }: { cell: DayCell; onClose: () => void }
               <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">{dayName}</p>
               <p className="text-lg font-extrabold">{dateStr}</p>
             </div>
-            <button onClick={onClose} className="rounded-full p-1.5 hover:bg-muted transition-colors" aria-label="Close">
-              <X className="size-4" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button onClick={onClose} className="rounded-full p-1.5 hover:bg-muted transition-colors" aria-label="Close">
+                  <X className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left">Close</TooltipContent>
+            </Tooltip>
           </div>
           <div className={cn("inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border border-transparent", KIND_CLASS[cell.kind])}>
             <span>{KIND_ICON[cell.kind]}</span>
@@ -371,23 +377,33 @@ export function MonthCalendar({
     <div>
       {/* Month navigation */}
       <div className="mb-4 flex items-center justify-between gap-2">
-        <Button
-          variant="ghost" size="icon" aria-label="Previous month"
-          onClick={() => navigateMonth("prev")}
-          disabled={animating}
-        >
-          <ChevronLeft className="size-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost" size="icon" aria-label="Previous month"
+              onClick={() => navigateMonth("prev")}
+              disabled={animating}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Previous month</TooltipContent>
+        </Tooltip>
         <p className="text-sm font-bold select-none">
           {month.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
         </p>
-        <Button
-          variant="ghost" size="icon" aria-label="Next month"
-          onClick={() => navigateMonth("next")}
-          disabled={animating}
-        >
-          <ChevronRight className="size-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost" size="icon" aria-label="Next month"
+              onClick={() => navigateMonth("next")}
+              disabled={animating}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Next month</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Sliding grid wrapper */}
@@ -540,12 +556,22 @@ export function DeptMonthCalendar({ deptId }: { deptId: string }) {
           {MONTH_NAMES[month.getMonth()]} {month.getFullYear()}
         </p>
         <div className="flex gap-1">
-          <button onClick={() => navigateMonth("prev")} className="rounded-lg border border-border p-1.5 hover:bg-muted transition-colors">
-            <ChevronLeft className="size-3.5" />
-          </button>
-          <button onClick={() => navigateMonth("next")} className="rounded-lg border border-border p-1.5 hover:bg-muted transition-colors">
-            <ChevronRight className="size-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button onClick={() => navigateMonth("prev")} className="rounded-lg border border-border p-1.5 hover:bg-muted transition-colors" aria-label="Previous month">
+                <ChevronLeft className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Previous month</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button onClick={() => navigateMonth("next")} className="rounded-lg border border-border p-1.5 hover:bg-muted transition-colors" aria-label="Next month">
+                <ChevronRight className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Next month</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

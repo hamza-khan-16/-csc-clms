@@ -191,5 +191,11 @@ textarea:not([disabled]):not([readonly]):hover {
   .page-enter { animation-duration: 0.12s; }
 }
 
-/* Orientation lock is handled via the Screen Orientation API in AppShell.tsx.
-   No CSS rotation needed — rotating the page via CSS breaks scrolling and layout. */
+/* Orientation lock is handled via the Screen Orientation API in AppShell.tsx. */
+
+/* Suppress tooltips on touch/mobile devices — they don't hover, tooltips just get stuck */
+@media (hover: none) and (pointer: coarse) {
+  [data-radix-tooltip-content] {
+    display: none !important;
+  }
+}

@@ -9,6 +9,7 @@ import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { GuardedInput, type GuardHandle } from "@/components/GuardedField";
@@ -440,15 +441,20 @@ function ProfilePage() {
                     className="pr-10"
                     autoComplete="current-password"
                   />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => setShowOld((v) => !v)}
-                    tabIndex={-1}
-                    aria-label={showOld ? "Hide password" : "Show password"}
-                  >
-                    {showOld ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => setShowOld((v) => !v)}
+                        tabIndex={-1}
+                        aria-label={showOld ? "Hide password" : "Show password"}
+                      >
+                        {showOld ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">{showOld ? "Hide password" : "Show password"}</TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
 
@@ -473,15 +479,20 @@ function ProfilePage() {
                     className="pr-10"
                     autoComplete="new-password"
                   />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => setShowNew((v) => !v)}
-                    tabIndex={-1}
-                    aria-label={showNew ? "Hide password" : "Show password"}
-                  >
-                    {showNew ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => setShowNew((v) => !v)}
+                        tabIndex={-1}
+                        aria-label={showNew ? "Hide password" : "Show password"}
+                      >
+                        {showNew ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">{showNew ? "Hide password" : "Show password"}</TooltipContent>
+                  </Tooltip>
                 </div>
                 {/* Strength bar */}
                 {strength && (
@@ -509,15 +520,20 @@ function ProfilePage() {
                     className={`pr-10 ${confirmPw && confirmPw !== newPw ? "border-destructive focus-visible:ring-destructive/20" : confirmPw && confirmPw === newPw ? "border-success focus-visible:ring-success/20" : ""}`}
                     autoComplete="new-password"
                   />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => setShowConfirm((v) => !v)}
-                    tabIndex={-1}
-                    aria-label={showConfirm ? "Hide password" : "Show password"}
-                  >
-                    {showConfirm ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => setShowConfirm((v) => !v)}
+                        tabIndex={-1}
+                        aria-label={showConfirm ? "Hide password" : "Show password"}
+                      >
+                        {showConfirm ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">{showConfirm ? "Hide password" : "Show password"}</TooltipContent>
+                  </Tooltip>
                 </div>
                 {confirmPw && confirmPw !== newPw && (
                   <p className="text-xs text-destructive">Passwords do not match</p>

@@ -9,6 +9,7 @@ import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -354,19 +355,29 @@ function TeacherDetailPanel({
         </div>
         <div className="flex gap-1">
           {isHod && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              onClick={() => setEditing((v) => !v)}
-              title="Edit teacher details"
-            >
-              <Edit3 className="size-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  onClick={() => setEditing((v) => !v)}
+                  title="Edit teacher details"
+                >
+                  <Edit3 className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Edit teacher details</TooltipContent>
+            </Tooltip>
           )}
-          <Button variant="ghost" size="icon" className="size-8" onClick={onClose}>
-            <X className="size-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="size-8" onClick={onClose}>
+                <X className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Close</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

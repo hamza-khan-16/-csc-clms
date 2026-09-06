@@ -19,6 +19,7 @@
 import { useState, useRef, useEffect } from "react";
 import { MessageCircle, X, Send, Loader2, Bot, User, Mic, MicOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { leaveTypeLabel, type LeaveType } from "@/lib/leave";
@@ -775,15 +776,25 @@ export function LeaveBot() {
                   {ctxReady ? "All data loaded — ask me anything" : "Loading your data…"}
                 </p>
               </div>
-              <button onClick={() => { setMessages([INITIAL_MSG]); try{sessionStorage.removeItem(CHAT_KEY);}catch{} }}
-                className="opacity-60 hover:opacity-100 transition-opacity mr-1" title="Clear chat">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                </svg>
-              </button>
-              <button onClick={()=>setOpen(false)} className="opacity-75 hover:opacity-100 transition-opacity">
-                <X className="w-5 h-5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={() => { setMessages([INITIAL_MSG]); try{sessionStorage.removeItem(CHAT_KEY);}catch{} }}
+                    className="opacity-60 hover:opacity-100 transition-opacity mr-1" aria-label="Clear chat">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    </svg>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Clear chat</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button onClick={()=>setOpen(false)} className="opacity-75 hover:opacity-100 transition-opacity" aria-label="Close">
+                    <X className="w-5 h-5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Close</TooltipContent>
+              </Tooltip>
             </div>
 
             {/* Loading bar */}
@@ -865,24 +876,35 @@ export function LeaveBot() {
                   disabled={loading || !ctxReady}
                 />
                 {micSupported && (
-                  <button
-                    onClick={toggleMic}
-                    disabled={loading || !ctxReady}
-                    title={listening ? "Stop listening" : "Speak your question"}
-                    className={cn(
-                      "w-9 h-9 rounded-full flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-40",
-                      listening
-                        ? "bg-destructive text-destructive-foreground hover:bg-destructive/90 animate-pulse"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80"
-                    )}
-                  >
-                    {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={toggleMic}
+                        disabled={loading || !ctxReady}
+                        aria-label={listening ? "Stop listening" : "Speak your question"}
+                        className={cn(
+                          "w-9 h-9 rounded-full flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-40",
+                          listening
+                            ? "bg-destructive text-destructive-foreground hover:bg-destructive/90 animate-pulse"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        )}
+                      >
+                        {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">{listening ? "Stop listening" : "Speak your question"}</TooltipContent>
+                  </Tooltip>
                 )}
-                <button onClick={()=>send()} disabled={!input.trim()||loading||!ctxReady}
-                  className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors flex-shrink-0">
-                  <Send className="w-4 h-4" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button onClick={()=>send()} disabled={!input.trim()||loading||!ctxReady}
+                      aria-label="Send message"
+                      className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 hover:bg-primary/90 transition-colors flex-shrink-0">
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Send message</TooltipContent>
+                </Tooltip>
               </div>
             </div>
           </div>
@@ -890,14 +912,19 @@ export function LeaveBot() {
       )}
 
       {/* FAB */}
-      <button onClick={() => setOpen(o=>!o)}
-        className={cn(
-          "fixed bottom-20 right-4 z-50 lg:bottom-6 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-200",
-          open ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground hover:scale-105"
-        )}
-        aria-label="Open LeaveBot">
-        {open ? <X className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button onClick={() => setOpen(o=>!o)}
+            className={cn(
+              "fixed bottom-20 right-4 z-50 lg:bottom-6 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-200",
+              open ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground hover:scale-105"
+            )}
+            aria-label="Open LeaveBot">
+            {open ? <X className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="left">{open ? "Close LeaveBot" : "Open LeaveBot"}</TooltipContent>
+      </Tooltip>
     </>
   );
 }

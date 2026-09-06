@@ -12,6 +12,7 @@ import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
 import { money, LEAVE_TYPES, leaveTypeLabel, fmtDate, type LeaveType } from "@/lib/leave";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -480,9 +481,14 @@ function StaffRowCard({
           ) : (
             <Badge variant="destructive">Pending</Badge>
           )}
-          <Button size="icon" variant="ghost" onClick={onRemove} aria-label="Remove staff member">
-            <Trash2 className="size-4 text-destructive" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="icon" variant="ghost" onClick={onRemove} aria-label="Remove staff member">
+                <Trash2 className="size-4 text-destructive" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Remove staff member</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -1174,14 +1180,19 @@ function DepartmentsCard({ departments }: { departments: { id: string; name: str
           {departments.map((d) => (
             <li key={d.id} className="flex items-center justify-between py-2 text-sm">
               <span>{d.name}</span>
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => setDeptDeleteConfirm({ id: d.id, name: d.name })}
-                aria-label={`Remove ${d.name}`}
-              >
-                <Trash2 className="size-4 text-destructive" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setDeptDeleteConfirm({ id: d.id, name: d.name })}
+                    aria-label={`Remove ${d.name}`}
+                  >
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">Remove {d.name}</TooltipContent>
+              </Tooltip>
             </li>
           ))}
         </ul>

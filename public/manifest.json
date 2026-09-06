@@ -1,0 +1,13 @@
+{
+  "name": "CSC Leave Management",
+  "short_name": "CSC LMS",
+  "description": "Chandrabhan Sharma College Leave Management System",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/favicon.ico", "sizes": "48x48", "type": "image/x-icon" }
+  ]
+}

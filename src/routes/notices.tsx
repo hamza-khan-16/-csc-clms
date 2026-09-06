@@ -65,6 +65,7 @@ import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -415,14 +416,24 @@ function NoticeCard({ notice: n, hasEvent, isLong, canDelete, onDelete, userId, 
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {!acked && userId && (
-            <Button variant="ghost" size="icon" className="size-8 text-success" title="Mark as read" onClick={acknowledge}>
-              <CheckCheck className="size-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-8 text-success" onClick={acknowledge}>
+                  <CheckCheck className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">Mark as read</TooltipContent>
+            </Tooltip>
           )}
           {canDelete && (
-            <Button variant="ghost" size="icon" className="size-8 text-destructive" onClick={onDelete}>
-              <Trash2 className="size-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-8 text-destructive" onClick={onDelete}>
+                  <Trash2 className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">Delete notice</TooltipContent>
+            </Tooltip>
           )}
         </div>
       </div>
