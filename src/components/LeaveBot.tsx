@@ -19,7 +19,10 @@
 import { useState, useRef, useEffect } from "react";
 import { MessageCircle, X, Send, Loader2, Bot, User, Mic, MicOff } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent as _TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+const IS_NATIVE_APP = typeof navigator !== "undefined" && /Median|GoNative/i.test(navigator.userAgent);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const TooltipContent = (IS_NATIVE_APP ? () => null : _TooltipContent) as typeof _TooltipContent;
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { leaveTypeLabel, type LeaveType } from "@/lib/leave";

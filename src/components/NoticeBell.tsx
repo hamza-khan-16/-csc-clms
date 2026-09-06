@@ -9,7 +9,10 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent as _TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+const IS_NATIVE_APP = typeof navigator !== "undefined" && /Median|GoNative/i.test(navigator.userAgent);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const TooltipContent = (IS_NATIVE_APP ? () => null : _TooltipContent) as typeof _TooltipContent;
 import { fmtDate } from "@/lib/leave";
 import type { AppRole } from "@/lib/auth";
 
@@ -244,9 +247,9 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
 
   return (
     <DropdownMenu open={open} onOpenChange={handleOpen}>
-      <DropdownMenuTrigger asChild>
-        <Tooltip>
-          <TooltipTrigger asChild>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
               <Bell className="size-5" />
               {unreadCount > 0 && (
@@ -255,12 +258,12 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
                 </span>
               )}
             </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? "s" : ""}` : "Notifications"}
-          </TooltipContent>
-        </Tooltip>
-      </DropdownMenuTrigger>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? "s" : ""}` : "Notifications"}
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="end" className="w-[calc(100vw-16px)] max-w-80 p-0 sm:w-80">
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <p className="text-sm font-bold">Notifications</p>

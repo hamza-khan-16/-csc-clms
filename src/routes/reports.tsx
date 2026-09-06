@@ -14,7 +14,10 @@ import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent as _TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+const IS_NATIVE_APP = typeof navigator !== "undefined" && /Median|GoNative/i.test(navigator.userAgent);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const TooltipContent = (IS_NATIVE_APP ? () => null : _TooltipContent) as typeof _TooltipContent;
 import {
   Select,
   SelectContent,

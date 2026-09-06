@@ -39,7 +39,15 @@ import { useTheme } from "@/lib/theme";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent as _TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
+// Median.co WebView injects "Median" into the UA. Detect once at module level.
+const IS_NATIVE_APP = typeof navigator !== "undefined" &&
+  /Median|GoNative/i.test(navigator.userAgent);
+
+// When running inside Median, suppress all tooltip popups (touch devices can't hover)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const TooltipContent = (IS_NATIVE_APP ? () => null : _TooltipContent) as typeof _TooltipContent;
 import { NoticeBell } from "@/components/NoticeBell";
 import { LeaveBot } from "@/components/LeaveBot";
 
@@ -90,9 +98,6 @@ export function AppShell({
 }) {
   const { profile, role, signOut } = useAuth();
   const navigate = useNavigate();
-  // Median.co (and other WebView wrappers) don't support hover — disable tooltips
-  const isNativeApp = typeof navigator !== "undefined" &&
-    /Median|GoNative|median\.co/i.test(navigator.userAgent);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -254,7 +259,7 @@ export function AppShell({
   );
 
   return (
-    <TooltipProvider delayDuration={isNativeApp ? 999999 : 300} skipDelayDuration={isNativeApp ? 999999 : 0}>
+    <TooltipProvider delayDuration={300}>
     <div className="flex min-h-screen bg-background">
       <OfflineBanner onToggle={setOffline} />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex shadow-sm overflow-hidden">

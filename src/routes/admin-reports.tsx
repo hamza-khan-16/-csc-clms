@@ -8,7 +8,10 @@ import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { supabase } from "@/integrations/supabase/client";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigger as UITooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip as UITooltip, TooltipContent as _UITooltipContent, TooltipTrigger as UITooltipTrigger } from "@/components/ui/tooltip";
+const IS_NATIVE_APP = typeof navigator !== "undefined" && /Median|GoNative/i.test(navigator.userAgent);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const UITooltipContent = (IS_NATIVE_APP ? () => null : _UITooltipContent) as typeof _UITooltipContent;
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
