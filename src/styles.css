@@ -193,9 +193,5 @@ textarea:not([disabled]):not([readonly]):hover {
 
 /* Orientation lock is handled via the Screen Orientation API in AppShell.tsx. */
 
-/* Suppress tooltips on touch/mobile devices — they don't hover, tooltips just get stuck */
-@media (hover: none) and (pointer: coarse) {
-  [data-radix-tooltip-content] {
-    display: none !important;
-  }
-}
+/* Tooltip suppression on touch/WebView apps is handled in AppShell.tsx via
+   isNativeApp detection (Median user-agent) — setting delayDuration to 999999. */

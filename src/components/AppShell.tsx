@@ -26,26 +26,6 @@ import {
   X,
 } from "lucide-react";
 import { useState, useEffect, useRef, type ReactNode } from "react";
-
-// Lock mobile orientation to portrait via the Screen Orientation API.
-// Only runs on real touch devices (phones/tablets). Fails silently everywhere else.
-// Note: iOS Safari does not support orientation.lock() — nothing we can do there via JS.
-function useLockPortrait() {
-  useEffect(() => {
-    const lock = async () => {
-      try {
-        if (!navigator.maxTouchPoints || navigator.maxTouchPoints < 1) return;
-        if (typeof (screen.orientation as any)?.lock !== "function") return;
-        await (screen.orientation as any).lock("portrait");
-      } catch {
-        // NotSupportedError or SecurityError — acceptable, no lock on those devices.
-      }
-    };
-    lock();
-    // Do NOT unlock on unmount — that causes the device to immediately rotate
-    // back to landscape if the user has auto-rotate enabled.
-  }, []);
-}
 import {
   Sheet,
   SheetContent,
@@ -108,9 +88,11 @@ export function AppShell({
   subtitle?: string;
   children: ReactNode;
 }) {
-  useLockPortrait();
   const { profile, role, signOut } = useAuth();
   const navigate = useNavigate();
+  // Median.co (and other WebView wrappers) don't support hover — disable tooltips
+  const isNativeApp = typeof navigator !== "undefined" &&
+    /Median|GoNative|median\.co/i.test(navigator.userAgent);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -272,7 +254,7 @@ export function AppShell({
   );
 
   return (
-    <TooltipProvider delayDuration={300}>
+    <TooltipProvider delayDuration={isNativeApp ? 999999 : 300} skipDelayDuration={isNativeApp ? 999999 : 0}>
     <div className="flex min-h-screen bg-background">
       <OfflineBanner onToggle={setOffline} />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex shadow-sm overflow-hidden">
@@ -333,14 +315,7 @@ export function AppShell({
             <h1 className="truncate text-base font-bold tracking-tight sm:text-xl">{title}</h1>
             {subtitle && <p className="truncate text-[11px] text-muted-foreground sm:text-sm">{subtitle}</p>}
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <NoticeBell role={role} userId={profile?.id} />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Notices</TooltipContent>
-          </Tooltip>
+          <NoticeBell role={role} userId={profile?.id} />
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon" aria-label="Toggle dark mode" onClick={toggleTheme}>

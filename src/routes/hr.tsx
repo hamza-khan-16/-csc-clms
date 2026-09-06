@@ -17,6 +17,7 @@ import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { StatusBadge, Empty } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { GuardedInput, GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -150,14 +151,24 @@ function DocRow({ doc, onApprove, onReject, busy }: {
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <DocPill s={doc.status} />
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="View"
-            onClick={async () => { const u = await signedUrl(doc.file_path); if (u) window.open(u, "_blank"); else toast.error("Could not open"); }}>
-            <Eye className="size-3.5" />
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Download" disabled={dl}
-            onClick={async () => { setDl(true); await downloadDoc(doc); setDl(false); }}>
-            {dl ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0"
+                onClick={async () => { const u = await signedUrl(doc.file_path); if (u) window.open(u, "_blank"); else toast.error("Could not open"); }}>
+                <Eye className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">View document</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={dl}
+                onClick={async () => { setDl(true); await downloadDoc(doc); setDl(false); }}>
+                {dl ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Download document</TooltipContent>
+          </Tooltip>
         </div>
       </div>
       {doc.status !== "approved" && (
