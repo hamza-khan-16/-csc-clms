@@ -400,9 +400,9 @@ export function AppShell({
 
           {/* Customise button */}
           <Sheet open={customizeOpen} onOpenChange={setCustomizeOpen}>
-            <SheetTrigger asChild>
-              <Tooltip>
-                <TooltipTrigger asChild>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <SheetTrigger asChild>
                   <button
                     className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
                     aria-label="Customise navigation tabs"
@@ -412,10 +412,10 @@ export function AppShell({
                     </div>
                     <span className="leading-tight">More</span>
                   </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">Customise tabs</TooltipContent>
-              </Tooltip>
-            </SheetTrigger>
+                </SheetTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="top">Customise tabs</TooltipContent>
+            </Tooltip>
             <SheetContent side="bottom" className="max-h-[70vh] overflow-y-auto rounded-t-2xl px-4 pb-safe">
               <SheetHeader className="pb-2 pt-1">
                 <SheetTitle className="text-base">Customise Tabs</SheetTitle>

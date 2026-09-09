@@ -3,9 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Gift, LayoutGrid, Printer, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Gift, LayoutGrid, Printer, Trash2, Upload, X } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
+import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/AppShell";
@@ -290,6 +291,75 @@ function TimetableModal({
 
   async function downloadPDF() {
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const PW = doc.internal.pageSize.getWidth();   // 297
+    const PH = doc.internal.pageSize.getHeight();  // 210
+
+    // ── Fetch logo and convert to base64 ────────────────────────────────────
+    let logoB64: string | null = null;
+    try {
+      const res = await fetch("/csc-logo.png");
+      const blob = await res.blob();
+      logoB64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.readAsDataURL(blob);
+      });
+    } catch { /* logo unavailable — skip */ }
+
+    // ── Letterhead ───────────────────────────────────────────────────────────
+    const HEADER_H = 36;
+
+    // Light background bar
+    doc.setFillColor(248, 248, 248);
+    doc.rect(0, 0, PW, HEADER_H, "F");
+
+    // Bottom border line in CSC orange
+    doc.setDrawColor(234, 88, 12);   // orange-600
+    doc.setLineWidth(0.8);
+    doc.line(0, HEADER_H, PW, HEADER_H);
+
+    // Logo — left side
+    const LOGO_W = 28;
+    const LOGO_H = 16;
+    const LOGO_X = 10;
+    const LOGO_Y = (HEADER_H - LOGO_H) / 2;
+    if (logoB64) {
+      doc.addImage(logoB64, "PNG", LOGO_X, LOGO_Y, LOGO_W, LOGO_H);
+    }
+
+    // College name block — centred
+    const CX = PW / 2;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(80, 80, 80);
+    doc.text("Smt. Durgadevi Sharma Charitable Trust's", CX, 7, { align: "center" });
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.setTextColor(20, 20, 20);
+    doc.text("Chandrabhan Sharma College", CX, 13.5, { align: "center" });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(80, 80, 80);
+    doc.text("Of Arts, Commerce & Science  (AUTONOMOUS)", CX, 18.5, { align: "center" });
+    doc.text("(Hindi Linguistic Minority Institution)  ·  (Affiliated to the University of Mumbai)", CX, 22.5, { align: "center" });
+    doc.text("NAAC Re-Accredited 'A' Grade (CGPA 3.10)", CX, 26.5, { align: "center" });
+
+    // Teacher name + document label — right aligned
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(20, 20, 20);
+    doc.text("Weekly Timetable", PW - 10, 12, { align: "right" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text(teacherName, PW - 10, 18, { align: "right" });
+    const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    doc.setFontSize(6.5);
+    doc.text(`Generated: ${today}`, PW - 10, 23, { align: "right" });
+
+    // ── Timetable table ──────────────────────────────────────────────────────
     const DAY_NAMES_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const WEEKDAYS_LIST   = [1, 2, 3, 4, 5, 6];
 
@@ -299,17 +369,6 @@ function TimetableModal({
       return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
     }
 
-    // Title
-    doc.setFontSize(16);
-    doc.setFont("helvetica", "bold");
-    doc.text("Weekly Timetable", 14, 16);
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(100);
-    doc.text(teacherName, 14, 23);
-    doc.setTextColor(0);
-
-    // Build table data
     const head = [["Time", ...DAY_NAMES_SHORT]];
     const body = timeSlots.map((slot) => {
       const timeLabel = `${fmt(slot.start)} – ${fmt(slot.end)}`;
@@ -323,21 +382,58 @@ function TimetableModal({
       return [timeLabel, ...cells];
     });
 
+    const TABLE_START_Y = HEADER_H + 4;
+    const FOOTER_H = 22; // space reserved for signature strip
+
     if (body.length === 0) {
-      doc.setFontSize(12);
-      doc.text("No fixed lectures in timetable.", 14, 35);
+      doc.setFontSize(11);
+      doc.setTextColor(120);
+      doc.text("No fixed lectures in timetable.", 14, TABLE_START_Y + 10);
     } else {
       autoTable(doc, {
         head,
         body,
-        startY: 28,
-        styles: { fontSize: 8, cellPadding: 3, valign: "top", overflow: "linebreak" },
-        headStyles: { fillColor: [30, 30, 30], textColor: 255, fontStyle: "bold" },
-        alternateRowStyles: { fillColor: [248, 248, 248] },
-        columnStyles: { 0: { fontStyle: "bold", cellWidth: 28 } },
+        startY: TABLE_START_Y,
+        margin: { bottom: FOOTER_H + 2 },
+        styles: { fontSize: 7.5, cellPadding: 2.5, valign: "top", overflow: "linebreak" },
+        headStyles: { fillColor: [30, 30, 30], textColor: 255, fontStyle: "bold", fontSize: 8 },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        columnStyles: { 0: { fontStyle: "bold", cellWidth: 26 } },
         tableWidth: "auto",
       });
     }
+
+    // ── Signature strip (footer) ─────────────────────────────────────────────
+    const FOOTER_Y = PH - FOOTER_H;
+
+    // Thin divider
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.3);
+    doc.line(10, FOOTER_Y, PW - 10, FOOTER_Y);
+
+    // Teacher signature block — left
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(100, 100, 100);
+    doc.text("Teacher's Signature", 14, FOOTER_Y + 5);
+    doc.setDrawColor(160, 160, 160);
+    doc.setLineWidth(0.4);
+    doc.line(14, FOOTER_Y + 13, 75, FOOTER_Y + 13);
+    doc.setFontSize(6.5);
+    doc.text(teacherName, 14, FOOTER_Y + 17);
+
+    // Principal signature block — right
+    doc.setFontSize(7);
+    doc.setTextColor(100, 100, 100);
+    doc.text("Principal's Signature", PW - 80, FOOTER_Y + 5);
+    doc.line(PW - 80, FOOTER_Y + 13, PW - 14, FOOTER_Y + 13);
+    doc.setFontSize(6.5);
+    doc.text("Principal, Chandrabhan Sharma College", PW - 80, FOOTER_Y + 17);
+
+    // Page number — centre
+    doc.setFontSize(6);
+    doc.setTextColor(160);
+    doc.text(`Page 1`, PW / 2, PH - 4, { align: "center" });
 
     const safeName = teacherName.split(" ").join("_");
     await savePDF(doc, `Timetable_${safeName}.pdf`);
@@ -1052,8 +1148,264 @@ function SchedulePage() {
             </Button>
           </form>
         </SectionCard>
+
+        {/* ── Excel bulk upload ─────────────────────────────────────────── */}
+        <ExcelUploadCard teacherId={profile!.id} departmentId={profile?.department_id ?? null} onDone={() => qc.invalidateQueries({ queryKey: ["my-lectures"] })} />
       </div>
     </AppShell>
+  );
+}
+
+// ── Excel Upload Card ─────────────────────────────────────────────────────────
+// Expected Excel format (any sheet name):
+//   Col A: Day       — Mon / Monday / 1-7 / Sun=0
+//   Col B: Start     — HH:MM  e.g. 09:00
+//   Col C: End       — HH:MM  e.g. 10:00
+//   Col D: Subject   — free text
+//   Col E: Class     — e.g. FYBSc IT
+//   Col F: Room      — optional, e.g. 301
+//
+// A template can be downloaded from the card.
+const DAY_MAP: Record<string, number> = {
+  sun: 0, sunday: 0,
+  mon: 1, monday: 1,
+  tue: 2, tuesday: 2,
+  wed: 3, wednesday: 3,
+  thu: 4, thursday: 4,
+  fri: 5, friday: 5,
+  sat: 6, saturday: 6,
+};
+
+function parseTime(raw: unknown): string | null {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  // Already HH:MM
+  if (/^\d{1,2}:\d{2}$/.test(s)) {
+    const [h, m] = s.split(":").map(Number);
+    if (h >= 0 && h < 24 && m >= 0 && m < 60)
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+  // Excel serial time (fraction of a day)
+  const n = parseFloat(s);
+  if (!isNaN(n) && n > 0 && n < 1) {
+    const totalMin = Math.round(n * 24 * 60);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+  return null;
+}
+
+function parseDay(raw: unknown): number | null {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).trim().toLowerCase();
+  if (DAY_MAP[s] !== undefined) return DAY_MAP[s];
+  const n = parseInt(s, 10);
+  if (!isNaN(n) && n >= 0 && n <= 6) return n;
+  return null;
+}
+
+function downloadTemplate() {
+  const wb = XLSX.utils.book_new();
+  const rows = [
+    ["Day", "Start", "End", "Subject", "Class", "Room"],
+    ["Monday", "09:00", "10:00", "Mathematics", "FYBSc IT", "301"],
+    ["Monday", "10:00", "11:00", "Physics", "SYBSc IT", "302"],
+    ["Tuesday", "11:00", "12:00", "Chemistry", "TYBSc IT", "Lab 1"],
+    ["Wednesday", "08:00", "09:00", "English", "FYBCom", "201"],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [14, 10, 10, 30, 18, 10].map((w) => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws, "Schedule");
+  XLSX.writeFile(wb, "fixed_schedule_template.xlsx");
+}
+
+function ExcelUploadCard({
+  teacherId,
+  departmentId,
+  onDone,
+}: {
+  teacherId: string;
+  departmentId: string | null;
+  onDone: () => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState<Array<{
+    day: number; start: string; end: string; subject: string; className: string; room: string;
+  }> | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+  const inputRef = useState<HTMLInputElement | null>(null);
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const data = new Uint8Array(ev.target!.result as ArrayBuffer);
+      const wb = XLSX.read(data, { type: "array", cellDates: false });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" });
+
+      const errs: string[] = [];
+      const parsed: typeof preview = [];
+
+      // Skip header row (row 0) if it looks like a header
+      const startRow = String(rows[0]?.[0] ?? "").toLowerCase().includes("day") ? 1 : 0;
+
+      rows.slice(startRow).forEach((row, i) => {
+        const rowNum = startRow + i + 1;
+        const [rawDay, rawStart, rawEnd, rawSubject, rawClass, rawRoom] = row as unknown[];
+        if (!rawDay && !rawSubject) return; // blank row
+
+        const day = parseDay(rawDay);
+        const start = parseTime(rawStart);
+        const end = parseTime(rawEnd);
+        const subject = String(rawSubject ?? "").trim();
+        const className = String(rawClass ?? "").trim();
+        const room = String(rawRoom ?? "").trim();
+
+        if (day === null) { errs.push(`Row ${rowNum}: invalid day "${rawDay}"`); return; }
+        if (!start) { errs.push(`Row ${rowNum}: invalid start time "${rawStart}"`); return; }
+        if (!end) { errs.push(`Row ${rowNum}: invalid end time "${rawEnd}"`); return; }
+        if (start >= end) { errs.push(`Row ${rowNum}: start must be before end`); return; }
+        if (!subject) { errs.push(`Row ${rowNum}: subject is required`); return; }
+        if (!className) { errs.push(`Row ${rowNum}: class name is required`); return; }
+
+        parsed.push({ day, start, end, subject, className, room });
+      });
+
+      setErrors(errs);
+      setPreview(parsed.length > 0 ? parsed : null);
+    };
+    reader.readAsArrayBuffer(file);
+    // Reset input so same file can be re-selected
+    e.target.value = "";
+  }
+
+  async function confirmUpload() {
+    if (!preview?.length) return;
+    setUploading(true);
+    try {
+      // Delete all existing fixed lectures for this teacher first
+      await supabase
+        .from("lectures")
+        .delete()
+        .eq("teacher_id", teacherId)
+        .is("lecture_date", null);
+
+      // Insert the new ones
+      const inserts = preview.map((r) => ({
+        teacher_id: teacherId,
+        department_id: departmentId,
+        day_of_week: r.day,
+        lecture_date: null,
+        start_time: r.start + ":00",
+        end_time: r.end + ":00",
+        subject: r.subject,
+        class_name: r.className,
+        room: r.room,
+      }));
+
+      const { error } = await supabase.from("lectures").insert(inserts);
+      if (error) { toast.error(error.message); return; }
+
+      toast.success(`Fixed schedule uploaded — ${inserts.length} lecture${inserts.length !== 1 ? "s" : ""} set`);
+      setPreview(null);
+      setErrors([]);
+      onDone();
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  return (
+    <SectionCard
+      title="Upload Fixed Schedule"
+      subtitle="Import your full weekly timetable from an Excel file"
+    >
+      <div className="space-y-4">
+        {/* Info + template download */}
+        <div className="rounded-lg bg-info/10 border border-info/20 p-3 text-xs text-info-foreground space-y-1">
+          <p className="font-semibold">Excel format (columns in order):</p>
+          <p>A: Day &nbsp;·&nbsp; B: Start (HH:MM) &nbsp;·&nbsp; C: End (HH:MM) &nbsp;·&nbsp; D: Subject &nbsp;·&nbsp; E: Class &nbsp;·&nbsp; F: Room (optional)</p>
+          <p className="text-muted-foreground">Uploading will <strong>replace</strong> your entire fixed timetable. Added and proxy lectures are not affected.</p>
+        </div>
+
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={downloadTemplate}>
+            <Upload className="size-4 rotate-180" />
+            Download template
+          </Button>
+          <label className="flex-1">
+            <Button variant="default" size="sm" className="w-full gap-1.5 cursor-pointer" asChild>
+              <span>
+                <Upload className="size-4" />
+                {preview ? "Choose different file" : "Choose Excel file"}
+              </span>
+            </Button>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="sr-only"
+              onChange={handleFile}
+            />
+          </label>
+        </div>
+
+        {/* Parse errors */}
+        {errors.length > 0 && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 space-y-1">
+            <p className="text-xs font-semibold text-destructive">
+              {errors.length} row{errors.length !== 1 ? "s" : ""} could not be parsed:
+            </p>
+            <ul className="text-xs text-destructive space-y-0.5 list-disc list-inside">
+              {errors.map((e, i) => <li key={i}>{e}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {/* Preview table */}
+        {preview && preview.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground">
+              Preview — {preview.length} lecture{preview.length !== 1 ? "s" : ""} found
+            </p>
+            <div className="rounded-lg border border-border overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/50">
+                  <tr>
+                    {["Day", "Time", "Subject", "Class", "Room"].map((h) => (
+                      <th key={h} className="px-2 py-1.5 text-left font-semibold text-muted-foreground">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {preview.map((r, i) => (
+                    <tr key={i} className="hover:bg-muted/30">
+                      <td className="px-2 py-1.5 font-medium">{DAYS_SHORT[r.day]}</td>
+                      <td className="px-2 py-1.5 text-muted-foreground whitespace-nowrap">{r.start}–{r.end}</td>
+                      <td className="px-2 py-1.5 max-w-[120px] truncate">{r.subject}</td>
+                      <td className="px-2 py-1.5 text-muted-foreground">{r.className}</td>
+                      <td className="px-2 py-1.5 text-muted-foreground">{r.room || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="flex-1" onClick={() => { setPreview(null); setErrors([]); }}>
+                Cancel
+              </Button>
+              <Button size="sm" className="flex-1" onClick={confirmUpload} disabled={uploading}>
+                {uploading ? "Uploading…" : `Confirm & replace timetable`}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </SectionCard>
   );
 }
 
