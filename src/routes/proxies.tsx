@@ -164,69 +164,26 @@ function ProxiesPage() {
   }
 
   async function respondToComp(id: string, status: "accepted" | "rejected", offer?: any) {
+    // When teacher accepts, go to hod_pending — HOD must approve before lecture is applied
+    const newStatus = status === "accepted" ? "hod_pending" : "rejected";
     const { error } = await supabase
       .from("compensation_assignments")
-      .update({ status })
+      .update({ status: newStatus })
       .eq("id", id);
     if (error) return toast.error(error.message);
 
     if (status === "accepted" && offer) {
-      // Fetch the source lecture the proxy teacher is gifting
-      const { data: srcLecture } = await supabase
-        .from("lectures")
-        .select("id, subject, class_name, start_time, end_time, room, department_id, lecture_date, day_of_week")
-        .eq("id", offer.lecture_id)
-        .maybeSingle();
-
-      if (srcLecture) {
-        const compDate = offer.compensation_date;
-        const dow = new Date(compDate + "T00:00:00").getDay();
-        const dept = srcLecture.department_id ?? profile!.department_id;
-
-        if (srcLecture.lecture_date) {
-          // One-off dated lecture — reassign it directly to the leave-taker
-          await supabase
-            .from("lectures")
-            .update({ teacher_id: offer.to_teacher_id })
-            .eq("id", srcLecture.id);
-        } else {
-          // Recurring fixed lecture:
-          // 1. Give the leave-taker a dated copy of this lecture on compDate
-          await supabase.from("lectures").insert({
-            teacher_id: offer.to_teacher_id,
-            department_id: dept,
-            day_of_week: dow,
-            lecture_date: compDate,
-            start_time: srcLecture.start_time,
-            end_time: srcLecture.end_time,
-            subject: srcLecture.subject,
-            class_name: srcLecture.class_name,
-            room: srcLecture.room,
-          });
-
-          // 2. Insert a dated tombstone for the proxy teacher on compDate so their
-          //    fixed lecture is suppressed in schedule/reports on that specific day.
-          //    The subject prefix __COMP_GIVEN__ is filtered out in computeTeacherRow.
-          await supabase.from("lectures").insert({
-            teacher_id: offer.from_teacher_id,
-            department_id: dept,
-            day_of_week: dow,
-            lecture_date: compDate,
-            start_time: srcLecture.start_time,
-            end_time: srcLecture.end_time,
-            subject: `__COMP_GIVEN__${srcLecture.subject}`,
-            class_name: srcLecture.class_name,
-            room: srcLecture.room,
-          });
-        }
-      }
+      // Notify HOD of the department
+      firePush({
+        userIds: [`__hod_dept_${profile!.department_id}__`],
+        title: "Compensation Lecture — Approval Needed",
+        body: `${profile!.full_name} accepted a compensation lecture from ${offer.from_teacher?.full_name ?? "a colleague"} on ${fmtDate(offer.compensation_date)}. Please approve or reject.`,
+        targetUrl: "/requests",
+      });
+      toast.success("Accepted — waiting for HOD approval before it appears in your schedule");
+    } else {
+      toast.success("Compensation declined");
     }
-
-    toast.success(
-      status === "accepted"
-        ? "Compensation accepted — lecture moved to your schedule"
-        : "Compensation declined",
-    );
     qc.invalidateQueries();
   }
 
@@ -234,6 +191,7 @@ function ProxiesPage() {
   const accepted = rows.filter((r) => r.status === "accepted");
   const handled = rows.filter((r) => r.status !== "pending");
   const pendingIncoming = incomingOffers.filter((o) => o.status === "pending");
+  const hodPendingIncoming = incomingOffers.filter((o) => o.status === "hod_pending");
 
   // Stats
   const totalAccepted = rows.filter((r) => r.status === "accepted").length;
@@ -356,7 +314,35 @@ function ProxiesPage() {
           </div>
         )}
 
-        {/* Compensation offer form for accepted proxies */}
+        {/* Incoming compensation offers — awaiting HOD approval */}
+        {hodPendingIncoming.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 mb-3">
+              <Gift className="size-4 text-warning" />
+              <h2 className="font-semibold text-sm">Compensation — Awaiting HOD Approval</h2>
+              <span className="ml-1 rounded-full bg-warning/15 text-warning text-xs font-bold px-2 py-0.5">{hodPendingIncoming.length}</span>
+            </div>
+            <ul className="space-y-3">
+              {hodPendingIncoming.map((o) => (
+                <li key={o.id} className="rounded-xl border border-warning/25 bg-warning/5 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-warning/15">
+                      <Gift className="size-4 text-warning" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm">From {o.from_teacher?.full_name ?? "a colleague"}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Compensation on {fmtDate(o.compensation_date)}</p>
+                      {o.note && <p className="text-xs text-muted-foreground mt-0.5 italic">"{o.note}"</p>}
+                      <p className="text-xs text-warning font-medium mt-1.5">You accepted — waiting for your HOD to approve before it appears in your schedule.</p>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+
         {accepted.length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 mb-3">
@@ -448,10 +434,10 @@ function ProxiesPage() {
                       <td className="px-4 py-3 text-muted-foreground italic">{o.note ? `"${o.note}"` : "—"}</td>
                       <td className="px-4 py-3 text-right">
                         <Badge
-                          variant={o.status === "accepted" ? "default" : o.status === "rejected" ? "destructive" : "secondary"}
-                          className={o.status === "accepted" ? "bg-success/15 text-success border-success/25" : ""}
+                          variant={o.status === "accepted" ? "default" : o.status === "rejected" ? "destructive" : o.status === "hod_pending" ? "secondary" : "secondary"}
+                          className={o.status === "accepted" ? "bg-success/15 text-success border-success/25" : o.status === "hod_pending" ? "bg-warning/15 text-warning border-warning/25" : ""}
                         >
-                          {o.status === "accepted" ? "Accepted" : o.status === "rejected" ? "Declined" : "Pending"}
+                          {o.status === "accepted" ? "Approved" : o.status === "rejected" ? "Declined" : o.status === "hod_pending" ? "Awaiting HOD" : "Pending"}
                         </Badge>
                       </td>
                     </tr>

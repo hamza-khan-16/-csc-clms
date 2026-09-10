@@ -49,7 +49,7 @@ export function StatCard({
     default: "text-foreground",
     success: "text-success",
     destructive: "text-destructive",
-    warning: "text-warning-foreground",
+    warning: "text-warning",
   }[tone];
   return (
     <div

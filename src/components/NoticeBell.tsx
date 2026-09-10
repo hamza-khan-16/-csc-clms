@@ -239,7 +239,7 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
 
   const iconFor = (item: ActivityItem) => {
     if (item.kind === "notice") return <Bell className="size-3.5 text-info" />;
-    if (item.kind === "leave")  return <CalendarDays className="size-3.5 text-warning-foreground" />;
+    if (item.kind === "leave")  return <CalendarDays className="size-3.5 text-warning" />;
     if (item.kind === "proxy")  return <ClipboardCheck className="size-3.5 text-primary" />;
     if (item.kind === "doc")    return <FileText className="size-3.5 text-success" />;
     return <CheckCircle2 className="size-3.5" />;

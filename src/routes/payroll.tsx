@@ -12,6 +12,7 @@ import { fmtDate, leaveTypeLabel, money, perDaySalary, LEAVE_TYPES, type LeaveSt
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { jsPDF } from "jspdf";
+import { autoTable } from "jspdf-autotable";
 import { savePDF, saveXLSX } from "../lib/download";
 import { toast } from "sonner";
 
@@ -43,7 +44,7 @@ const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct"
 const YEARS = Array.from({ length: 5 }, (_, i) => String(CURRENT_YEAR - i));
 
 function PayrollPage() {
-  const { profile } = useAuth();
+  const { profile, role } = useAuth();
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [filterYear, setFilterYear] = useState(String(CURRENT_YEAR));
   const [ytdOpen, setYtdOpen] = useState(false); // collapsed by default
@@ -138,20 +139,215 @@ function PayrollPage() {
   ].filter((d) => d.value > 0);
 
   async function downloadPayslip() {
-    const doc = new jsPDF({ unit: "mm", format: "a5" });
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const PW = doc.internal.pageSize.getWidth();   // 210
+    const PH = doc.internal.pageSize.getHeight();  // 297
     const month = effectiveMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-    doc.setFontSize(15); doc.text("Chandrabhan Sharma College", 14, 18);
-    doc.setFontSize(10); doc.text("Payslip", 14, 26);
-    doc.text(`Teacher : ${profile?.full_name ?? ""}`, 14, 34);
-    doc.text(`Period  : ${month}`, 14, 40);
-    doc.line(14, 44, 134, 44);
-    doc.text(`Gross Salary   ${money(salary).padStart(14)}`, 14, 52);
-    doc.text(`Paid Days      ${String(totals.paid).padStart(14)}`, 14, 58);
-    doc.text(`Unpaid Days    ${String(totals.unpaid).padStart(14)}`, 14, 64);
-    doc.text(`Deduction     -${money(totals.deduction).padStart(13)}`, 14, 70);
-    doc.line(14, 74, 134, 74);
+
+    // ── Fetch logo ──────────────────────────────────────────────────────────
+    let logoB64: string | null = null;
+    try {
+      const res = await fetch("/csc-logo.png");
+      const blob = await res.blob();
+      logoB64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.readAsDataURL(blob);
+      });
+    } catch { /* skip */ }
+
+    // ── Letterhead ──────────────────────────────────────────────────────────
+    const HEADER_H = 38;
+    doc.setFillColor(248, 248, 248);
+    doc.rect(0, 0, PW, HEADER_H, "F");
+    doc.setDrawColor(234, 88, 12);
+    doc.setLineWidth(0.8);
+    doc.line(0, HEADER_H, PW, HEADER_H);
+
+    if (logoB64) {
+      doc.addImage(logoB64, "PNG", 10, (HEADER_H - 16) / 2, 26, 16);
+    }
+
+    const CX = PW / 2;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(80, 80, 80);
+    doc.text("Smt. Durgadevi Sharma Charitable Trust's", CX, 8, { align: "center" });
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.setTextColor(20, 20, 20);
+    doc.text("Chandrabhan Sharma College", CX, 15, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(80, 80, 80);
+    doc.text("Of Arts, Commerce & Science  (AUTONOMOUS)", CX, 20, { align: "center" });
+    doc.text("(Hindi Linguistic Minority Institution)  ·  (Affiliated to the University of Mumbai)", CX, 24.5, { align: "center" });
+    doc.text("NAAC Re-Accredited 'A' Grade (CGPA 3.10)", CX, 29, { align: "center" });
+
+    // ── Payslip title bar ───────────────────────────────────────────────────
+    doc.setFillColor(30, 30, 30);
+    doc.rect(0, HEADER_H + 1, PW, 9, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    doc.text("SALARY SLIP", CX, HEADER_H + 6.5, { align: "center" });
+    doc.setFontSize(7.5);
+    doc.setTextColor(200, 200, 200);
+    doc.text(`For the Month of ${month}`, PW - 12, HEADER_H + 6.5, { align: "right" });
+
+    // ── Employee details box ────────────────────────────────────────────────
+    const BOX_Y = HEADER_H + 14;
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(12, BOX_Y, PW - 24, 26, 2, 2, "S");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 100, 100);
+    const col1X = 18;
+    const col2X = 80;
+    const col3X = 140;
+
+    // Row 1
+    doc.text("Employee Name", col1X, BOX_Y + 6);
+    doc.text("Department", col2X, BOX_Y + 6);
+    doc.text("Pay Period", col3X, BOX_Y + 6);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(20, 20, 20);
+    doc.text(profile?.full_name ?? "—", col1X, BOX_Y + 11.5);
+    doc.text(profile?.department_name ?? "—", col2X, BOX_Y + 11.5);
+    doc.text(month, col3X, BOX_Y + 11.5);
+
+    // Divider
+    doc.setDrawColor(230, 230, 230);
+    doc.setLineWidth(0.2);
+    doc.line(18, BOX_Y + 14, PW - 18, BOX_Y + 14);
+
+    // Row 2
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text("Designation", col1X, BOX_Y + 19);
+    doc.text("Gross Salary", col2X, BOX_Y + 19);
+    doc.text("Generated On", col3X, BOX_Y + 19);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(20, 20, 20);
+    const designation = role === "hod" ? "Head of Department" : "Teacher";
+    doc.text(designation, col1X, BOX_Y + 24.5);
+    doc.text(money(salary), col2X, BOX_Y + 24.5);
+    doc.text(new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }), col3X, BOX_Y + 24.5);
+
+    // ── Earnings & Deductions table ─────────────────────────────────────────
+    const TABLE_Y = BOX_Y + 32;
+
+    autoTable(doc, {
+      startY: TABLE_Y,
+      margin: { left: 12, right: 12 },
+      head: [["Earnings", "Amount (₹)", "Deductions", "Amount (₹)"]],
+      body: [
+        [
+          "Gross Salary",
+          money(salary),
+          "Unpaid Leave Days",
+          String(totals.unpaid),
+        ],
+        [
+          "Working Days (Paid)",
+          String(totals.paid),
+          "Leave Deduction",
+          totals.deduction > 0 ? `- ${money(totals.deduction)}` : "—",
+        ],
+        ["", "", "", ""],
+      ],
+      styles: { fontSize: 8.5, cellPadding: 3.5 },
+      headStyles: { fillColor: [50, 50, 50], textColor: 255, fontStyle: "bold", fontSize: 8 },
+      columnStyles: {
+        0: { cellWidth: 55, fontStyle: "bold" },
+        1: { cellWidth: 40, halign: "right" },
+        2: { cellWidth: 55, fontStyle: "bold" },
+        3: { cellWidth: 40, halign: "right" },
+      },
+      alternateRowStyles: { fillColor: [252, 252, 252] },
+    });
+
+    const afterTable = (doc as any).lastAutoTable.finalY + 4;
+
+    // ── Net pay highlight box ───────────────────────────────────────────────
+    const NET_H = 14;
+    doc.setFillColor(234, 88, 12);
+    doc.roundedRect(12, afterTable, PW - 24, NET_H, 2, 2, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    doc.text("NET PAY", 22, afterTable + NET_H / 2 + 1.5);
     doc.setFontSize(12);
-    doc.text(`Net Payable    ${money(totals.net).padStart(14)}`, 14, 82);
+    doc.text(money(totals.net), PW - 20, afterTable + NET_H / 2 + 1.5, { align: "right" });
+
+    // ── Leave breakdown ─────────────────────────────────────────────────────
+    if (totals.fullyApproved.length > 0) {
+      const LV_Y = afterTable + NET_H + 8;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(80, 80, 80);
+      doc.text("Leave Breakdown", 12, LV_Y);
+      autoTable(doc, {
+        startY: LV_Y + 3,
+        margin: { left: 12, right: 12 },
+        head: [["Leave Type", "From", "To", "Total Days", "Unpaid Days", "Deduction"]],
+        body: totals.fullyApproved.map((l) => [
+          leaveTypeLabel(l.leave_type as LeaveType),
+          fmtDate(l.from_date),
+          fmtDate(l.to_date),
+          String(l.total_days),
+          String(l.unpaid_days),
+          l.unpaid_days > 0 ? `- ${money(Math.round(Number(l.unpaid_days) * dayRate))}` : "—",
+        ]),
+        styles: { fontSize: 7.5, cellPadding: 2.5 },
+        headStyles: { fillColor: [70, 70, 70], textColor: 255, fontStyle: "bold", fontSize: 7 },
+        alternateRowStyles: { fillColor: [252, 252, 252] },
+      });
+    }
+
+    // ── Signature strip ─────────────────────────────────────────────────────
+    const SIG_Y = PH - 30;
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.3);
+    doc.line(12, SIG_Y, PW - 12, SIG_Y);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(100, 100, 100);
+
+    // Employee signature
+    doc.text("Employee's Signature", 16, SIG_Y + 5);
+    doc.setDrawColor(160, 160, 160);
+    doc.setLineWidth(0.4);
+    doc.line(16, SIG_Y + 14, 75, SIG_Y + 14);
+    doc.setFontSize(6.5);
+    doc.text(profile?.full_name ?? "", 16, SIG_Y + 18);
+
+    // Accounts signature
+    doc.setFontSize(7);
+    doc.text("Accounts / HR", PW / 2 - 15, SIG_Y + 5);
+    doc.line(PW / 2 - 15, SIG_Y + 14, PW / 2 + 25, SIG_Y + 14);
+    doc.setFontSize(6.5);
+    doc.text("Accounts Department", PW / 2 - 15, SIG_Y + 18);
+
+    // Principal signature
+    doc.setFontSize(7);
+    doc.text("Principal's Signature", PW - 75, SIG_Y + 5);
+    doc.line(PW - 75, SIG_Y + 14, PW - 14, SIG_Y + 14);
+    doc.setFontSize(6.5);
+    doc.text("Principal, Chandrabhan Sharma College", PW - 75, SIG_Y + 18);
+
+    // Footer note
+    doc.setFontSize(6);
+    doc.setTextColor(170, 170, 170);
+    doc.text("This is a computer-generated payslip. No signature required if issued electronically.", CX, PH - 6, { align: "center" });
+    doc.text(`Page 1`, CX, PH - 3, { align: "center" });
+
     const safeName = (profile?.full_name ?? "payslip").split(" ").join("_");
     const safePeriod = month.replace(" ", "_");
     await savePDF(doc, `Payslip_${safeName}_${safePeriod}.pdf`);

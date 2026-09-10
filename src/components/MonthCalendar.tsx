@@ -621,7 +621,7 @@ export function DeptMonthCalendar({ deptId }: { deptId: string }) {
                 >
                   <div className="text-[10px] font-semibold">{presentCount}/{totalTeachers}</div>
                   {absent.slice(0, 2).map((a, i) => (
-                    <div key={i} className={`text-[9px] truncate ${a.pending ? "text-warning-foreground/70" : "text-destructive"}`}>{a.name.split(" ")[0]}</div>
+                    <div key={i} className={`text-[9px] truncate ${a.pending ? "text-warning/70" : "text-destructive"}`}>{a.name.split(" ")[0]}</div>
                   ))}
                   {absent.length > 2 && <div className="text-[9px] text-muted-foreground">+{absent.length - 2} more</div>}
                 </div>

@@ -461,7 +461,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
                           onReject={(n) => rejectDoc(d.id, n)} />
                       ))}</div>
                   }
-                  {!hasRequired && <p className="mt-1.5 text-xs text-warning-foreground">Required docs (Degree, Marksheet) not uploaded yet.</p>}
+                  {!hasRequired && <p className="mt-1.5 text-xs text-warning">Required docs (Degree, Marksheet) not uploaded yet.</p>}
                 </div>
 
                 {/* HR decision */}
@@ -500,7 +500,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
                           </p>
                         );
                         return (
-                          <p key={type} className="text-xs flex items-center gap-1.5 text-warning-foreground">
+                          <p key={type} className="text-xs flex items-center gap-1.5 text-warning">
                             <Clock className="size-3 shrink-0" /> {label} — pending review
                           </p>
                         );
@@ -508,7 +508,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
                     </div>
 
                     {!hasRequired && (
-                      <p className="text-xs text-warning-foreground">
+                      <p className="text-xs text-warning">
                         Approve required documents above first — teacher will auto-unlock once all are approved.
                       </p>
                     )}
@@ -745,7 +745,7 @@ function HrPage() {
             </div>
             <div className="surface p-4 border-warning/30 bg-warning/5">
               <p className="text-xs text-muted-foreground font-medium">Pending Review</p>
-              <p className={`text-2xl font-extrabold mt-1 ${counts.pending > 0 ? "text-warning-foreground" : "text-muted-foreground"}`}>{counts.pending}</p>
+              <p className={`text-2xl font-extrabold mt-1 ${counts.pending > 0 ? "text-warning" : "text-muted-foreground"}`}>{counts.pending}</p>
               <p className="text-xs text-muted-foreground mt-0.5">awaiting HR approval</p>
             </div>
             <div className="surface p-4">

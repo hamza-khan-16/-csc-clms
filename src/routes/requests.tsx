@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -39,7 +39,7 @@ import {
   type LeaveType,
   type DocStatus,
 } from "@/lib/leave";
-import { AlertCircle, Check, CheckCircle2, ChevronRight, Clock, FileText, Lightbulb, LockKeyhole } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ChevronRight, Clock, FileText, Gift, Lightbulb, LockKeyhole } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { GuardedInput, GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
 import { groqModerationCheck, localBlocklistCheck } from "@/lib/textGuard";
@@ -208,7 +208,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
     }
 
     const missingProxy = allProxySlots.filter((s) => !choices[s.key]);
-    if (missingProxy.length > 0) return toast.error("Assign a proxy for every lecture before submitting");
+    // Not mandatory — unassigned slots become empty class, shown in reports
     const incompleteManual = manualSlots.some((s) => !s.subject.trim() || !s.class_name.trim());
     if (incompleteManual) return toast.error("Fill subject and class for every manual proxy slot");
 
@@ -277,7 +277,10 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
     }
 
     setBusy(false);
-    toast.success(`Leave marked for ${teachers.find((t) => t.id === teacherId)?.full_name} — sent to principal for approval`);
+    const unassigned = allProxySlots.filter((s) => !choices[s.key]).length;
+    const teacherName = teachers.find((t) => t.id === teacherId)?.full_name;
+    toast.success(`Leave marked for ${teacherName} — sent to principal for approval`);
+    if (unassigned > 0) toast.info(`${unassigned} lecture${unassigned > 1 ? "s" : ""} left unassigned — will appear as empty class in reports`);
     setTeacherId("");
     setFromDate(today);
     setToDate(today);
@@ -545,6 +548,35 @@ function RequestsPage() {
   const isHod = role === "hod";
   const qc = useQueryClient();
 
+  // Compensation assignments awaiting HOD approval for this dept
+  const { data: pendingCompApprovals = [] } = useQuery({
+    queryKey: ["hod-comp-approvals", profile?.department_id],
+    enabled: isHod && !!profile?.department_id,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("compensation_assignments")
+        .select(`
+          id, compensation_date, note, status,
+          from_teacher:from_teacher_id(id, full_name),
+          to_teacher:to_teacher_id(id, full_name),
+          lecture:lecture_id(subject, class_name, start_time, end_time, room)
+        `)
+        .eq("status", "hod_pending")
+        .order("created_at", { ascending: true });
+      // Filter to dept — need to check teacher dept
+      // We join via profiles, so filter by checking from_teacher is in this dept
+      if (!data) return [];
+      // Fetch dept members to filter
+      const { data: deptMembers } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("department_id", profile!.department_id!);
+      const deptIds = new Set((deptMembers ?? []).map((m) => m.id));
+      return data.filter((c: any) => deptIds.has(c.from_teacher?.id) || deptIds.has(c.to_teacher?.id));
+    },
+  });
+
   const { data: requests = [], isLoading, isError } = useQuery({
     queryKey: ["review-requests", role, profile?.id],
     enabled: !!profile,
@@ -606,6 +638,88 @@ function RequestsPage() {
     });
   }
 
+  async function approveComp(comp: any) {
+    // Apply the lecture swap and mark as accepted
+    const { data: srcLecture } = await supabase
+      .from("lectures")
+      .select("id, subject, class_name, start_time, end_time, room, department_id, lecture_date, day_of_week")
+      .eq("id", comp.lecture?.id ?? comp.lecture_id)
+      .maybeSingle();
+
+    // Re-fetch comp to get lecture_id if needed
+    const { data: fullComp } = await supabase
+      .from("compensation_assignments")
+      .select("lecture_id, from_teacher_id, to_teacher_id, compensation_date")
+      .eq("id", comp.id)
+      .maybeSingle();
+
+    if (fullComp) {
+      const { data: lec } = await supabase
+        .from("lectures")
+        .select("id, subject, class_name, start_time, end_time, room, department_id, lecture_date, day_of_week")
+        .eq("id", fullComp.lecture_id)
+        .maybeSingle();
+
+      if (lec) {
+        const compDate = fullComp.compensation_date;
+        const dow = new Date(compDate + "T00:00:00").getDay();
+        const dept = lec.department_id ?? profile!.department_id;
+
+        if (lec.lecture_date) {
+          await supabase.from("lectures").update({ teacher_id: fullComp.to_teacher_id }).eq("id", lec.id);
+        } else {
+          await supabase.from("lectures").insert({
+            teacher_id: fullComp.to_teacher_id,
+            department_id: dept,
+            day_of_week: dow,
+            lecture_date: compDate,
+            start_time: lec.start_time,
+            end_time: lec.end_time,
+            subject: lec.subject,
+            class_name: lec.class_name,
+            room: lec.room,
+          });
+          await supabase.from("lectures").insert({
+            teacher_id: fullComp.from_teacher_id,
+            department_id: dept,
+            day_of_week: dow,
+            lecture_date: compDate,
+            start_time: lec.start_time,
+            end_time: lec.end_time,
+            subject: `__COMP_GIVEN__${lec.subject}`,
+            class_name: lec.class_name,
+            room: lec.room,
+          });
+        }
+      }
+    }
+
+    await supabase.from("compensation_assignments").update({ status: "accepted" }).eq("id", comp.id);
+
+    // Notify both teachers
+    firePush({
+      userIds: [comp.from_teacher?.id, comp.to_teacher?.id].filter(Boolean),
+      title: "Compensation Approved by HOD",
+      body: `Your compensation lecture on ${fmtDate(comp.compensation_date)} has been approved and is now in the schedule.`,
+      targetUrl: "/schedule",
+    });
+
+    toast.success("Compensation approved — lecture applied to schedule");
+    qc.invalidateQueries();
+  }
+
+  async function rejectComp(comp: any) {
+    await supabase.from("compensation_assignments").update({ status: "rejected" }).eq("id", comp.id);
+    firePush({
+      userIds: [comp.from_teacher?.id, comp.to_teacher?.id].filter(Boolean),
+      title: "Compensation Rejected by HOD",
+      body: `The compensation lecture on ${fmtDate(comp.compensation_date)} was not approved by your HOD.`,
+      targetUrl: "/proxies",
+    });
+    toast.success("Compensation rejected");
+    qc.invalidateQueries();
+  }
+
   async function bulkApprove() {
     if (selectedIds.size === 0) return;
     setBulkBusy(true);
@@ -655,6 +769,51 @@ function RequestsPage() {
       subtitle={isHod ? "Review and approve teacher leave requests" : "Final approval for HOD-recommended requests"}
     >
       <div className="space-y-6">
+        {/* HOD: Compensation lecture approvals */}
+        {isHod && pendingCompApprovals.length > 0 && (
+          <SectionCard
+            title="Compensation Lectures — Approval Needed"
+            subtitle={`${pendingCompApprovals.length} pending`}
+          >
+            <ul className="space-y-3">
+              {(pendingCompApprovals as any[]).map((comp) => (
+                <li key={comp.id} className="rounded-xl border border-warning/25 bg-warning/5 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-warning/15">
+                        <Gift className="size-4 text-warning" />
+                      </div>
+                      <div className="space-y-0.5">
+                        <p className="font-semibold text-sm">
+                          {comp.from_teacher?.full_name ?? "—"} → {comp.to_teacher?.full_name ?? "—"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Compensation on {fmtDate(comp.compensation_date)}
+                        </p>
+                        {comp.lecture && (
+                          <p className="text-xs text-muted-foreground">
+                            {comp.lecture.subject} · {comp.lecture.class_name} · {comp.lecture.start_time?.slice(0,5)}–{comp.lecture.end_time?.slice(0,5)}
+                            {comp.lecture.room ? ` · ${comp.lecture.room}` : ""}
+                          </p>
+                        )}
+                        {comp.note && <p className="text-xs italic text-muted-foreground">"{comp.note}"</p>}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button size="sm" className="gap-1.5 bg-success hover:bg-success/90 text-success-foreground" onClick={() => approveComp(comp)}>
+                        <CheckCircle2 className="size-3.5" /> Approve
+                      </Button>
+                      <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10" onClick={() => rejectComp(comp)}>
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </SectionCard>
+        )}
+
         {/* HOD: Mark leave on behalf of teacher */}
         {isHod && profile?.department_id && (
           <SectionCard title="Mark Leave" subtitle="Mark leave for a teacher on their behalf">
@@ -881,49 +1040,115 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
 
       const filteredPeople = (people ?? []).filter((p) => !excludedIds.has(p.id));
       const teacherIds = filteredPeople.map((p) => p.id);
-      const { data: lectures } = teacherIds.length ? await supabase.from("lectures").select("teacher_id, day_of_week, start_time, end_time").in("teacher_id", teacherIds).is("lecture_date", null) : { data: [] };
-      const { data: existingProxies } = teacherIds.length ? await supabase.from("proxy_assignments").select("proxy_teacher_id, proxy_date, start_time, end_time").in("proxy_teacher_id", teacherIds).in("status", ["pending", "accepted"]).gte("proxy_date", request.from_date).lte("proxy_date", request.to_date) : { data: [] };
 
-      // Fetch active/pending leaves for all candidates during the leave period
-      // A teacher on leave (approved, pending, or hod_approved) cannot be a proxy
-      const { data: activeLeaves } = teacherIds.length ? await supabase
-        .from("leave_requests")
-        .select("teacher_id, from_date, to_date, status")
-        .in("teacher_id", teacherIds)
-        .not("status", "in", "(rejected,cancelled)")
-        .lte("from_date", request.to_date)
-        .gte("to_date", request.from_date) : { data: [] };
+      const { data: lectures } = teacherIds.length
+        ? await supabase.from("lectures").select("teacher_id, day_of_week, start_time, end_time, class_name").in("teacher_id", teacherIds).is("lecture_date", null)
+        : { data: [] };
 
-      const teachersOnLeave = new Set(
-        (activeLeaves ?? []).map((l: any) => l.teacher_id)
-      );
+      const { data: existingProxies } = teacherIds.length
+        ? await supabase.from("proxy_assignments").select("proxy_teacher_id, proxy_date, start_time, end_time").in("proxy_teacher_id", teacherIds).in("status", ["pending", "accepted"]).gte("proxy_date", request.from_date).lte("proxy_date", request.to_date)
+        : { data: [] };
+
+      // A teacher on leave cannot be a proxy
+      const { data: activeLeaves } = teacherIds.length
+        ? await supabase.from("leave_requests").select("teacher_id, from_date, to_date, status").in("teacher_id", teacherIds).not("status", "in", "(rejected,cancelled)").lte("from_date", request.to_date).gte("to_date", request.from_date)
+        : { data: [] };
+
+      const teachersOnLeave = new Set((activeLeaves ?? []).map((l: any) => l.teacher_id));
+
+      // Build a map: teacher_id → Set of class_names they teach
+      const teacherClasses = new Map<string, Set<string>>();
+      for (const lec of lectures ?? []) {
+        if (!teacherClasses.has(lec.teacher_id)) teacherClasses.set(lec.teacher_id, new Set());
+        if (lec.class_name) teacherClasses.get(lec.teacher_id)!.add(lec.class_name.trim().toLowerCase());
+      }
 
       return {
         people: filteredPeople.filter((p) => !teachersOnLeave.has(p.id)),
         lectures: lectures ?? [],
         existingProxies: existingProxies ?? [],
+        teacherClasses,
       };
     },
   });
 
-  function candidates(date: string, start: string, end: string) {
+  // ── Auto-assign proxies once dept data + slots are ready ──────────────────
+  // For each slot, pick the first free teacher who teaches the same class_name.
+  // HOD can override via the Select dropdowns below.
+  const autoAssigned = useRef(false);
+  useEffect(() => {
+    if (autoAssigned.current) return;           // only run once per card
+    if (!dept || allSlots.length === 0) return;
+    if (Object.keys(choices).length > 0) return; // HOD already made manual choices
+
+    const nextChoices: Record<string, string> = {};
+    // Track which teachers have already been auto-assigned in this pass
+    // so we try to spread load across teachers
+    const assigned = new Map<string, number>(); // teacherId → count
+
+    for (const slot of allSlots) {
+      const dow = new Date(slot.date + "T00:00:00").getDay();
+      const slotClass = slot.class_name?.trim().toLowerCase() ?? "";
+
+      const options = (dept.people ?? []).map((p) => {
+        const busyFixed = (dept.lectures ?? []).some(
+          (l) => l.teacher_id === p.id && l.day_of_week === dow && l.start_time < slot.end_time && l.end_time > slot.start_time,
+        );
+        const busyProxy = (dept.existingProxies ?? []).some(
+          (px) => px.proxy_teacher_id === p.id && px.proxy_date === slot.date && px.start_time < slot.end_time && px.end_time > slot.start_time,
+        );
+        // Does this teacher teach the same class? (match by class_name regardless of subject)
+        const teachesClass = slotClass
+          ? (dept.teacherClasses?.get(p.id) ?? new Set()).has(slotClass)
+          : true;
+        return { ...p, free: !busyFixed && !busyProxy, teachesClass };
+      });
+
+      // Priority: free + teaches same class → free (any) → busy + teaches class → skip
+      const pick =
+        options.find((o) => o.free && o.teachesClass && !nextChoices[slot.key] ) ??
+        options.filter((o) => o.free && o.teachesClass).sort((a, b) => (assigned.get(a.id) ?? 0) - (assigned.get(b.id) ?? 0))[0] ??
+        options.filter((o) => o.free).sort((a, b) => (assigned.get(a.id) ?? 0) - (assigned.get(b.id) ?? 0))[0];
+
+      if (pick) {
+        nextChoices[slot.key] = pick.id;
+        assigned.set(pick.id, (assigned.get(pick.id) ?? 0) + 1);
+      }
+    }
+
+    if (Object.keys(nextChoices).length > 0) {
+      setChoices(nextChoices);
+      autoAssigned.current = true;
+    }
+  }, [dept, allSlots]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function candidates(date: string, start: string, end: string, slotClassName?: string) {
     const dow = new Date(date + "T00:00:00").getDay();
+    const slotClass = slotClassName?.trim().toLowerCase() ?? "";
     return (dept?.people ?? []).map((p) => {
       const busyFixed = (dept?.lectures ?? []).some((l) => l.teacher_id === p.id && l.day_of_week === dow && l.start_time < end && l.end_time > start);
       const busyProxy = (dept?.existingProxies ?? []).some((p2) => p2.proxy_teacher_id === p.id && p2.proxy_date === date && p2.start_time < end && p2.end_time > start);
-      return { ...p, free: !busyFixed && !busyProxy };
+      const teachesClass = slotClass
+        ? (dept?.teacherClasses?.get(p.id) ?? new Set()).has(slotClass)
+        : true;
+      return { ...p, free: !busyFixed && !busyProxy, teachesClass };
+    // Sort: free+class first, then free, then busy+class, then busy
+    }).sort((a, b) => {
+      const score = (o: typeof a) => (o.free ? 2 : 0) + (o.teachesClass ? 1 : 0);
+      return score(b) - score(a);
     });
   }
 
   async function saveProxies() {
     if (allSlots.length === 0) return true;
-    const missing = allSlots.filter((s) => !choices[s.key]);
-    if (missing.length > 0) { toast.error("Assign a proxy teacher for every lecture"); return false; }
-    const incomplete = allSlots.some((s) => !s.subject.trim() || !s.class_name.trim());
-    if (incomplete) { toast.error("Add subject and class for every proxy lecture"); return false; }
+    const incomplete = allSlots.some((s) => s.isManual && (!s.subject.trim() || !s.class_name.trim()));
+    if (incomplete) { toast.error("Add subject and class for every manual proxy lecture"); return false; }
 
-    // Moderate free-text fields in manual slots
-    const manualTexts = allSlots.filter((s) => s.isManual).flatMap((s) => [s.subject.trim(), s.class_name.trim()].filter(Boolean));
+    // Only insert slots where a real proxy was chosen — __none__ or empty = empty class (allowed)
+    const assignedSlots = allSlots.filter((s) => choices[s.key] && choices[s.key] !== "__none__");
+
+    // Moderate free-text fields in manual slots that have a proxy assigned
+    const manualTexts = assignedSlots.filter((s) => s.isManual).flatMap((s) => [s.subject.trim(), s.class_name.trim()].filter(Boolean));
     for (const text of manualTexts) {
       if (localBlocklistCheck(text)) { toast.error("Please use appropriate language in subject and class fields"); return false; }
     }
@@ -931,8 +1156,11 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       const abusive = await groqModerationCheck(text);
       if (abusive) { toast.error("Please use appropriate language in subject and class fields"); return false; }
     }
+
+    if (assignedSlots.length === 0) return true; // all slots left unassigned (empty class) — that's fine
+
     const { error: pErr } = await supabase.from("proxy_assignments").insert(
-      allSlots.map((s) => {
+      assignedSlots.map((s) => {
         const isHodSelf = profile?.id && choices[s.key] === profile.id;
         return { leave_request_id: request.id, lecture_id: s.lecture_id, proxy_teacher_id: choices[s.key], absentee_teacher_id: request.teacher_id, proxy_date: s.date, start_time: s.start_time, end_time: s.end_time, subject: s.subject, class_name: s.class_name, status: (isHodSelf ? "accepted" : "pending") as "accepted" | "pending" };
       }),
@@ -940,13 +1168,18 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     if (pErr) { toast.error(pErr.message); return false; }
 
     // Notify each unique proxy teacher (fire-and-forget)
-    const uniqueProxyTeachers = [...new Set(allSlots.map((s) => choices[s.key]).filter(Boolean))];
+    const uniqueProxyTeachers = [...new Set(assignedSlots.map((s) => choices[s.key]).filter(Boolean))];
     const absenteeName = request.teacher?.full_name ?? "a colleague";
     for (const proxyId of uniqueProxyTeachers) {
-      const slot = allSlots.find((s) => choices[s.key] === proxyId);
+      const slot = assignedSlots.find((s) => choices[s.key] === proxyId);
       if (slot) {
         firePush({ userIds: [proxyId], title: "Proxy Lecture Assigned", body: `Cover ${slot.subject} for ${absenteeName} on ${slot.date}`, targetUrl: "/proxies" });
       }
+    }
+
+    const unassignedCount = allSlots.length - assignedSlots.length;
+    if (unassignedCount > 0) {
+      toast.info(`${unassignedCount} lecture${unassignedCount > 1 ? "s" : ""} left unassigned — will show as empty class in reports`);
     }
     return true;
   }
@@ -1075,10 +1308,16 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
           {allSlots.length === 0 && (
             <p className="text-sm text-muted-foreground">No lectures found for these dates{request.session !== "full_day" ? ` (${sessionLabel})` : ""}.</p>
           )}
+          {allSlots.length > 0 && Object.keys(choices).length > 0 && (
+            <p className="text-xs text-info bg-info/8 border border-info/20 rounded-lg px-3 py-2 mb-2">
+              ✦ Proxies auto-assigned based on who teaches the same class and is free. You can override any slot below.
+            </p>
+          )}
           <ul className="space-y-2">
             {allSlots.map((s) => {
-              const options = candidates(s.date, s.start_time, s.end_time);
+              const opts = candidates(s.date, s.start_time, s.end_time, s.class_name);
               const isManual = s.lecture_id === null;
+              const chosen = opts.find((o) => o.id === choices[s.key]);
               return (
                 <li key={s.key} className="rounded-lg border border-border p-3 space-y-2 text-sm">
                   {isManual ? (
@@ -1099,30 +1338,53 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
                         <Select value={choices[s.key] ?? ""} onValueChange={(v) => setChoices((c) => ({ ...c, [s.key]: v }))}>
                           <SelectTrigger className="flex-1 min-w-[160px] h-8 text-xs"><SelectValue placeholder="Select proxy teacher" /></SelectTrigger>
                           <SelectContent>
-                            {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.full_name} {o.free ? "· Free" : "· Busy"}</SelectItem>)}
+                            {opts.map((o) => (
+                              <SelectItem key={o.id} value={o.id}>
+                                {o.full_name}{o.teachesClass ? " · ✓ Same class" : ""}{o.free ? " · Free" : " · Busy"}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
-                        {choices[s.key] && (
-                          <Badge variant="secondary" className="shrink-0">{options.find((o) => o.id === choices[s.key])?.free ? "Available" : "Has a lecture"}</Badge>
-                        )}
+                        {chosen && <Badge variant="secondary" className="shrink-0">{chosen.free ? "Free" : "Has lecture"}</Badge>}
                         <Button type="button" variant="ghost" size="sm" className="h-8 text-xs px-2 shrink-0" onClick={() => setManual((m) => m.filter((x) => x.key !== s.key))}>Remove</Button>
                       </div>
                     </>
                   ) : (
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-xs">{s.subject} · {s.class_name}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-semibold text-xs">{s.subject} · {s.class_name}</p>
+                          {choices[s.key] && chosen && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-info/10 text-info border-info/20">
+                              Auto-assigned
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground">{fmtDate(s.date)} · {fmtTime(s.start_time)} – {fmtTime(s.end_time)}</p>
                       </div>
                       <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">
                         <Select value={choices[s.key] ?? ""} onValueChange={(v) => setChoices((c) => ({ ...c, [s.key]: v }))}>
-                          <SelectTrigger className="flex-1 sm:w-64 h-8 text-xs"><SelectValue placeholder="Select proxy teacher" /></SelectTrigger>
+                          <SelectTrigger className="flex-1 sm:w-64 h-8 text-xs">
+                            <SelectValue placeholder="No proxy (empty class)" />
+                          </SelectTrigger>
                           <SelectContent>
-                            {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.full_name} {o.free ? "· Free" : "· Busy"}</SelectItem>)}
+                            <SelectItem value="__none__" className="text-muted-foreground italic">Leave empty (no proxy)</SelectItem>
+                            {opts.map((o) => (
+                              <SelectItem key={o.id} value={o.id}>
+                                {o.full_name}{o.teachesClass ? " · ✓ Same class" : ""}{o.free ? " · Free" : " · Busy"}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
-                        {choices[s.key] && (
-                          <Badge variant="secondary" className="shrink-0">{options.find((o) => o.id === choices[s.key])?.free ? "Available" : "Has a lecture"}</Badge>
+                        {chosen && (
+                          <div className="flex gap-1 flex-wrap">
+                            {chosen.teachesClass && (
+                              <Badge variant="secondary" className="shrink-0 bg-success/10 text-success border-success/20 text-[10px]">Teaches class</Badge>
+                            )}
+                            <Badge variant="secondary" className={`shrink-0 text-[10px] ${chosen.free ? "bg-success/10 text-success border-success/20" : "bg-warning/10 text-warning border-warning/20"}`}>
+                              {chosen.free ? "Free" : "Has lecture"}
+                            </Badge>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1201,16 +1463,16 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         {isHodFinal ? (
           <>
             <span className="rounded bg-muted px-2 py-0.5">Submitted</span><ChevronRight className="size-3" />
-            <span className={`rounded px-2 py-0.5 ${request.status === "pending_hod" ? "bg-warning/20 font-semibold text-warning-foreground" : "bg-success/15 text-success"}`}>HOD Approval</span>
+            <span className={`rounded px-2 py-0.5 ${request.status === "pending_hod" ? "bg-warning/20 font-semibold text-warning" : "bg-success/15 text-success"}`}>HOD Approval</span>
             <ChevronRight className="size-3" /><span className="rounded bg-muted px-2 py-0.5 inline-flex items-center gap-1"><CheckCircle2 className="size-3 text-success" /> Approved</span>
             <span>+</span><span className="rounded bg-muted px-2 py-0.5">Upload {requiredDoc}</span>
           </>
         ) : (
           <>
             <span className="rounded bg-muted px-2 py-0.5">Submitted</span><ChevronRight className="size-3" />
-            <span className={`rounded px-2 py-0.5 ${request.status === "pending_hod" ? "bg-warning/20 font-semibold text-warning-foreground" : "bg-muted"}`}>HOD</span>
+            <span className={`rounded px-2 py-0.5 ${request.status === "pending_hod" ? "bg-warning/20 font-semibold text-warning" : "bg-muted"}`}>HOD</span>
             <ChevronRight className="size-3" />
-            <span className={`rounded px-2 py-0.5 ${request.status === "pending_principal" ? "bg-warning/20 font-semibold text-warning-foreground" : "bg-muted"}`}>Principal</span>
+            <span className={`rounded px-2 py-0.5 ${request.status === "pending_principal" ? "bg-warning/20 font-semibold text-warning" : "bg-muted"}`}>Principal</span>
           </>
         )}
       </div>
@@ -1273,14 +1535,14 @@ function DocCard({ request }: { request: RequestRow }) {
           <p className="text-xs text-muted-foreground mt-0.5 break-words">Dates: {dates.map(fmtDate).join(", ")}</p>
         </div>
         <div className="flex flex-row items-center justify-between sm:flex-col sm:items-end gap-1">
-          <Badge variant={docUploaded ? "default" : "secondary"} className={docUploaded ? "bg-info text-info-foreground" : ""}>{docUploaded ? "Document Uploaded" : "Awaiting Upload"}</Badge>
+          <Badge variant={docUploaded ? "default" : "secondary"} className={docUploaded ? "bg-info text-info" : ""}>{docUploaded ? "Document Uploaded" : "Awaiting Upload"}</Badge>
           <span className="text-xs text-muted-foreground">HOD approved</span>
         </div>
       </div>
       {request.reason && <p className="mt-3 rounded-lg bg-muted p-3 text-sm">{request.reason}</p>}
       {request.hod_note && <p className="mt-2 text-xs text-muted-foreground">HOD note: {request.hod_note}</p>}
       <div className={`mt-3 rounded-lg border p-3 text-sm ${docUploaded ? "border-info/30 bg-info/8" : "border-warning/30 bg-warning/10"}`}>
-        <p className="font-semibold flex items-center gap-1.5">{docUploaded ? <><CheckCircle2 className="size-4 text-info" /> {requiredDoc} uploaded</> : <><Clock className="size-4 text-warning-foreground" /> Waiting for {requiredDoc} upload</>}</p>
+        <p className="font-semibold flex items-center gap-1.5">{docUploaded ? <><CheckCircle2 className="size-4 text-info" /> {requiredDoc} uploaded</> : <><Clock className="size-4 text-warning" /> Waiting for {requiredDoc} upload</>}</p>
         {docUploaded && request.doc_url && <ViewDocButton path={request.doc_url} />}
         {!docUploaded && <p className="mt-1 text-xs text-muted-foreground">Leave is approved. This section is for document verification only.</p>}
       </div>

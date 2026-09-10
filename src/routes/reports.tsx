@@ -218,6 +218,7 @@ interface DayInfo {
   isLeave: boolean;
   ownLectures: { subject: string; class_name: string; start_time: string; end_time: string }[];
   proxyLectures: { subject: string; class_name: string; start_time: string; end_time: string }[];
+  unassignedLectures: { subject: string; class_name: string; start_time: string; end_time: string }[];
 }
 
 function computeTeacherRow(
@@ -259,7 +260,27 @@ function computeTeacherRow(
       .filter((p) => p.proxy_teacher_id === teacherId && p.proxy_date === dateStr)
       .map((p) => ({ subject: p.subject, class_name: p.class_name, start_time: p.start_time, end_time: p.end_time }));
 
-    return { dateStr, isLeave, ownLectures, proxyLectures };
+    // Unassigned lectures: teacher is on leave, has lectures that day, but NO proxy was assigned for them
+    const coveredSlots = new Set(proxies
+      .filter((p) => p.absentee_teacher_id === teacherId && p.proxy_date === dateStr)
+      .map((p) => `${p.start_time}|${p.end_time}`));
+
+    const unassignedLectures = isLeave ? [
+      ...fixedLectures.filter((l) =>
+        l.teacher_id === teacherId &&
+        l.day_of_week === dow &&
+        !tombstonedSlots.includes(`${l.start_time}|${l.end_time}`) &&
+        !coveredSlots.has(`${l.start_time}|${l.end_time}`)
+      ),
+      ...datedLectures.filter((l) =>
+        l.teacher_id === teacherId &&
+        l.lecture_date === dateStr &&
+        !l.subject.startsWith("__COMP_GIVEN__") &&
+        !coveredSlots.has(`${l.start_time}|${l.end_time}`)
+      ),
+    ].map((l) => ({ subject: l.subject, class_name: l.class_name, start_time: l.start_time, end_time: l.end_time })) : [];
+
+    return { dateStr, isLeave, ownLectures, proxyLectures, unassignedLectures };
   });
 }
 
@@ -304,7 +325,10 @@ async function exportExcel(month: number, year: number, label: string, summaries
     s.name,
     s.role === "hod" ? "HOD" : "Teacher",
     ...s.days.map((d) => {
-      if (d.isLeave) return "ON LEAVE";
+      if (d.isLeave) {
+        const unassigned = d.unassignedLectures?.map((l) => `EMPTY CLASS: ${l.class_name} (${fmtTime(l.start_time)}-${fmtTime(l.end_time)})`) ?? [];
+        return ["ON LEAVE", ...unassigned].join("\n");
+      }
       const own = d.ownLectures.map((l) => `${l.subject} (${fmtTime(l.start_time)}-${fmtTime(l.end_time)}) [${l.class_name}]`);
       const prx = d.proxyLectures.map((l) => `PROXY: ${l.subject} (${fmtTime(l.start_time)}-${fmtTime(l.end_time)}) [${l.class_name}]`);
       return [...own, ...prx].join("\n") || "—";
@@ -605,7 +629,7 @@ async function exportPDF(month: number, year: number, label: string, summaries: 
   doc.setFontSize(9);  doc.setFont("helvetica", "normal");
   doc.text(`Monthly Schedule  ·  ${MONTH_NAMES[month]} ${year}`, 14, 18);
   doc.setFontSize(7.5);
-  doc.text("LEAVE = On Leave   ·   P: = Proxy Duty   ·   Subject codes = lectures taken", 14, 24);
+  doc.text("LEAVE = On Leave   ·   NO PROXY = Unassigned lecture (empty class)   ·   P: = Proxy Duty   ·   Subject codes = lectures taken", 14, 24);
   doc.setTextColor(0, 0, 0);
 
   // ── Table head: full "DD Mon\nFullDay" for each working day ──────────────
@@ -624,7 +648,11 @@ async function exportPDF(month: number, year: number, label: string, summaries: 
     s.name,
     s.role === "hod" ? "HOD" : "Teacher",
     ...s.days.map((d) => {
-      if (d.isLeave) return "LEAVE";
+      if (d.isLeave) {
+        const unassigned = d.unassignedLectures ?? [];
+        if (unassigned.length === 0) return "LEAVE";
+        return ["LEAVE", ...unassigned.map((l) => `NO PROXY: ${l.class_name}`)].join("\n");
+      }
       const n = d.ownLectures.length;
       const p = d.proxyLectures.length;
       if (!n && !p) return "\u2014";
@@ -682,10 +710,13 @@ async function exportPDF(month: number, year: number, label: string, summaries: 
     didParseCell: (data) => {
       const v = String(data.cell.raw ?? "");
       if (data.section === "body" && data.column.index >= 2) {
-        if (v === "LEAVE") {
+        if (v === "LEAVE" || v.startsWith("LEAVE\n")) {
           data.cell.styles.fillColor = [254, 226, 226];
           data.cell.styles.textColor = [185, 28, 28];
           data.cell.styles.fontStyle = "bold";
+          if (v.includes("NO PROXY")) {
+            data.cell.styles.fillColor = [255, 237, 213]; // orange tint for leave+unassigned
+          }
         } else if (v.startsWith("P:") || v.includes("\nP:")) {
           data.cell.styles.fillColor = [254, 243, 199];
           data.cell.styles.textColor = [120, 53, 15];
@@ -1391,6 +1422,8 @@ function DayCard({ day, info }: { day: Date; info: DayInfo }) {
     <div className={`rounded-lg border p-1.5 sm:p-2 text-xs min-h-[72px] sm:min-h-[80px] flex flex-col ${
       info.isLeave
         ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30"
+        : info.isLeave && (info.unassignedLectures ?? []).length > 0
+        ? "border-orange-200 bg-orange-50/50 dark:border-orange-900 dark:bg-orange-950/20"
         : info.ownLectures.length + info.proxyLectures.length > 0
         ? "border-blue-100 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20"
         : "border-border bg-muted/20"
@@ -1402,8 +1435,18 @@ function DayCard({ day, info }: { day: Date; info: DayInfo }) {
       </div>
 
       {info.isLeave ? (
-        <div className="flex-1 flex items-center justify-center">
+        <div className="flex-1 flex flex-col items-center justify-center gap-0.5">
           <span className="font-bold text-red-600 dark:text-red-400 text-[9px] sm:text-[11px] text-center leading-tight">ON LEAVE</span>
+          {(info.unassignedLectures ?? []).length > 0 && (
+            <div className="w-full space-y-0.5 mt-0.5">
+              {(info.unassignedLectures ?? []).map((l, i) => (
+                <div key={i} className="rounded bg-orange-100 dark:bg-orange-900/40 px-1 py-0.5" title={`No proxy: ${l.class_name} · ${fmtTime(l.start_time)}–${fmtTime(l.end_time)}`}>
+                  <p className="font-semibold text-orange-700 dark:text-orange-300 truncate leading-tight text-[8px] sm:text-[9px]">NO PROXY</p>
+                  <p className="text-orange-600 dark:text-orange-400 text-[7px] sm:text-[8px] leading-tight truncate">{l.class_name}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ) : info.ownLectures.length === 0 && info.proxyLectures.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">

@@ -451,15 +451,22 @@ function ApplyPage() {
     setBusy(false);
     if (error) return toast.error(error.message);
     qc.invalidateQueries({ queryKey: ["my-leaves", profile?.id] });
-    // Send push — fire and forget via async IIFE (useServerFn result is not a native Promise)
+    // Send push to HOD and Principal — fire and forget
+    const pushBody = `${profile!.full_name ?? "A teacher"} applied for ${preview?.total ?? 1} day(s) of ${leaveType} leave`;
     if (profile?.department_id) {
       firePush({
         userIds:   [`__hod_dept_${profile!.department_id}__`],
         title:     "New Leave Request",
-        body:      `${profile!.full_name ?? "A teacher"} applied for ${preview?.total ?? 1} day(s) of ${leaveType} leave`,
+        body:      pushBody,
         targetUrl: "/requests",
       });
     }
+    firePush({
+      userIds:   ["__principal__"],
+      title:     "New Leave Request",
+      body:      pushBody,
+      targetUrl: "/requests",
+    });
     if (isMedical) {
       toast.success(medFlow?.hodFinal
         ? "Medical leave sent to HOD — upload certificate after HOD approves"

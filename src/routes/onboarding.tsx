@@ -64,7 +64,7 @@ function StatusPill({ status }: { status: DocRow["status"] }) {
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2.5 py-0.5 text-xs font-semibold text-warning-foreground">
+    <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2.5 py-0.5 text-xs font-semibold text-warning">
       <Clock className="size-3" /> Pending review
     </span>
   );
@@ -161,7 +161,7 @@ function DocCard({
 
       {/* Pending — waiting */}
       {isPending && (
-        <p className="text-xs text-warning-foreground">
+        <p className="text-xs text-warning">
           Submitted — waiting for HR review. You can re-upload if needed.
         </p>
       )}
