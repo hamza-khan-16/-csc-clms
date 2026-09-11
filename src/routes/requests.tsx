@@ -554,30 +554,43 @@ function RequestsPage() {
     enabled: isHod && !!profile?.department_id,
     staleTime: 10_000,
     queryFn: async () => {
-      // Fetch dept members first
+      // Step 1: fetch dept member IDs
       const { data: deptMembers } = await supabase
         .from("profiles")
         .select("id")
         .eq("department_id", profile!.department_id!);
-      const deptIds = (deptMembers ?? []).map((m) => m.id);
+      const deptIds = (deptMembers ?? []).map((m: any) => m.id);
       if (deptIds.length === 0) return [];
 
-      // Fetch all hod_pending and filter client-side — avoids PostgREST .in() encoding issues
-      const { data: allPending } = await supabase
+      // Step 2: fetch all hod_pending rows — plain columns only, no FK joins
+      const { data: allPending, error } = await supabase
         .from("compensation_assignments")
-        .select(`id, compensation_date, note, status, lecture_id, from_teacher:from_teacher_id(id, full_name), to_teacher:to_teacher_id(id, full_name)`)
+        .select("id, compensation_date, note, status, lecture_id, from_teacher_id, to_teacher_id")
         .eq("status", "hod_pending")
         .order("created_at", { ascending: true });
 
+      if (error || !allPending || allPending.length === 0) return [];
+
+      // Step 3: filter to dept
       const deptIdSet = new Set(deptIds);
-      const data = (allPending ?? []).filter((c: any) =>
-        deptIdSet.has(c.from_teacher?.id) || deptIdSet.has(c.to_teacher?.id)
+      const deptRows = allPending.filter((c: any) =>
+        deptIdSet.has(c.from_teacher_id) || deptIdSet.has(c.to_teacher_id)
       );
+      if (deptRows.length === 0) return [];
 
-      if (!data || data.length === 0) return [];
+      // Step 4: fetch teacher names
+      const teacherIds = [...new Set([
+        ...deptRows.map((c: any) => c.from_teacher_id),
+        ...deptRows.map((c: any) => c.to_teacher_id),
+      ].filter(Boolean))];
+      const { data: teachers } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", teacherIds);
+      const teacherMap = new Map((teachers ?? []).map((t: any) => [t.id, t.full_name]));
 
-      // Fetch lecture details separately for non-null lecture_ids
-      const lectureIds = [...new Set(data.map((c: any) => c.lecture_id).filter(Boolean))];
+      // Step 5: fetch lecture details
+      const lectureIds = [...new Set(deptRows.map((c: any) => c.lecture_id).filter(Boolean))];
       const lectureMap = new Map<string, any>();
       if (lectureIds.length > 0) {
         const { data: lecs } = await supabase
@@ -587,8 +600,11 @@ function RequestsPage() {
         (lecs ?? []).forEach((l: any) => lectureMap.set(l.id, l));
       }
 
-      return data.map((c: any) => ({
+      // Step 6: stitch together
+      return deptRows.map((c: any) => ({
         ...c,
+        from_teacher: { id: c.from_teacher_id, full_name: teacherMap.get(c.from_teacher_id) ?? "Unknown" },
+        to_teacher:   { id: c.to_teacher_id,   full_name: teacherMap.get(c.to_teacher_id)   ?? "Unknown" },
         lecture: c.lecture_id ? lectureMap.get(c.lecture_id) ?? null : null,
       }));
     },
