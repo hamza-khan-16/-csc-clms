@@ -562,30 +562,17 @@ function RequestsPage() {
       const deptIds = (deptMembers ?? []).map((m) => m.id);
       if (deptIds.length === 0) return [];
 
-      // Fetch all hod_pending comp assignments involving dept members
-      // Run two queries (from_teacher and to_teacher) and merge — avoids broken .or+.in syntax
-      const [fromRes, toRes] = await Promise.all([
-        supabase
-          .from("compensation_assignments")
-          .select(`id, compensation_date, note, status, lecture_id, from_teacher:from_teacher_id(id, full_name), to_teacher:to_teacher_id(id, full_name)`)
-          .eq("status", "hod_pending")
-          .in("from_teacher_id", deptIds)
-          .order("created_at", { ascending: true }),
-        supabase
-          .from("compensation_assignments")
-          .select(`id, compensation_date, note, status, lecture_id, from_teacher:from_teacher_id(id, full_name), to_teacher:to_teacher_id(id, full_name)`)
-          .eq("status", "hod_pending")
-          .in("to_teacher_id", deptIds)
-          .order("created_at", { ascending: true }),
-      ]);
+      // Fetch all hod_pending and filter client-side — avoids PostgREST .in() encoding issues
+      const { data: allPending } = await supabase
+        .from("compensation_assignments")
+        .select(`id, compensation_date, note, status, lecture_id, from_teacher:from_teacher_id(id, full_name), to_teacher:to_teacher_id(id, full_name)`)
+        .eq("status", "hod_pending")
+        .order("created_at", { ascending: true });
 
-      // Merge and deduplicate by id
-      const seen = new Set<string>();
-      const data = [...(fromRes.data ?? []), ...(toRes.data ?? [])].filter((c: any) => {
-        if (seen.has(c.id)) return false;
-        seen.add(c.id);
-        return true;
-      });
+      const deptIdSet = new Set(deptIds);
+      const data = (allPending ?? []).filter((c: any) =>
+        deptIdSet.has(c.from_teacher?.id) || deptIdSet.has(c.to_teacher?.id)
+      );
 
       if (!data || data.length === 0) return [];
 
