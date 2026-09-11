@@ -84,7 +84,8 @@ function MyLeavesPage() {
   const { data: leaves = [] } = useQuery({
     queryKey: ["my-leaves", profile?.id],
     enabled: !!profile,
-    staleTime: 30_000,
+    staleTime: 5_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leave_requests")

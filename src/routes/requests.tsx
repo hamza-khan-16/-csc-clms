@@ -552,35 +552,72 @@ function RequestsPage() {
   const { data: pendingCompApprovals = [] } = useQuery({
     queryKey: ["hod-comp-approvals", profile?.department_id],
     enabled: isHod && !!profile?.department_id,
-    staleTime: 30_000,
+    staleTime: 10_000,
     queryFn: async () => {
-      const { data } = await supabase
-        .from("compensation_assignments")
-        .select(`
-          id, compensation_date, note, status,
-          from_teacher:from_teacher_id(id, full_name),
-          to_teacher:to_teacher_id(id, full_name),
-          lecture:lecture_id(subject, class_name, start_time, end_time, room)
-        `)
-        .eq("status", "hod_pending")
-        .order("created_at", { ascending: true });
-      // Filter to dept — need to check teacher dept
-      // We join via profiles, so filter by checking from_teacher is in this dept
-      if (!data) return [];
-      // Fetch dept members to filter
+      // Fetch dept members first
       const { data: deptMembers } = await supabase
         .from("profiles")
         .select("id")
         .eq("department_id", profile!.department_id!);
-      const deptIds = new Set((deptMembers ?? []).map((m) => m.id));
-      return data.filter((c: any) => deptIds.has(c.from_teacher?.id) || deptIds.has(c.to_teacher?.id));
+      const deptIds = (deptMembers ?? []).map((m) => m.id);
+      if (deptIds.length === 0) return [];
+
+      // Fetch all hod_pending comp assignments involving dept members
+      const { data } = await supabase
+        .from("compensation_assignments")
+        .select(`
+          id, compensation_date, note, status, lecture_id,
+          from_teacher:from_teacher_id(id, full_name),
+          to_teacher:to_teacher_id(id, full_name)
+        `)
+        .eq("status", "hod_pending")
+        .or(`from_teacher_id.in.(${deptIds.join(",")}),to_teacher_id.in.(${deptIds.join(",")})`)
+        .order("created_at", { ascending: true });
+
+      if (!data || data.length === 0) return [];
+
+      // Fetch lecture details separately for non-null lecture_ids
+      const lectureIds = [...new Set(data.map((c: any) => c.lecture_id).filter(Boolean))];
+      const lectureMap = new Map<string, any>();
+      if (lectureIds.length > 0) {
+        const { data: lecs } = await supabase
+          .from("lectures")
+          .select("id, subject, class_name, start_time, end_time, room")
+          .in("id", lectureIds);
+        (lecs ?? []).forEach((l: any) => lectureMap.set(l.id, l));
+      }
+
+      return data.map((c: any) => ({
+        ...c,
+        lecture: c.lecture_id ? lectureMap.get(c.lecture_id) ?? null : null,
+      }));
     },
   });
+
+  // ── Realtime: invalidate requests + comp approvals on DB changes ──────────
+  useEffect(() => {
+    if (!profile?.id) return;
+    const channel = supabase
+      .channel(`requests-realtime-${profile.id}`)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "leave_requests",
+      }, () => {
+        qc.invalidateQueries({ queryKey: ["review-requests"] });
+      })
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "compensation_assignments",
+      }, () => {
+        qc.invalidateQueries({ queryKey: ["hod-comp-approvals"] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id, qc]);
 
   const { data: requests = [], isLoading, isError } = useQuery({
     queryKey: ["review-requests", role, profile?.id],
     enabled: !!profile,
-    staleTime: 30_000,
+    staleTime: 5_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data: adminRoles } = await supabase.from("user_roles").select("user_id, role")
         .in("role", ["admin", "principal"]);

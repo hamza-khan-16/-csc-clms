@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { fetchPeople } from "@/lib/people";
@@ -247,8 +247,44 @@ function DashboardPage() {
 function TeacherDashboard() {
   const { profile, role } = useAuth();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const { data: balances = [], isLoading: balLoading } = useBalances(profile?.id);
   const daysLeft = usePasswordExpiryDays(profile?.password_changed_at, role);
+
+  // ── Realtime subscriptions — invalidate affected queries on DB changes ──
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const channel = supabase
+      .channel(`dashboard-realtime-${profile.id}`)
+      // Leave requests changed (status update by HOD/principal)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "leave_requests",
+        filter: `teacher_id=eq.${profile.id}`,
+      }, () => {
+        qc.invalidateQueries({ queryKey: ["my-leaves-recent"] });
+        qc.invalidateQueries({ queryKey: ["my-leaves-year"] });
+        qc.invalidateQueries({ queryKey: ["leave-balances"] });
+      })
+      // Proxy assignments changed
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "proxy_assignments",
+        filter: `proxy_teacher_id=eq.${profile.id}`,
+      }, () => {
+        qc.invalidateQueries({ queryKey: ["dash-proxies"] });
+      })
+      // Lectures changed (schedule upload, HOD edits)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "lectures",
+        filter: `teacher_id=eq.${profile.id}`,
+      }, () => {
+        qc.invalidateQueries({ queryKey: ["today-lectures"] });
+        qc.invalidateQueries({ queryKey: ["my-lectures"] });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id, qc]);
 
   const { data: leaves = [], isLoading: leavesLoading } = useQuery({
     queryKey: ["my-leaves-recent", profile?.id],
@@ -320,18 +356,60 @@ function TeacherDashboard() {
   const payroll       = yearLeaveData?.payroll       ?? { paidDays: 0, unpaidDays: 0 };
   const medicalUsed   = yearLeaveData?.medicalUsed   ?? 0;
 
+  const todayDow = new Date().getDay();
+  const todayStr = new Date().toISOString().slice(0, 10);
+
   const { data: todayLectures = [] } = useQuery({
-    queryKey: ["today-lectures", profile?.id],
+    queryKey: ["today-lectures", profile?.id, todayStr],
     enabled: !!profile,
-    staleTime: 30_000, // matches NextLectureBanner 30s clock tick
+    staleTime: 60_000,
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Fixed recurring lectures for today's day of week
+      const { data: fixed } = await supabase
         .from("lectures")
-        .select("id, start_time, end_time, subject, class_name, room, day_of_week")
+        .select("id, start_time, end_time, subject, class_name, room, day_of_week, lecture_date")
         .eq("teacher_id", profile!.id)
+        .eq("day_of_week", todayDow)
+        .is("lecture_date", null)
         .order("start_time");
-      if (error) throw error;
-      return data;
+
+      // Dated (one-off) lectures specifically for today
+      const { data: dated } = await supabase
+        .from("lectures")
+        .select("id, start_time, end_time, subject, class_name, room, day_of_week, lecture_date")
+        .eq("teacher_id", profile!.id)
+        .eq("lecture_date", todayStr)
+        .order("start_time");
+
+      // Proxy lectures the teacher is covering today
+      const { data: proxyToday } = await supabase
+        .from("proxy_assignments")
+        .select("id, start_time, end_time, subject, class_name")
+        .eq("proxy_teacher_id", profile!.id)
+        .eq("proxy_date", todayStr)
+        .in("status", ["accepted", "pending"])
+        .order("start_time");
+
+      const fixedFiltered = (fixed ?? []).filter(
+        (l) => !l.subject.startsWith("__COMP_GIVEN__")
+      );
+      const datedFiltered = (dated ?? []).filter(
+        (l) => !l.subject.startsWith("__COMP_GIVEN__")
+      );
+      const proxyItems = (proxyToday ?? []).map((p) => ({
+        id: `proxy-${p.id}`,
+        start_time: p.start_time,
+        end_time: p.end_time,
+        subject: `[PROXY] ${p.subject}`,
+        class_name: p.class_name,
+        room: null,
+        day_of_week: todayDow,
+        lecture_date: todayStr,
+        isProxy: true,
+      }));
+
+      return [...fixedFiltered, ...datedFiltered, ...proxyItems]
+        .sort((a, b) => a.start_time.localeCompare(b.start_time));
     },
   });
 
@@ -689,16 +767,17 @@ function TeacherDashboard() {
         <SectionCard title="Today's Schedule" subtitle={fmtDate(new Date())}>
           {todayLectures.length === 0 ? <Empty>No lectures today.</Empty> : (
             <ul className="space-y-3">
-              {todayLectures.map(l => {
+              {todayLectures.map((l: any) => {
                 const now = new Date();
                 const cur = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
                 const isNow = l.start_time <= cur && l.end_time > cur;
+                const isProxy = !!l.isProxy;
                 return (
-                  <li key={l.id} className={`flex items-center justify-between gap-3 text-sm rounded-lg px-2 py-1 ${isNow ? "bg-primary/10 ring-1 ring-primary/20" : ""}`}>
-                    <span className="text-muted-foreground">{fmtTime(l.start_time)} – {fmtTime(l.end_time)}</span>
-                    <span className="flex-1 font-medium">{l.subject}</span>
-                    <span className="text-xs text-muted-foreground">{l.class_name}{l.room && ` · ${l.room}`}</span>
-                    {isNow && <span className="text-[10px] font-bold text-primary uppercase">Now</span>}
+                  <li key={l.id} className={`flex items-center justify-between gap-3 text-sm rounded-lg px-2 py-1.5 ${isNow ? "bg-primary/10 ring-1 ring-primary/20" : isProxy ? "bg-muted/40" : ""}`}>
+                    <span className="text-muted-foreground shrink-0">{fmtTime(l.start_time)} – {fmtTime(l.end_time)}</span>
+                    <span className={`flex-1 font-medium ${isProxy ? "text-info" : ""}`}>{isProxy ? l.subject : l.subject}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{l.class_name}{l.room ? ` · ${l.room}` : ""}</span>
+                    {isNow && <span className="text-[10px] font-bold text-primary uppercase shrink-0">Now</span>}
                   </li>
                 );
               })}
