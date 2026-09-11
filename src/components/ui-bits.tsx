@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { statusClasses, STATUS_LABEL, type LeaveStatus } from "@/lib/leave";
 import { CheckCircle2, Clock, XCircle, ChevronRight } from "lucide-react";
@@ -32,7 +32,7 @@ export function SectionCard({
   );
 }
 
-export function StatCard({
+export const StatCard = memo(function StatCard({
   label,
   value,
   hint,
@@ -64,7 +64,7 @@ export function StatCard({
       {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
-}
+});
 
 export function StatCardSkeleton() {
   return (

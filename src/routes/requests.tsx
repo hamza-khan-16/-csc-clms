@@ -1054,7 +1054,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     queryKey: ["leave-lectures", request.id, request.session],
     enabled: isHod,
     queryFn: async () => {
-      const { data, error } = await supabase.from("lectures").select("*").eq("teacher_id", request.teacher_id);
+      const { data, error } = await supabase.from("lectures").select("id, teacher_id, day_of_week, lecture_date, start_time, end_time, subject, class_name, room, department_id").eq("teacher_id", request.teacher_id);
       if (error) throw error;
       const out: { key: string; date: string; lecture: (typeof data)[number] }[] = [];
       for (const date of dates) {

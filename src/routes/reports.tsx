@@ -823,7 +823,7 @@ function ReportsPage() {
     queryKey: ["reports", role, profile?.department_id, year],
     enabled: !!profile,
     queryFn: async () => {
-      let q = supabase.from("leave_requests").select("*").in("status", ["approved","hod_approved"]).gte("from_date", `${year}-01-01`).lte("from_date", `${year}-12-31`);
+      let q = supabase.from("leave_requests").select("id, teacher_id, leave_type, from_date, to_date, total_days, paid_days, unpaid_days, status, session").in("status", ["approved","hod_approved"]).gte("from_date", `${year}-01-01`).lte("from_date", `${year}-12-31`);
       if (isHod) q = q.eq("department_id", profile!.department_id ?? "");
       const { data: leaves, error } = await q;
       if (error) throw error;

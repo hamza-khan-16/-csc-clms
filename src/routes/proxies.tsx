@@ -116,7 +116,7 @@ function ProxiesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("compensation_assignments")
-        .select("*")
+        .select("id, from_teacher_id, to_teacher_id, compensation_date, note, status, lecture_id, created_at")
         .eq("from_teacher_id", profile!.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -135,7 +135,7 @@ function ProxiesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("compensation_assignments")
-        .select("*")
+        .select("id, from_teacher_id, to_teacher_id, compensation_date, note, status, lecture_id, created_at")
         .eq("to_teacher_id", profile!.id)
         .order("created_at", { ascending: false });
       if (error) throw error;

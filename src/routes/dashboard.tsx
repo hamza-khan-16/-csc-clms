@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { fetchPeople } from "@/lib/people";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 
 import { useBalances } from "@/hooks/useBalances";
 import { AppShell } from "@/components/AppShell";
@@ -290,7 +290,7 @@ function TeacherDashboard() {
     queryKey: ["my-leaves-recent", profile?.id],
     enabled: !!profile,
     staleTime: 10_000,
-    refetchInterval: 10_000,
+    refetchInterval: 10_000,  // staggered from proxies (12s)
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -354,9 +354,9 @@ function TeacherDashboard() {
     },
   });
 
-  const allLeavesYear = yearLeaveData?.allLeavesYear ?? [];
-  const payroll       = yearLeaveData?.payroll       ?? { paidDays: 0, unpaidDays: 0 };
-  const medicalUsed   = yearLeaveData?.medicalUsed   ?? 0;
+  const allLeavesYear = useMemo(() => yearLeaveData?.allLeavesYear ?? [], [yearLeaveData]);
+  const payroll       = useMemo(() => yearLeaveData?.payroll ?? { paidDays: 0, unpaidDays: 0 }, [yearLeaveData]);
+  const medicalUsed   = useMemo(() => yearLeaveData?.medicalUsed ?? 0, [yearLeaveData]);
 
   const todayDow = new Date().getDay();
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -420,7 +420,7 @@ function TeacherDashboard() {
   const { data: proxies = [] } = useQuery({
     queryKey: ["dash-proxies", profile?.id],
     enabled: !!profile,
-    refetchInterval: 10_000,
+    refetchInterval: 12_000,  // staggered from leaves (10s)
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase

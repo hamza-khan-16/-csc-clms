@@ -90,7 +90,7 @@ function MyLeavesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leave_requests")
-        .select("*")
+        .select("id, leave_type, from_date, to_date, session, status, total_days, paid_days, unpaid_days, reason, doc_url, doc_status, doc_note, created_at, hod_note, principal_note, teacher_id")
         .eq("teacher_id", profile!.id)
         .order("created_at", { ascending: false });
       if (error) throw error;

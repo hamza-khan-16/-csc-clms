@@ -703,12 +703,32 @@ export function LeaveBot() {
   // ── Context fetch — eager, fires as soon as profile is ready after login ──
   // Loads in the background so data is ready before the user opens the chat.
   // ctxFetchedRef prevents double-fetch on re-renders or profile object identity changes.
+  // Context is cached in sessionStorage for 5 minutes to avoid re-fetching on every open.
   useEffect(() => {
     if (!profile?.id || !role || ctxFetchedRef.current) return;
     ctxFetchedRef.current = true;
     const deptId = (profile as any).department_id ?? null;
+    const CTX_KEY = `leavebot_ctx:${profile.id}`;
+    const CTX_TTL = 5 * 60 * 1000; // 5 minutes
+
+    try {
+      const cached = sessionStorage.getItem(CTX_KEY);
+      if (cached) {
+        const { ctx, ts } = JSON.parse(cached);
+        if (Date.now() - ts < CTX_TTL) {
+          setCtxStr(ctx);
+          setCtxReady(true);
+          return;
+        }
+      }
+    } catch { /* ignore */ }
+
     buildFullContext(profile.id, role, deptId)
-      .then(ctx => { setCtxStr(ctx); setCtxReady(true); })
+      .then(ctx => {
+        setCtxStr(ctx);
+        setCtxReady(true);
+        try { sessionStorage.setItem(CTX_KEY, JSON.stringify({ ctx, ts: Date.now() })); } catch { /* ignore */ }
+      })
       .catch(() => setCtxReady(true));
   }, [profile?.id, role]); // profile.id + role — both must be set before fetching
 
