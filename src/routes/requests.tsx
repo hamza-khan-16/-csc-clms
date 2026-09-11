@@ -563,16 +563,29 @@ function RequestsPage() {
       if (deptIds.length === 0) return [];
 
       // Fetch all hod_pending comp assignments involving dept members
-      const { data } = await supabase
-        .from("compensation_assignments")
-        .select(`
-          id, compensation_date, note, status, lecture_id,
-          from_teacher:from_teacher_id(id, full_name),
-          to_teacher:to_teacher_id(id, full_name)
-        `)
-        .eq("status", "hod_pending")
-        .or(`from_teacher_id.in.(${deptIds.join(",")}),to_teacher_id.in.(${deptIds.join(",")})`)
-        .order("created_at", { ascending: true });
+      // Run two queries (from_teacher and to_teacher) and merge — avoids broken .or+.in syntax
+      const [fromRes, toRes] = await Promise.all([
+        supabase
+          .from("compensation_assignments")
+          .select(`id, compensation_date, note, status, lecture_id, from_teacher:from_teacher_id(id, full_name), to_teacher:to_teacher_id(id, full_name)`)
+          .eq("status", "hod_pending")
+          .in("from_teacher_id", deptIds)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("compensation_assignments")
+          .select(`id, compensation_date, note, status, lecture_id, from_teacher:from_teacher_id(id, full_name), to_teacher:to_teacher_id(id, full_name)`)
+          .eq("status", "hod_pending")
+          .in("to_teacher_id", deptIds)
+          .order("created_at", { ascending: true }),
+      ]);
+
+      // Merge and deduplicate by id
+      const seen = new Set<string>();
+      const data = [...(fromRes.data ?? []), ...(toRes.data ?? [])].filter((c: any) => {
+        if (seen.has(c.id)) return false;
+        seen.add(c.id);
+        return true;
+      });
 
       if (!data || data.length === 0) return [];
 
