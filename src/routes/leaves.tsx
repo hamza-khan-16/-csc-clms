@@ -85,6 +85,7 @@ function MyLeavesPage() {
     queryKey: ["my-leaves", profile?.id],
     enabled: !!profile,
     staleTime: 5_000,
+    refetchInterval: 8_000,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase

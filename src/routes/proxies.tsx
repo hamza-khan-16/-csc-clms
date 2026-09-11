@@ -111,6 +111,8 @@ function ProxiesPage() {
   const { data: myCompOffers = [] } = useQuery({
     queryKey: ["my-comp-offers", profile?.id],
     enabled: !!profile,
+    refetchInterval: 8_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("compensation_assignments")
@@ -128,6 +130,8 @@ function ProxiesPage() {
   const { data: incomingOffers = [] } = useQuery({
     queryKey: ["incoming-comp-offers", profile?.id],
     enabled: !!profile,
+    refetchInterval: 8_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("compensation_assignments")

@@ -289,7 +289,9 @@ function TeacherDashboard() {
   const { data: leaves = [], isLoading: leavesLoading } = useQuery({
     queryKey: ["my-leaves-recent", profile?.id],
     enabled: !!profile,
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leave_requests")
@@ -362,7 +364,9 @@ function TeacherDashboard() {
   const { data: todayLectures = [] } = useQuery({
     queryKey: ["today-lectures", profile?.id, todayStr],
     enabled: !!profile,
-    staleTime: 60_000,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       // Fixed recurring lectures for today's day of week
       const { data: fixed } = await supabase
@@ -416,6 +420,8 @@ function TeacherDashboard() {
   const { data: proxies = [] } = useQuery({
     queryKey: ["dash-proxies", profile?.id],
     enabled: !!profile,
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("proxy_assignments")

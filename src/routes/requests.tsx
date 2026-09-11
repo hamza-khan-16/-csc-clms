@@ -553,6 +553,8 @@ function RequestsPage() {
     queryKey: ["hod-comp-approvals", profile?.department_id],
     enabled: isHod && !!profile?.department_id,
     staleTime: 10_000,
+    refetchInterval: 8_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       // Step 1: fetch dept member IDs
       const { data: deptMembers } = await supabase
@@ -633,6 +635,7 @@ function RequestsPage() {
     queryKey: ["review-requests", role, profile?.id],
     enabled: !!profile,
     staleTime: 5_000,
+    refetchInterval: 8_000,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data: adminRoles } = await supabase.from("user_roles").select("user_id, role")
