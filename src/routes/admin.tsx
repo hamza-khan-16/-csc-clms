@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Trash2, Check, FileText, Download, BarChart2, ChevronRight } from "lucide-react";
+import { Loader2, Trash2, Check, FileText, Download, BarChart2, ChevronRight, Search, ChevronDown, ChevronUp, Users } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { adminCreateStaff, adminDeleteStaff, directPasswordReset, unlockAccount, fetchPasswordResetRequests, completePasswordResetRequest } from "@/lib/admin.functions";
@@ -12,10 +12,6 @@ import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, Empty } from "@/components/ui-bits";
 import { money, LEAVE_TYPES, leaveTypeLabel, fmtDate, type LeaveType } from "@/lib/leave";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent as _TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-const IS_NATIVE_APP = typeof navigator !== "undefined" && /Median|GoNative/i.test(navigator.userAgent);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const TooltipContent = (IS_NATIVE_APP ? () => null : _TooltipContent) as typeof _TooltipContent;
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -377,33 +373,189 @@ function AdminPage() {
 
         <PasswordResetRequests />
 
-        <SectionCard title="All staff" subtitle="Edit salary, role, department or remove an account">
-          {isLoading ? (
-            <Empty>Loading…</Empty>
-          ) : staff.length === 0 ? (
-            <Empty>No staff yet.</Empty>
-          ) : (
-            <div className="space-y-3">
-              {staff.map((s) => (
-                <StaffRowCard
-                  key={s.id}
-                  row={s}
-                  departments={departments}
-                  onSaveProfile={(values) => patch.mutate({ id: s.id, values })}
-                  onChangeRole={(role, departmentId) =>
-                    changeRole.mutate({ id: s.id, role, departmentId })
-                  }
-                  onRemove={() => setDeleteConfirm({ id: s.id, name: s.full_name })}
-                  onInvalidate={invalidate}
-                />
-              ))}
-            </div>
-          )}
-        </SectionCard>
+        <AllStaffCard
+          staff={staff}
+          isLoading={isLoading}
+          departments={departments}
+          onSaveProfile={(id, values) => patch.mutate({ id, values })}
+          onChangeRole={(id, role, deptId) => changeRole.mutate({ id, role, departmentId: deptId })}
+          onRemove={(id, name) => setDeleteConfirm({ id, name })}
+          onInvalidate={invalidate}
+        />
 
         <DepartmentsCard departments={departments} />
       </div>
     </AppShell>
+  );
+}
+
+
+// ── All Staff — searchable, role-filtered, paginated ─────────────────────────
+const PAGE_SIZE = 3;
+
+function AllStaffCard({
+  staff, isLoading, departments, onSaveProfile, onChangeRole, onRemove, onInvalidate,
+}: {
+  staff: StaffRow[];
+  isLoading: boolean;
+  departments: { id: string; name: string }[];
+  onSaveProfile: (id: string, values: ProfilePatch) => void;
+  onChangeRole: (id: string, role: StaffRow["role"], departmentId: string | null) => void;
+  onRemove: (id: string, name: string) => void;
+  onInvalidate: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [deptFilter, setDeptFilter] = useState("all");
+  const [page, setPage] = useState(0);
+
+  const filtered = useMemo(() => {
+    let s = staff;
+    const q = search.trim().toLowerCase();
+    if (q) s = s.filter((m) => m.full_name.toLowerCase().includes(q) || (m.designation ?? "").toLowerCase().includes(q));
+    if (roleFilter !== "all") s = s.filter((m) => (m.role ?? "teacher") === roleFilter);
+    if (deptFilter !== "all") s = s.filter((m) => m.department_id === deptFilter);
+    return s;
+  }, [staff, search, roleFilter, deptFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageSafe = Math.min(page, totalPages - 1);
+  const visible = filtered.slice(pageSafe * PAGE_SIZE, (pageSafe + 1) * PAGE_SIZE);
+
+  const roleCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    staff.forEach((s) => { const r = s.role ?? "teacher"; counts[r] = (counts[r] ?? 0) + 1; });
+    return counts;
+  }, [staff]);
+
+  const ROLE_PILLS: [string, string][] = [["teacher","Teachers"],["hod","HODs"],["principal","Principal"],["admin","Admin"]];
+  const pendingCount = staff.filter((s) => !s.approved).length;
+  const anyFilter = search || roleFilter !== "all" || deptFilter !== "all";
+
+  return (
+    <SectionCard title="All staff" subtitle={`${staff.length} members · Edit salary, role, department or remove`}>
+      {isLoading ? <Empty>Loading…</Empty> : staff.length === 0 ? <Empty>No staff yet.</Empty> : (
+        <div className="space-y-4">
+
+          {/* Role filter pills */}
+          <div className="flex flex-wrap gap-2">
+            {ROLE_PILLS.filter(([k]) => roleCounts[k] > 0).map(([k, label]) => (
+              <button key={k}
+                onClick={() => { setRoleFilter(k === roleFilter ? "all" : k); setPage(0); }}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${roleFilter === k ? "bg-primary text-primary-foreground border-primary" : "bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                <Users className="size-3" />
+                {label}
+                <span className={`rounded-full px-1.5 text-[10px] font-bold ${roleFilter === k ? "bg-primary-foreground/20" : "bg-border"}`}>{roleCounts[k]}</span>
+              </button>
+            ))}
+            {pendingCount > 0 && (
+              <span className="flex items-center gap-1.5 rounded-full border border-warning/40 bg-warning/10 px-3 py-1 text-xs font-medium text-warning">
+                ⏳ {pendingCount} pending approval
+              </span>
+            )}
+          </div>
+
+          {/* Search + dept filter */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
+              <Input placeholder="Search by name or designation…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} className="pl-8 h-9 text-sm" />
+            </div>
+            <Select value={deptFilter} onValueChange={(v) => { setDeptFilter(v); setPage(0); }}>
+              <SelectTrigger className="h-9 text-sm w-full sm:w-48"><SelectValue placeholder="All departments" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All departments</SelectItem>
+                {departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Filter summary + clear */}
+          {anyFilter && (
+            <p className="text-xs text-muted-foreground">
+              {filtered.length === 0 ? "No staff match." : `${filtered.length} of ${staff.length} staff`}
+              <button className="ml-2 text-primary underline underline-offset-2" onClick={() => { setSearch(""); setRoleFilter("all"); setDeptFilter("all"); setPage(0); }}>Clear filters</button>
+            </p>
+          )}
+
+          {/* Staff rows */}
+          {filtered.length === 0 ? <Empty>No staff match your filters.</Empty> : (
+            <div className="space-y-2">
+              {visible.map((s) => (
+                <CollapsibleStaffRow key={s.id} row={s} departments={departments}
+                  onSaveProfile={(values) => onSaveProfile(s.id, values)}
+                  onChangeRole={(role, deptId) => onChangeRole(s.id, role, deptId)}
+                  onRemove={() => onRemove(s.id, s.full_name)}
+                  onInvalidate={onInvalidate}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-1">
+              <p className="text-xs text-muted-foreground">Page {pageSafe + 1} of {totalPages}</p>
+              <div className="flex gap-1">
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={pageSafe === 0} onClick={() => setPage((p) => p - 1)}>← Prev</Button>
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  const start = Math.max(0, pageSafe - 2);
+                  return start + i;
+                }).filter((i) => i < totalPages).map((i) => (
+                  <Button key={i} size="sm" variant={i === pageSafe ? "default" : "outline"} className="h-7 w-7 p-0 text-xs" onClick={() => setPage(i)}>{i + 1}</Button>
+                ))}
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={pageSafe >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>Next →</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+// CollapsibleStaffRow — collapsed summary, expand to edit
+function CollapsibleStaffRow({
+  row, departments, onSaveProfile, onChangeRole, onRemove, onInvalidate,
+}: {
+  row: StaffRow;
+  departments: { id: string; name: string }[];
+  onSaveProfile: (values: ProfilePatch) => void;
+  onChangeRole: (role: StaffRow["role"], departmentId: string | null) => void;
+  onRemove: () => void;
+  onInvalidate: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const deptName = row.department_id ? departments.find((d) => d.id === row.department_id)?.name ?? "—" : "No dept";
+  const initials = row.full_name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
+  return (
+    <div className={`rounded-xl border transition-colors ${open ? "border-primary/30 bg-primary/5" : "border-border"}`}>
+      {/* Header row — click to expand */}
+      <button className="w-full flex items-center gap-3 px-4 py-3 text-left" onClick={() => setOpen((v) => !v)}>
+        <div className="size-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+          <span className="text-sm font-bold text-primary leading-none">{initials}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+            <p className="text-sm font-semibold truncate">{row.full_name}</p>
+            {row.account_locked && <Badge variant="destructive" className="text-[10px] px-1.5 py-0 leading-none">Locked</Badge>}
+            {!row.approved && <Badge variant="destructive" className="text-[10px] px-1.5 py-0 leading-none">Pending</Badge>}
+          </div>
+          <p className="text-xs text-muted-foreground truncate">
+            <span className="capitalize">{row.role ?? "teacher"}</span> · {row.designation ?? "—"} · {deptName}
+            {row.monthly_salary ? ` · ${money(row.monthly_salary)}/mo` : ""}
+          </p>
+        </div>
+        {open ? <ChevronUp className="size-4 text-muted-foreground shrink-0" /> : <ChevronDown className="size-4 text-muted-foreground shrink-0" />}
+      </button>
+      {/* Expanded edit — delegates to original StaffRowCard internals */}
+      {open && (
+        <div className="border-t border-border/50">
+          <StaffRowCard row={row} departments={departments} onSaveProfile={onSaveProfile} onChangeRole={onChangeRole} onRemove={onRemove} onInvalidate={onInvalidate} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -484,14 +636,9 @@ function StaffRowCard({
           ) : (
             <Badge variant="destructive">Pending</Badge>
           )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button size="icon" variant="ghost" onClick={onRemove} aria-label="Remove staff member">
-                <Trash2 className="size-4 text-destructive" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">Remove staff member</TooltipContent>
-          </Tooltip>
+          <Button size="icon" variant="ghost" onClick={onRemove} aria-label="Remove staff member">
+            <Trash2 className="size-4 text-destructive" />
+          </Button>
         </div>
       </div>
 
@@ -1183,19 +1330,14 @@ function DepartmentsCard({ departments }: { departments: { id: string; name: str
           {departments.map((d) => (
             <li key={d.id} className="flex items-center justify-between py-2 text-sm">
               <span>{d.name}</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => setDeptDeleteConfirm({ id: d.id, name: d.name })}
-                    aria-label={`Remove ${d.name}`}
-                  >
-                    <Trash2 className="size-4 text-destructive" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="left">Remove {d.name}</TooltipContent>
-              </Tooltip>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setDeptDeleteConfirm({ id: d.id, name: d.name })}
+                aria-label={`Remove ${d.name}`}
+              >
+                <Trash2 className="size-4 text-destructive" />
+              </Button>
             </li>
           ))}
         </ul>
