@@ -106,7 +106,7 @@ function AdminPage() {
       const [{ data: profiles, error }, { data: roles }, { data: depts }] = await Promise.all([
         (supabase as any)
           .from("profiles")
-          .select("id, full_name, user_id, designation, department_id, monthly_salary, approved, account_locked")
+          .select("id, full_name, user_id, designation, department_id, monthly_salary, approved, account_locked, cl_quota, hr_approved")
           .order("full_name"),
         supabase.from("user_roles").select("user_id, role"),
         supabase.from("departments").select("id, name"),
@@ -552,7 +552,7 @@ function CollapsibleStaffRow({
       {/* Expanded edit — delegates to original StaffRowCard internals */}
       {open && (
         <div className="border-t border-border/50">
-          <StaffRowCard row={row} departments={departments} onSaveProfile={onSaveProfile} onChangeRole={onChangeRole} onRemove={onRemove} onInvalidate={onInvalidate} />
+          <StaffRowCard key={row.id} row={row} departments={departments} onSaveProfile={onSaveProfile} onChangeRole={onChangeRole} onRemove={onRemove} onInvalidate={onInvalidate} />
         </div>
       )}
     </div>
@@ -621,27 +621,7 @@ function StaffRowCard({
   const dirtyRole = role !== row.role;
 
   return (
-    <div className="rounded-lg border border-border p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold">{row.full_name}</p>
-          <p className="text-xs text-muted-foreground">{row.user_id}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {row.account_locked && (
-            <Badge variant="destructive">Locked</Badge>
-          )}
-          {row.approved ? (
-            <Badge variant="secondary">Approved</Badge>
-          ) : (
-            <Badge variant="destructive">Pending</Badge>
-          )}
-          <Button size="icon" variant="ghost" onClick={onRemove} aria-label="Remove staff member">
-            <Trash2 className="size-4 text-destructive" />
-          </Button>
-        </div>
-      </div>
-
+    <div className="p-4 space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {isTeacherOrHod && (
         <div className="space-y-1.5">
@@ -736,6 +716,9 @@ function StaffRowCard({
             Unlock account
           </Button>
         )}
+        <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 ml-auto" onClick={onRemove}>
+          <Trash2 className="size-3.5 mr-1" /> Remove
+        </Button>
       </div>
 
       {/* Direct password reset — admin only, not for other admins */}

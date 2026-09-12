@@ -306,7 +306,7 @@ function TeacherDetailPanel({
     if (error) return toast.error(error.message);
     toast.success("Details updated");
     setEditing(false);
-    qc.invalidateQueries({ queryKey: ["staff"] });
+    qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === "staff" });
   }
 
   // Fetch this teacher's lectures
@@ -600,11 +600,11 @@ function TeacherDetailPanel({
         )}
 
         {/* Leave history */}
-        {teacher.leaveHistory.length > 0 && (
+        {(teacher.leaveHistory ?? []).length > 0 && (
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Leave history this year</p>
             <ul className="space-y-1.5">
-              {teacher.leaveHistory.slice(0, 6).map((l: any, i: number) => (
+              {(teacher.leaveHistory ?? []).slice(0, 6).map((l: any, i: number) => (
                 <li key={i} className="flex items-center gap-2 text-xs rounded-lg border border-border px-3 py-2">
                   <span className="font-medium text-muted-foreground">{leaveTypeLabel(l.leave_type as LeaveType)}</span>
                   <span className="text-muted-foreground">·</span>
@@ -612,14 +612,14 @@ function TeacherDetailPanel({
                   <span className="ml-auto font-medium">{Number(l.total_days)} day{Number(l.total_days) !== 1 ? "s" : ""}</span>
                 </li>
               ))}
-              {teacher.leaveHistory.length > 6 && (
-                <p className="text-xs text-muted-foreground text-center pt-1">+{teacher.leaveHistory.length - 6} more</p>
+              {(teacher.leaveHistory ?? []).length > 6 && (
+                <p className="text-xs text-muted-foreground text-center pt-1">+{(teacher.leaveHistory ?? []).length - 6} more</p>
               )}
             </ul>
           </div>
         )}
 
-        {teacher.leaveHistory.length === 0 && lectures.length === 0 && !editing && (
+        {(teacher.leaveHistory ?? []).length === 0 && lectures.length === 0 && !editing && (
           <div className="rounded-xl border border-dashed border-border py-6 text-center">
             <GraduationCap className="mx-auto size-8 text-muted-foreground/40 mb-2" />
             <p className="text-xs text-muted-foreground">No leaves or timetable data yet.</p>
