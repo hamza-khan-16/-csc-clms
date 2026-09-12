@@ -548,6 +548,15 @@ function RequestsPage() {
   const isHod = role === "hod";
   const qc = useQueryClient();
 
+  // Admin has no leave approval authority — only HOD and Principal do
+  if (role === "admin") return (
+    <AppShell title="Requests">
+      <div className="flex flex-col items-center justify-center py-24 gap-3 text-center px-6">
+        <p className="text-muted-foreground text-sm">Leave approvals are handled by the HOD and Principal. Admins do not have approval authority.</p>
+      </div>
+    </AppShell>
+  );
+
   // Compensation assignments awaiting HOD approval for this dept
   const { data: pendingCompApprovals = [] } = useQuery({
     queryKey: ["hod-comp-approvals", profile?.department_id],

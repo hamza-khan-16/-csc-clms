@@ -779,11 +779,11 @@ function TeacherDashboard() {
                 const isNow = l.start_time <= cur && l.end_time > cur;
                 const isProxy = !!l.isProxy;
                 return (
-                  <li key={l.id} className={`flex items-center justify-between gap-3 text-sm rounded-lg px-2 py-1.5 ${isNow ? "bg-primary/10 ring-1 ring-primary/20" : isProxy ? "bg-muted/40" : ""}`}>
-                    <span className="text-muted-foreground shrink-0">{fmtTime(l.start_time)} – {fmtTime(l.end_time)}</span>
-                    <span className={`flex-1 font-medium ${isProxy ? "text-info" : ""}`}>{isProxy ? l.subject : l.subject}</span>
-                    <span className="text-xs text-muted-foreground shrink-0">{l.class_name}{l.room ? ` · ${l.room}` : ""}</span>
-                    {isNow && <span className="text-[10px] font-bold text-primary uppercase shrink-0">Now</span>}
+                  <li key={l.id} className={`flex items-center gap-2 text-sm rounded-lg px-2 py-1.5 ${isNow ? "bg-primary/10 ring-1 ring-primary/20" : isProxy ? "bg-muted/40" : ""}`}>
+                    <span className="text-muted-foreground shrink-0 text-xs">{fmtTime(l.start_time)}–{fmtTime(l.end_time)}</span>
+                    <span className={`flex-1 font-medium min-w-0 truncate ${isProxy ? "text-info" : ""}`}>{l.subject}</span>
+                    <span className="text-xs text-muted-foreground shrink-0 truncate max-w-[90px]">{l.class_name}{l.room ? ` · ${l.room}` : ""}</span>
+                    {isNow && <span className="text-[9px] font-bold text-primary-foreground bg-primary rounded px-1.5 py-0.5 shrink-0 leading-none">NOW</span>}
                   </li>
                 );
               })}

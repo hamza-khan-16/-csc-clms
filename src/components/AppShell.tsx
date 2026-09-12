@@ -170,7 +170,7 @@ export function AppShell({
     { to: "/schedule",      label: "My Schedule",       icon: CalendarDays,   roles: ["teacher", "hod"] },
     { to: "/proxies",       label: "Proxy Assignments", mobileLabel: "Proxies",  icon: Repeat,         roles: ["teacher", "hod"], badge: pendingProxies },
     { to: "/payroll",       label: "Payroll",           icon: Wallet,         roles: ["teacher", "hod"] },
-    { to: "/requests",      label: "Leave Requests",    mobileLabel: "Requests", icon: ClipboardCheck, roles: ["hod", "principal", "admin"] },
+    { to: "/requests",      label: "Leave Requests",    mobileLabel: "Requests", icon: ClipboardCheck, roles: ["hod", "principal"] },
     { to: "/notices",       label: "Notices",           icon: Megaphone,      roles: ["hod", "principal", "admin", "hr"] },
     { to: "/teachers",      label: "Teachers",          icon: Users,          roles: ["hod", "principal", "admin", "hr"] },
     { to: "/departments",   label: "Departments",       icon: Building2,      roles: ["principal", "admin"] },
