@@ -45,7 +45,7 @@ import { GuardedInput, GuardedTextarea, type GuardHandle } from "@/components/Gu
 import { groqModerationCheck, localBlocklistCheck } from "@/lib/textGuard";
 import { useServerFn } from "@tanstack/react-start";
 import { firePush } from "@/lib/push.functions";
-import { unlockAccount, applyPasswordChange, rejectPasswordChange } from "@/lib/admin.functions";
+import { unlockAccount, directPasswordReset, fetchPasswordResetRequests, completePasswordResetRequest } from "@/lib/admin.functions";
 
 export const Route = createFileRoute("/requests")({
   head: () => ({
@@ -594,71 +594,41 @@ function RejectedProxyBanner({ leaveRequestIds }: { leaveRequestIds: string[] })
   );
 }
 
-// ── HOD: Password Change Requests panel ───────────────────────────────────────
-// Teachers submit a password change request via the Forgot Password flow.
-// HODs see pending requests for their own department here and can approve or reject.
-function HodPasswordChangeRequests({ deptId }: { deptId: string }) {
+// ── HOD: Forgot-password reset requests panel ─────────────────────────────────
+// When a teacher clicks "Forgot password?" on the login page, it writes a row
+// to password_reset_requests.  Previously only Admin could see and action these.
+// Now HODs see requests from teachers in their own department and set a temp
+// password directly — same UI as the Admin panel but department-scoped.
+function HodPasswordResetRequests() {
   const qc = useQueryClient();
-  const applyFn = useServerFn(applyPasswordChange);
-  const rejectFn = useServerFn(rejectPasswordChange);
-  const [rejectNote, setRejectNote] = useState<Record<string, string>>({});
+  const fetchRequests = useServerFn(fetchPasswordResetRequests);
+  const completeRequest = useServerFn(completePasswordResetRequest);
+  const resetFn = useServerFn(directPasswordReset);
+  const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Fetch pending password_change_requests for teachers in this HOD's department
-  const { data: pwRequests = [], isLoading } = useQuery({
-    queryKey: ["hod-pw-change-requests", deptId],
-    enabled: !!deptId,
-    refetchInterval: 15_000,
-    queryFn: async () => {
-      // Get all teacher IDs in this department
-      const { data: deptProfiles } = await supabase
-        .from("profiles")
-        .select("id, full_name, user_id")
-        .eq("department_id", deptId)
-        .eq("approved", true);
-      const deptTeacherIds = (deptProfiles ?? []).map((p) => p.id);
-      if (deptTeacherIds.length === 0) return [];
-
-      // Get pending password change requests for those teachers
-      const { data: reqs } = await supabase
-        .from("password_change_requests")
-        .select("id, teacher_id, status, created_at")
-        .in("teacher_id", deptTeacherIds)
-        .eq("status", "pending")
-        .order("created_at", { ascending: true });
-
-      // Merge in profile info
-      const profileMap = Object.fromEntries((deptProfiles ?? []).map((p) => [p.id, p]));
-      return (reqs ?? []).map((r) => ({
-        ...r,
-        teacher: profileMap[r.teacher_id] ?? null,
-      }));
-    },
+  const { data: requests = [], isLoading } = useQuery({
+    queryKey: ["hod-password-reset-requests"],
+    refetchInterval: 20_000,
+    queryFn: () => fetchRequests(),
   });
 
-  if (isLoading || pwRequests.length === 0) return null;
+  if (isLoading || requests.length === 0) return null;
 
-  async function handleApprove(requestId: string) {
-    setBusy(requestId);
+  async function handleSetTemp(req: { id: string; teacher_id: string; full_name: string }) {
+    const pw = tempPasswords[req.id]?.trim() ?? "";
+    if (pw.length < 12) return toast.error("Temporary password must be at least 12 characters");
+    setBusy(req.id);
     try {
-      await applyFn({ data: { requestId } });
-      toast.success("Password change approved — teacher can now log in with their new password");
-      qc.invalidateQueries({ queryKey: ["hod-pw-change-requests", deptId] });
-    } catch (e: any) {
-      toast.error(e?.message ?? "Could not approve request");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleReject(requestId: string) {
-    setBusy(requestId);
-    try {
-      await rejectFn({ data: { requestId, note: rejectNote[requestId] ?? "" } });
-      toast.success("Password change request rejected");
-      qc.invalidateQueries({ queryKey: ["hod-pw-change-requests", deptId] });
-    } catch (e: any) {
-      toast.error(e?.message ?? "Could not reject request");
+      // Set the new password in Supabase Auth
+      await resetFn({ data: { targetUserId: req.teacher_id, newPassword: pw } });
+      // Mark the request as completed
+      await completeRequest({ data: { requestId: req.id } });
+      toast.success(`Temporary password set for ${req.full_name}. Share it with them securely.`);
+      setTempPasswords((prev) => { const n = { ...prev }; delete n[req.id]; return n; });
+      qc.invalidateQueries({ queryKey: ["hod-password-reset-requests"] });
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to set password");
     } finally {
       setBusy(null);
     }
@@ -666,50 +636,45 @@ function HodPasswordChangeRequests({ deptId }: { deptId: string }) {
 
   return (
     <SectionCard
-      title="Password Change Requests"
-      subtitle={`${pwRequests.length} pending in your department`}
+      title="Forgot Password Requests"
+      subtitle={`${requests.length} teacher${requests.length > 1 ? "s" : ""} in your department need${requests.length === 1 ? "s" : ""} a password reset`}
     >
       <ul className="space-y-3">
-        {pwRequests.map((req: any) => (
+        {(requests as any[]).map((req) => (
           <li key={req.id} className="rounded-xl border border-warning/25 bg-warning/5 p-4 space-y-3">
             <div className="flex items-start gap-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-warning/15">
                 <KeyRound className="size-4 text-warning" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm">{req.teacher?.full_name ?? "Unknown"}</p>
-                <p className="text-xs text-muted-foreground">{req.teacher?.user_id ?? ""}</p>
+                <p className="font-semibold text-sm">{req.full_name}</p>
+                <p className="text-xs text-muted-foreground">College ID: {req.college_id}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Requested {new Date(req.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                  Requested {new Date(req.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                 </p>
               </div>
             </div>
-            <Input
-              placeholder="Rejection note (optional)"
-              className="h-8 text-xs"
-              value={rejectNote[req.id] ?? ""}
-              onChange={(e) => setRejectNote((n) => ({ ...n, [req.id]: e.target.value }))}
-            />
             <div className="flex gap-2">
+              <Input
+                type="text"
+                placeholder="Set temporary password (min 12 chars)"
+                className="flex-1 h-9 text-sm font-mono"
+                autoComplete="off"
+                value={tempPasswords[req.id] ?? ""}
+                onChange={(e) => setTempPasswords((prev) => ({ ...prev, [req.id]: e.target.value }))}
+              />
               <Button
                 size="sm"
-                className="gap-1.5 bg-success hover:bg-success/90 text-success-foreground"
-                disabled={busy === req.id}
-                onClick={() => handleApprove(req.id)}
+                className="h-9 shrink-0"
+                disabled={busy === req.id || (tempPasswords[req.id]?.trim().length ?? 0) < 12}
+                onClick={() => handleSetTemp(req)}
               >
-                <CheckCircle2 className="size-3.5" />
-                {busy === req.id ? "Processing…" : "Approve"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
-                disabled={busy === req.id}
-                onClick={() => handleReject(req.id)}
-              >
-                Reject
+                {busy === req.id ? "Setting…" : "Set & Complete"}
               </Button>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Set a temporary password, then share it with the teacher directly or via WhatsApp from the Teachers page.
+            </p>
           </li>
         ))}
       </ul>
@@ -1074,10 +1039,8 @@ function RequestsPage() {
           />
         )}
 
-        {/* HOD: Password change requests from teachers in their department */}
-        {isHod && profile?.department_id && (
-          <HodPasswordChangeRequests deptId={profile.department_id} />
-        )}
+        {/* HOD: Forgot-password requests from teachers in their department */}
+        {isHod && <HodPasswordResetRequests />}
 
         {/* HOD: Rejected proxy alert — summarises all leave requests that have proxy slots
             needing reassignment so the HOD doesn't have to scroll through the full list */}

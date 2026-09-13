@@ -397,13 +397,14 @@ export const fetchPasswordResetRequests = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    // Verify caller is admin
+    // Caller must be admin or HOD
     const { data: roleRow } = await supabaseAdmin
       .from("user_roles")
-      .select("role")
+      .select("role, department_id")
       .eq("user_id", context.userId)
       .maybeSingle();
-    if (roleRow?.role !== "admin") throw new Error("Admin only");
+    const callerRole = roleRow?.role;
+    if (callerRole !== "admin" && callerRole !== "hod") throw new Error("Admin or HOD only");
 
     const { data, error } = await supabaseAdmin
       .from("password_reset_requests")
@@ -411,7 +412,24 @@ export const fetchPasswordResetRequests = createServerFn({ method: "GET" })
       .eq("status", "pending")
       .order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
-    return data ?? [];
+    const allRequests = data ?? [];
+
+    // HOD: filter to only teachers in their own department
+    if (callerRole === "hod") {
+      const hodDeptId = roleRow?.department_id;
+      if (!hodDeptId) return [];
+      // Fetch all teacher IDs in this department
+      const { data: deptProfiles } = await supabaseAdmin
+        .from("profiles")
+        .select("id")
+        .eq("department_id", hodDeptId)
+        .eq("approved", true);
+      const deptTeacherIds = new Set((deptProfiles ?? []).map((p: { id: string }) => p.id));
+      return allRequests.filter((r) => deptTeacherIds.has(r.teacher_id));
+    }
+
+    // Admin: return all
+    return allRequests;
   });
 
 /**
@@ -425,10 +443,33 @@ export const completePasswordResetRequest = createServerFn({ method: "POST" })
 
     const { data: roleRow } = await supabaseAdmin
       .from("user_roles")
-      .select("role")
+      .select("role, department_id")
       .eq("user_id", context.userId)
       .maybeSingle();
-    if (roleRow?.role !== "admin") throw new Error("Admin only");
+    const callerRole = roleRow?.role;
+    if (callerRole !== "admin" && callerRole !== "hod") throw new Error("Admin or HOD only");
+
+    // HOD: verify the request belongs to a teacher in their department before completing
+    if (callerRole === "hod") {
+      const hodDeptId = roleRow?.department_id;
+      if (!hodDeptId) throw new Error("HOD has no department assigned");
+
+      const { data: req } = await supabaseAdmin
+        .from("password_reset_requests")
+        .select("teacher_id")
+        .eq("id", data.requestId)
+        .maybeSingle();
+      if (!req) throw new Error("Request not found");
+
+      const { data: teacherProfile } = await supabaseAdmin
+        .from("profiles")
+        .select("department_id")
+        .eq("id", req.teacher_id)
+        .maybeSingle();
+      if (teacherProfile?.department_id !== hodDeptId) {
+        throw new Error("HOD can only complete password reset requests for teachers in their own department");
+      }
+    }
 
     const { error } = await supabaseAdmin
       .from("password_reset_requests")
