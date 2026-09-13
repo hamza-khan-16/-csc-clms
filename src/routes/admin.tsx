@@ -441,8 +441,6 @@ function AllStaffCard({
           <div className="flex flex-wrap gap-2">
             {ROLE_PILLS.filter(([k]) => roleCounts[k] > 0).map(([k, label]) => (
               <button key={k}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => { setRoleFilter(k === roleFilter ? "all" : k); setPage(0); }}
                 className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${roleFilter === k ? "bg-primary text-primary-foreground border-primary" : "bg-muted/50 border-border text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               >
@@ -462,13 +460,7 @@ function AllStaffCard({
           <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-              <Input
-                placeholder="Search by name or designation…"
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-                onKeyDown={(e) => e.stopPropagation()}
-                className="pl-8 h-9 text-sm"
-              />
+              <Input placeholder="Search by name or designation…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} className="pl-8 h-9 text-sm" />
             </div>
             <Select value={deptFilter} onValueChange={(v) => { setDeptFilter(v); setPage(0); }}>
               <SelectTrigger className="h-9 text-sm w-full sm:w-48"><SelectValue placeholder="All departments" /></SelectTrigger>
@@ -506,14 +498,14 @@ function AllStaffCard({
             <div className="flex items-center justify-between pt-1">
               <p className="text-xs text-muted-foreground">Page {pageSafe + 1} of {totalPages}</p>
               <div className="flex gap-1">
-                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={pageSafe === 0} onMouseDown={(e) => e.preventDefault()} onClick={() => setPage((p) => p - 1)}>← Prev</Button>
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={pageSafe === 0} onClick={() => setPage((p) => p - 1)}>← Prev</Button>
                 {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
                   const start = Math.max(0, pageSafe - 2);
                   return start + i;
                 }).filter((i) => i < totalPages).map((i) => (
-                  <Button key={i} size="sm" variant={i === pageSafe ? "default" : "outline"} className="h-7 w-7 p-0 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => setPage(i)}>{i + 1}</Button>
+                  <Button key={i} size="sm" variant={i === pageSafe ? "default" : "outline"} className="h-7 w-7 p-0 text-xs" onClick={() => setPage(i)}>{i + 1}</Button>
                 ))}
-                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={pageSafe >= totalPages - 1} onMouseDown={(e) => e.preventDefault()} onClick={() => setPage((p) => p + 1)}>Next →</Button>
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={pageSafe >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>Next →</Button>
               </div>
             </div>
           )}
@@ -540,12 +532,7 @@ function CollapsibleStaffRow({
   return (
     <div className={`rounded-xl border transition-colors ${open ? "border-primary/30 bg-primary/5" : "border-border"}`}>
       {/* Header row — click to expand */}
-      <button
-        type="button"
-        className="w-full flex items-center gap-3 px-4 py-3 text-left"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-      >
+      <button className="w-full flex items-center gap-3 px-4 py-3 text-left" onClick={() => setOpen((v) => !v)}>
         <div className="size-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
           <span className="text-sm font-bold text-primary leading-none">{initials}</span>
         </div>
