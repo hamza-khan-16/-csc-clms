@@ -305,6 +305,7 @@ export type Database = {
           id: string
           monthly_salary: number
           password_changed_at: string | null
+          phone: string | null
           subjects_taught: string | null
           user_id: string
         }
@@ -326,6 +327,7 @@ export type Database = {
           id: string
           monthly_salary?: number
           password_changed_at?: string | null
+          phone?: string | null
           subjects_taught?: string | null
           user_id: string
         }
@@ -347,6 +349,7 @@ export type Database = {
           id?: string
           monthly_salary?: number
           password_changed_at?: string | null
+          phone?: string | null
           subjects_taught?: string | null
           user_id?: string
         }

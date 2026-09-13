@@ -451,6 +451,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
   const [busy, setBusy] = useState(false);
   const [previewUserId, setPreviewUserId] = useState("");
   const [idChecking, setIdChecking] = useState(false);
+  const [phone, setPhone] = useState("");
 
   const needsDept = registerRole === "teacher" || registerRole === "hod";
   const pwValid = PW_RULES.every((r) => r.re.test(password));
@@ -488,13 +489,15 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
     if (!firstName.trim()) return toast.error("Please enter your first name");
     if (!gender) return toast.error("Please select a gender");
     if (needsDept && !departmentId) return toast.error("Please select a department");
+    if (!phone.trim()) return toast.error("Please enter your mobile number");
+    if (!/^\+?[0-9]{10,15}$/.test(phone.replace(/\s/g, ""))) return toast.error("Please enter a valid mobile number (10-15 digits)");
     if (!pwValid) return toast.error("Password does not meet the requirements");
 
     const email = `${firstName.trim().toLowerCase()}.csc@csc.edu`;
     setBusy(true);
     try {
       const result = await register({
-        data: { email, password, fullName, designation, departmentId: needsDept ? departmentId : null, role: registerRole, gender, dob: dob || null },
+        data: { email, password, fullName, designation, departmentId: needsDept ? departmentId : null, role: registerRole, gender, dob: dob || null, phone: phone.trim() },
       });
       if ("error" in result && result.error) return toast.error(result.error);
       setPending(true);
@@ -578,7 +581,20 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
 
       <DobPicker value={dob} onChange={setDob} />
 
-      {/* Auto-generated User ID */}
+      {/* Mobile number — required for password reset via HOD */}
+      <div className="space-y-2">
+        <Label htmlFor="reg-phone">Mobile number <span className="text-destructive">*</span></Label>
+        <Input
+          id="reg-phone"
+          type="tel"
+          inputMode="numeric"
+          placeholder="e.g. 9876543210"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value.replace(/[^0-9+\s]/g, ""))}
+          required
+        />
+        <p className="text-xs text-muted-foreground">Used by your HOD for password reset. Not shared publicly.</p>
+      </div>
       <div className="space-y-2">
         <Label htmlFor="userid-preview">User ID (auto-generated)</Label>
         <div className="flex items-center gap-2">

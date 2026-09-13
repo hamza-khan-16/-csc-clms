@@ -167,6 +167,7 @@ function ProfilePage() {
   const { profile, role, session } = useAuth();
   const qc = useQueryClient();
   const [name, setName] = useState(profile?.full_name ?? "");
+  const [phone, setPhone] = useState((profile as any)?.phone ?? "");
   const nameGuardRef = useRef<GuardHandle>(null);
   const [gender, setGender] = useState(profile?.gender ?? "");
   const [dob, setDob] = useState(profile?.date_of_birth ?? "");
@@ -228,6 +229,7 @@ function ProfilePage() {
         full_name: name.trim(),
         gender: (gender || null) as "female" | "male" | "other" | null,
         date_of_birth: dob || null,
+        phone: phone.trim() || null,
       })
       .eq("id", profile!.id);
     setBusy(false);
@@ -355,6 +357,18 @@ function ProfilePage() {
             <div className="space-y-2">
               <Label htmlFor="name">Full name</Label>
               <GuardedInput ref={nameGuardRef} fieldName="Full name" id="name" value={name} onChange={setName} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Mobile number</Label>
+              <Input
+                id="phone"
+                type="tel"
+                inputMode="numeric"
+                placeholder="e.g. 9876543210"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/[^0-9+\s]/g, ""))}
+              />
+              <p className="text-xs text-muted-foreground">Used by your HOD for password reset if needed.</p>
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
@@ -585,6 +599,12 @@ function ProfilePage() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Gender</span>
                   <span className="font-medium capitalize">{profile.gender}</span>
+                </div>
+              )}
+              {(profile as any)?.phone && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Mobile</span>
+                  <span className="font-medium">{(profile as any).phone}</span>
                 </div>
               )}
             </div>

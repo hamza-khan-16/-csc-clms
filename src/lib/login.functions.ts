@@ -190,6 +190,7 @@ export const registerStaff = createServerFn({ method: "POST" })
       role: "teacher" | "admin" | "hod" | "hr";
       gender?: string;
       dob?: string | null;
+      phone?: string | null;
     }) => {
       const email = String(data?.email ?? "").trim().toLowerCase();
       const password = String(data?.password ?? "");
@@ -278,6 +279,7 @@ export const registerStaff = createServerFn({ method: "POST" })
       hr_approved: hrApproved,
       ...(data.gender ? { gender: data.gender as "female" | "male" | "other" } : {}),
       ...(data.dob ? { date_of_birth: data.dob } : {}),
+      ...(data.phone ? { phone: data.phone } : {}),
       password_changed_at: new Date().toISOString(),
     });
     if (profileError) {

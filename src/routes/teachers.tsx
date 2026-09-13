@@ -26,8 +26,10 @@ import {
 } from "@/components/ui/select";
 import {
   GraduationCap, Calendar, BookOpen, TrendingUp,
-  X, ChevronRight, Clock, UserCircle2, Edit3, Check,
+  X, ChevronRight, Clock, UserCircle2, Edit3, Check, MessageCircle, KeyRound,
 } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
+import { directPasswordReset } from "@/lib/admin.functions";
 import { fmtDate, leaveTypeLabel, type LeaveType } from "@/lib/leave";
 
 export const Route = createFileRoute("/teachers")({
@@ -73,7 +75,7 @@ function TeachersPage() {
 
       let q = supabase
         .from("profiles")
-        .select("id, full_name, designation, department_id, date_of_joining, date_of_birth, gender, experience_years, subjects_taught, departments(name)")
+        .select("id, full_name, designation, department_id, date_of_joining, date_of_birth, gender, experience_years, subjects_taught, phone, user_id, departments(name)")
         .eq("approved", true)   // Fix: exclude unapproved/pending registrations
         .order("full_name");
       if (role === "hod") q = q.eq("department_id", profile!.department_id ?? "");
@@ -263,6 +265,34 @@ function TeacherDetailPanel({
   const [subjects, setSubjects] = useState<string>(teacher.subjects_taught ?? "");
   const subjectsGuardRef = useRef<GuardHandle>(null);
   const [saving, setSaving] = useState(false);
+  const resetFn = useServerFn(directPasswordReset);
+  const [tempPw, setTempPw] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+
+  async function handleHodReset() {
+    if (tempPw.length < 12) return toast.error("Password must be at least 12 characters");
+    setResetBusy(true);
+    try {
+      await resetFn({ data: { targetUserId: teacher.user_id, newPassword: tempPw } });
+      toast.success(`Password reset for ${teacher.full_name}`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Reset failed");
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  function openWhatsApp() {
+    const phone = (teacher as any).phone ?? "";
+    if (!phone) { toast.error("No mobile number on file for this teacher"); return; }
+    // Strip non-digits, add India country code if not present
+    const digits = phone.replace(/\D/g, "");
+    const intl = digits.startsWith("91") ? digits : `91${digits}`;
+    const msg = encodeURIComponent(
+      `Dear ${teacher.full_name},\n\nYour CSC LMS password has been reset by your HOD.\n\nTemporary password: ${tempPw}\n\nPlease log in and change your password immediately from your Profile page.\n\nRegards,\nChandrabhan Sharma College`
+    );
+    window.open(`https://wa.me/${intl}?text=${msg}`, "_blank");
+  }
 
   // DOB: stored as "DD-MM" or "DD-MM-YYYY"; split into 3 fields
   function parseDob(raw: string | null | undefined): { day: string; month: string; year: string } {
@@ -570,6 +600,49 @@ function TeacherDetailPanel({
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* HOD: Password reset + WhatsApp */}
+        {isHod && (
+          <div className="rounded-xl border border-border p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <KeyRound className="size-4 text-muted-foreground" />
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Reset Password</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                type="text"
+                placeholder="Set temporary password (min 12 chars)"
+                value={tempPw}
+                onChange={(e) => setTempPw(e.target.value)}
+                className="flex-1 h-9 text-sm font-mono"
+                autoComplete="off"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 shrink-0"
+                disabled={resetBusy || tempPw.length < 12}
+                onClick={handleHodReset}
+              >
+                {resetBusy ? "Resetting…" : "Reset"}
+              </Button>
+            </div>
+            {tempPw.length >= 12 && (
+              <Button
+                size="sm"
+                className="w-full gap-2 bg-[#25D366] hover:bg-[#20bc5a] text-white"
+                onClick={openWhatsApp}
+              >
+                <MessageCircle className="size-4" />
+                Send via WhatsApp
+              </Button>
+            )}
+            {!(teacher as any).phone && (
+              <p className="text-xs text-warning">⚠ No mobile number on file — WhatsApp unavailable. Ask teacher to add their number in Profile.</p>
+            )}
+            <p className="text-xs text-muted-foreground">Reset the password first, then send via WhatsApp so the teacher gets both steps together.</p>
           </div>
         )}
 
