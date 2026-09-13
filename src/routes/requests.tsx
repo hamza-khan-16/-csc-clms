@@ -1080,6 +1080,21 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     },
   });
 
+  // Rejected proxy slots — HOD needs to reassign these
+  const { data: rejectedProxies = [] } = useQuery({
+    queryKey: ["rejected-proxies", request.id],
+    enabled: isHod,
+    refetchInterval: 10_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("proxy_assignments")
+        .select("id, proxy_date, start_time, end_time, subject, class_name, lecture_id")
+        .eq("leave_request_id", request.id)
+        .eq("status", "rejected");
+      return data ?? [];
+    },
+  });
+
   const [manual, setManual] = useState<{ key: string; date: string; start_time: string; end_time: string; subject: string; class_name: string }[]>([]);
 
   const allSlots = useMemo(() => [
@@ -1370,6 +1385,88 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
             Proxy assignment
             {request.session !== "full_day" && <span className="ml-2 text-info normal-case">({sessionLabel} only)</span>}
           </p>
+
+          {/* Rejected proxy slots — need reassignment */}
+          {rejectedProxies.length > 0 && (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-3 mb-2">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="size-4 text-destructive shrink-0" />
+                <p className="text-sm font-semibold text-destructive">
+                  {rejectedProxies.length} proxy slot{rejectedProxies.length > 1 ? "s" : ""} rejected — reassignment needed
+                </p>
+              </div>
+              <ul className="space-y-2">
+                {(rejectedProxies as any[]).map((rp) => {
+                  const key = `reassign-${rp.id}`;
+                  const opts = candidates(rp.proxy_date, rp.start_time, rp.end_time, rp.class_name);
+                  const chosen = opts.find((o) => o.id === choices[key]);
+                  const dateStr = new Date(rp.proxy_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+                  return (
+                    <li key={rp.id} className="rounded-lg border border-destructive/20 bg-background p-3 space-y-2">
+                      <div>
+                        <p className="text-xs font-semibold">{rp.subject} · {rp.class_name}</p>
+                        <p className="text-xs text-muted-foreground">{dateStr} · {fmtTime(rp.start_time)} – {fmtTime(rp.end_time)}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <Select value={choices[key] ?? ""} onValueChange={(v) => setChoices((c) => ({ ...c, [key]: v }))}>
+                          <SelectTrigger className="flex-1 sm:w-56 h-8 text-xs">
+                            <SelectValue placeholder="Select new proxy teacher" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {opts.map((o) => (
+                              <SelectItem key={o.id} value={o.id}>
+                                {o.full_name}{o.teachesClass ? " · ✓ Same class" : ""}{o.free ? " · Free" : " · Busy"}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {chosen && (
+                          <div className="flex gap-1 flex-wrap">
+                            {chosen.teachesClass && <Badge variant="secondary" className="text-[10px] bg-success/10 text-success border-success/20">Teaches class</Badge>}
+                            <Badge variant="secondary" className={`text-[10px] ${chosen.free ? "bg-success/10 text-success border-success/20" : "bg-warning/10 text-warning border-warning/20"}`}>
+                              {chosen.free ? "Free" : "Has lecture"}
+                            </Badge>
+                          </div>
+                        )}
+                        <Button size="sm" disabled={!choices[key]}
+                          onClick={async () => {
+                            const newTeacherId = choices[key];
+                            if (!newTeacherId) return;
+                            await supabase.from("proxy_assignments").delete().eq("id", rp.id);
+                            const { error } = await supabase.from("proxy_assignments").insert({
+                              leave_request_id: request.id,
+                              lecture_id: rp.lecture_id ?? null,
+                              proxy_teacher_id: newTeacherId,
+                              absentee_teacher_id: request.teacher_id,
+                              proxy_date: rp.proxy_date,
+                              start_time: rp.start_time,
+                              end_time: rp.end_time,
+                              subject: rp.subject,
+                              class_name: rp.class_name,
+                              status: "pending",
+                            });
+                            if (error) { toast.error(error.message); return; }
+                            firePush({
+                              userIds: [newTeacherId],
+                              title: "Proxy Lecture Assigned",
+                              body: `You have been assigned to cover ${rp.subject} (${rp.class_name}) on ${dateStr}`,
+                              targetUrl: "/proxies",
+                            });
+                            toast.success(`Reassigned to ${opts.find((o) => o.id === newTeacherId)?.full_name ?? "teacher"}`);
+                            setChoices((c) => { const n = { ...c }; delete n[key]; return n; });
+                            qc.invalidateQueries({ queryKey: ["rejected-proxies", request.id] });
+                          }}
+                        >
+                          Reassign
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
           {allSlots.length === 0 && (
             <p className="text-sm text-muted-foreground">No lectures found for these dates{request.session !== "full_day" ? ` (${sessionLabel})` : ""}.</p>
           )}

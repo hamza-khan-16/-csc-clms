@@ -156,10 +156,17 @@ function ProxiesPage() {
       const row = rows.find((r) => r.id === id);
       const absenteeName = row?.absentee?.full_name ?? "a teacher";
       const subject = (row as any)?.subject ?? "a class";
+      const className = (row as any)?.class_name ?? "";
+      const proxyDate = (row as any)?.proxy_date ?? "";
+      const startTime = (row as any)?.start_time ?? "";
+      const dateStr = proxyDate
+        ? new Date(proxyDate + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
+        : "";
+      const timeStr = startTime ? startTime.slice(0, 5) : "";
       firePush({
         userIds: [`__hod_dept_${profile!.department_id}__`],
-        title: "Proxy Declined",
-        body: `${profile!.full_name} declined to cover ${subject} for ${absenteeName} — please reassign`,
+        title: "Proxy Rejected — Reassignment Needed",
+        body: `${profile!.full_name} declined to cover ${subject}${className ? ` (${className})` : ""}${dateStr ? ` on ${dateStr}` : ""}${timeStr ? ` at ${timeStr}` : ""} for ${absenteeName}. Please reassign.`,
         targetUrl: "/requests",
       });
     }
