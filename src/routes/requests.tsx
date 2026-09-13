@@ -39,13 +39,13 @@ import {
   type LeaveType,
   type DocStatus,
 } from "@/lib/leave";
-import { AlertCircle, Check, CheckCircle2, ChevronRight, Clock, FileText, Gift, Lightbulb, LockKeyhole } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ChevronRight, Clock, FileText, Gift, KeyRound, Lightbulb, LockKeyhole } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { GuardedInput, GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
 import { groqModerationCheck, localBlocklistCheck } from "@/lib/textGuard";
 import { useServerFn } from "@tanstack/react-start";
 import { firePush } from "@/lib/push.functions";
-import { unlockAccount } from "@/lib/admin.functions";
+import { unlockAccount, applyPasswordChange, rejectPasswordChange } from "@/lib/admin.functions";
 
 export const Route = createFileRoute("/requests")({
   head: () => ({
@@ -542,6 +542,181 @@ function LockedAccountsPanel({ role, deptId }: { role: "hod" | "principal"; dept
   );
 }
 
+// ── HOD: Rejected proxy banner ────────────────────────────────────────────────
+// Queries all proxy_assignments with status="rejected" across every leave request
+// that belongs to this HOD's department, then shows a summary alert linking the
+// HOD to the specific leave in the "All requests" list below.
+function RejectedProxyBanner({ leaveRequestIds }: { leaveRequestIds: string[] }) {
+  const { data: rejected = [] } = useQuery({
+    queryKey: ["all-rejected-proxies-banner", leaveRequestIds.join(",")],
+    enabled: leaveRequestIds.length > 0,
+    refetchInterval: 12_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("proxy_assignments")
+        .select("id, leave_request_id, proxy_date, subject, class_name")
+        .in("leave_request_id", leaveRequestIds)
+        .eq("status", "rejected");
+      return data ?? [];
+    },
+  });
+
+  if (rejected.length === 0) return null;
+
+  // Group by leave_request_id
+  const byLeave = rejected.reduce<Record<string, typeof rejected>>((acc, r) => {
+    if (!acc[r.leave_request_id]) acc[r.leave_request_id] = [];
+    acc[r.leave_request_id].push(r);
+    return acc;
+  }, {});
+
+  return (
+    <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        <AlertCircle className="size-4 text-destructive shrink-0" />
+        <p className="text-sm font-semibold text-destructive">
+          {rejected.length} proxy slot{rejected.length > 1 ? "s" : ""} rejected — reassignment needed
+        </p>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Open the relevant leave request in the list below to reassign each slot.
+      </p>
+      <ul className="space-y-1 mt-1">
+        {Object.entries(byLeave).map(([leaveId, slots]) => (
+          <li key={leaveId} className="text-xs text-destructive/80 flex items-center gap-1.5">
+            <span className="inline-block size-1.5 rounded-full bg-destructive/60 shrink-0" />
+            Leave request has {slots.length} rejected proxy slot{slots.length > 1 ? "s" : ""}
+            {slots[0]?.proxy_date ? ` (${new Date(slots[0].proxy_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" })})` : ""}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ── HOD: Password Change Requests panel ───────────────────────────────────────
+// Teachers submit a password change request via the Forgot Password flow.
+// HODs see pending requests for their own department here and can approve or reject.
+function HodPasswordChangeRequests({ deptId }: { deptId: string }) {
+  const qc = useQueryClient();
+  const applyFn = useServerFn(applyPasswordChange);
+  const rejectFn = useServerFn(rejectPasswordChange);
+  const [rejectNote, setRejectNote] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  // Fetch pending password_change_requests for teachers in this HOD's department
+  const { data: pwRequests = [], isLoading } = useQuery({
+    queryKey: ["hod-pw-change-requests", deptId],
+    enabled: !!deptId,
+    refetchInterval: 15_000,
+    queryFn: async () => {
+      // Get all teacher IDs in this department
+      const { data: deptProfiles } = await supabase
+        .from("profiles")
+        .select("id, full_name, user_id")
+        .eq("department_id", deptId)
+        .eq("approved", true);
+      const deptTeacherIds = (deptProfiles ?? []).map((p) => p.id);
+      if (deptTeacherIds.length === 0) return [];
+
+      // Get pending password change requests for those teachers
+      const { data: reqs } = await supabase
+        .from("password_change_requests")
+        .select("id, teacher_id, status, created_at")
+        .in("teacher_id", deptTeacherIds)
+        .eq("status", "pending")
+        .order("created_at", { ascending: true });
+
+      // Merge in profile info
+      const profileMap = Object.fromEntries((deptProfiles ?? []).map((p) => [p.id, p]));
+      return (reqs ?? []).map((r) => ({
+        ...r,
+        teacher: profileMap[r.teacher_id] ?? null,
+      }));
+    },
+  });
+
+  if (isLoading || pwRequests.length === 0) return null;
+
+  async function handleApprove(requestId: string) {
+    setBusy(requestId);
+    try {
+      await applyFn({ data: { requestId } });
+      toast.success("Password change approved — teacher can now log in with their new password");
+      qc.invalidateQueries({ queryKey: ["hod-pw-change-requests", deptId] });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not approve request");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleReject(requestId: string) {
+    setBusy(requestId);
+    try {
+      await rejectFn({ data: { requestId, note: rejectNote[requestId] ?? "" } });
+      toast.success("Password change request rejected");
+      qc.invalidateQueries({ queryKey: ["hod-pw-change-requests", deptId] });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not reject request");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <SectionCard
+      title="Password Change Requests"
+      subtitle={`${pwRequests.length} pending in your department`}
+    >
+      <ul className="space-y-3">
+        {pwRequests.map((req: any) => (
+          <li key={req.id} className="rounded-xl border border-warning/25 bg-warning/5 p-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-warning/15">
+                <KeyRound className="size-4 text-warning" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm">{req.teacher?.full_name ?? "Unknown"}</p>
+                <p className="text-xs text-muted-foreground">{req.teacher?.user_id ?? ""}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Requested {new Date(req.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                </p>
+              </div>
+            </div>
+            <Input
+              placeholder="Rejection note (optional)"
+              className="h-8 text-xs"
+              value={rejectNote[req.id] ?? ""}
+              onChange={(e) => setRejectNote((n) => ({ ...n, [req.id]: e.target.value }))}
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="gap-1.5 bg-success hover:bg-success/90 text-success-foreground"
+                disabled={busy === req.id}
+                onClick={() => handleApprove(req.id)}
+              >
+                <CheckCircle2 className="size-3.5" />
+                {busy === req.id ? "Processing…" : "Approve"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
+                disabled={busy === req.id}
+                onClick={() => handleReject(req.id)}
+              >
+                Reject
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </SectionCard>
+  );
+}
+
 // ── Requests page ─────────────────────────────────────────────────────────────
 function RequestsPage() {
   const { profile, role } = useAuth();
@@ -897,6 +1072,17 @@ function RequestsPage() {
             role={isHod ? "hod" : "principal"}
             deptId={profile?.department_id ?? null}
           />
+        )}
+
+        {/* HOD: Password change requests from teachers in their department */}
+        {isHod && profile?.department_id && (
+          <HodPasswordChangeRequests deptId={profile.department_id} />
+        )}
+
+        {/* HOD: Rejected proxy alert — summarises all leave requests that have proxy slots
+            needing reassignment so the HOD doesn't have to scroll through the full list */}
+        {isHod && requests.length > 0 && (
+          <RejectedProxyBanner leaveRequestIds={requests.map((r) => r.id)} />
         )}
 
         <SectionCard

@@ -273,7 +273,7 @@ function TeacherDetailPanel({
     if (tempPw.length < 12) return toast.error("Password must be at least 12 characters");
     setResetBusy(true);
     try {
-      await resetFn({ data: { targetUserId: teacher.user_id, newPassword: tempPw } });
+      await resetFn({ data: { targetUserId: teacher.id, newPassword: tempPw } });
       toast.success(`Password reset for ${teacher.full_name}`);
     } catch (e: any) {
       toast.error(e?.message ?? "Reset failed");
