@@ -20,12 +20,12 @@ function getOS(): any {
   return (window as any).median?.onesignal;
 }
 
-async function saveTokenViaPost(userId: string, onesignalId: string): Promise<void> {
+async function saveTokenViaPost(userId: string, onesignalId: string, sessionId?: string): Promise<void> {
   try {
     await fetch("/api/push-token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, onesignalId }),
+      body: JSON.stringify({ userId, onesignalId, sessionId }),
     });
   } catch (e) { if (process.env.NODE_ENV==="development") console.warn("[push]",e); }
 }
@@ -36,7 +36,7 @@ async function syncFromServer(userId: string): Promise<void> {
   } catch (e) { if (process.env.NODE_ENV==="development") console.warn("[push]",e); }
 }
 
-export function initPush(userId: string): void {
+export function initPush(userId: string, sessionId?: string): void {
   if (!isMedianApp()) return;
 
   // Debounce — if called multiple times quickly (session restore flash),
@@ -78,7 +78,7 @@ export function initPush(userId: string): void {
           const onesignalId = info?.subscriptionId ?? info?.oneSignalUserId;
 
           if (onesignalId && info?.isSubscribed !== false) {
-            await saveTokenViaPost(userId, onesignalId);
+            await saveTokenViaPost(userId, onesignalId, sessionId);
           } else if (!onesignalId) {
             // Prompt for permission if not subscribed
             os.promptNotification?.({
@@ -88,7 +88,7 @@ export function initPush(userId: string): void {
                 os.info?.({
                   callback: async (info2: { oneSignalUserId?: string; subscriptionId?: string }) => {
                     const id = info2?.subscriptionId ?? info2?.oneSignalUserId;
-                    if (id) await saveTokenViaPost(userId, id);
+                    if (id) await saveTokenViaPost(userId, id, sessionId);
                   },
                 });
               },

@@ -70,6 +70,8 @@ const FILTER_OPTIONS: { value: FilterTab; label: string }[] = [
 ];
 
 const PENDING_STATUSES: string[] = ["pending_hod", "hod_recommended", "pending_principal"];
+// Can only withdraw while still waiting for HOD — not after HOD has acted
+const WITHDRAWABLE_STATUSES: string[] = ["pending_hod"];
 
 function MyLeavesPage() {
   const { profile } = useAuth();
@@ -171,6 +173,13 @@ function MyLeavesPage() {
     // Snapshot before delete for audit log
     const { data: req } = await supabase
       .from("leave_requests").select("leave_type, from_date, to_date, status").eq("id", id).single();
+
+    // Double-check: block withdrawal if HOD has already approved
+    if (req && !WITHDRAWABLE_STATUSES.includes(req.status)) {
+      toast.error("This leave request cannot be withdrawn — HOD has already actioned it.");
+      setConfirmId(null);
+      return;
+    }
 
     // Insert audit log FIRST while the FK (leave_request_id) still exists in leave_requests.
     // Inserting after delete causes a 409 FK violation even though the column is ON DELETE SET NULL —
@@ -347,11 +356,14 @@ function MyLeavesPage() {
                 )}
               </div>
 
-              {/* Withdraw button — only for pending */}
-              {PENDING_STATUSES.includes(l.status) && (
+              {/* Withdraw button — only while still pending HOD (not after HOD has acted) */}
+              {WITHDRAWABLE_STATUSES.includes(l.status) && (
                 <Button variant="outline" size="sm" className="w-full" onClick={() => setConfirmId(l.id)}>
                   Withdraw request
                 </Button>
+              )}
+              {(l.status === "hod_recommended" || l.status === "pending_principal" || l.status === "hod_approved" || l.status === "approved") && (
+                <p className="text-xs text-muted-foreground text-center">Cannot withdraw — HOD has already approved this request.</p>
               )}
 
               {(l.hod_note || l.principal_note || l.doc_note) && (

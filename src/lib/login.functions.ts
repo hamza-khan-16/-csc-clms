@@ -457,5 +457,37 @@ export const submitForgotPasswordRequest = createServerFn({ method: "POST" })
       });
     if (process.env.NODE_ENV==="development") console.log("[submitForgotPw] insert error:", error);
     if (error) return { error: `DB error: ${error.message}` as const };
+
+    // Notify the right person based on the requester's role
+    try {
+      const { data: roleRow } = await supabaseAdmin
+        .from("user_roles").select("role").eq("user_id", profile.id).maybeSingle();
+      const requesterRole = roleRow?.role ?? "teacher";
+
+      const { dispatchPush } = await import("@/lib/push.dispatch.server");
+
+      if (requesterRole === "hod" || requesterRole === "principal" || requesterRole === "admin") {
+        // HOD/Principal/Admin requests go to Admin
+        await dispatchPush({
+          userIds: ["__admin__"],
+          title: "Password Reset Request",
+          body: `${profile.full_name} (${requesterRole.toUpperCase()}) has requested a password reset. College ID: ${profile.user_id}`,
+          targetUrl: "/admin",
+        });
+      } else {
+        // Teacher requests go to their HOD
+        const { data: teacherProfile } = await supabaseAdmin
+          .from("profiles").select("department_id").eq("id", profile.id).maybeSingle();
+        if (teacherProfile?.department_id) {
+          await dispatchPush({
+            userIds: [`__hod_dept_${teacherProfile.department_id}__`],
+            title: "Password Reset Request",
+            body: `${profile.full_name} has requested a password reset. College ID: ${profile.user_id}`,
+            targetUrl: "/requests",
+          });
+        }
+      }
+    } catch { /* push failure must not block the response */ }
+
     return { ok: true as const };
   });

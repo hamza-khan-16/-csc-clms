@@ -86,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     registerNotificationTapHandler();
 
     const profileLoadEvents = new Set([
-      'INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED', 'PASSWORD_RECOVERY',
+      'INITIAL_SESSION', 'SIGNED_IN', 'USER_UPDATED', 'PASSWORD_RECOVERY', 'TOKEN_REFRESHED',
     ]);
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
@@ -105,7 +105,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             initialised = true;
             // Register device for push notifications after profile loads.
             // Run on INITIAL_SESSION too so token is refreshed on every app open.
-            if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') initPush(next.user.id);
+            if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+              initPush(next.user.id, next.access_token?.slice(-16));
+              // Password expiry push — send once per session, not on every app open
+              const expiryKey = `pw_expiry_push:${next.user.id}`;
+              const alreadySent = sessionStorage.getItem(expiryKey);
+              if (!alreadySent) {
+                // Check expiry after profile loads (setTimeout 0 defers to after loadProfile)
+                setTimeout(async () => {
+                  const { data: p } = await supabase
+                    .from("profiles")
+                    .select("password_changed_at")
+                    .eq("id", next.user.id)
+                    .maybeSingle();
+                  if (p?.password_changed_at) {
+                    const PW_EXPIRY_DAYS = 180;
+                    const expiresAt = new Date(p.password_changed_at).getTime() + PW_EXPIRY_DAYS * 86400_000;
+                    const daysLeft = Math.ceil((expiresAt - Date.now()) / 86400_000);
+                    if (daysLeft <= 14) {
+                      const { firePush } = await import("@/lib/push.functions");
+                      firePush({
+                        userIds: [next.user.id],
+                        title: daysLeft <= 0 ? "Password Expired" : `Password expires in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`,
+                        body: daysLeft <= 0
+                          ? "Your CSC LMS password has expired. Please change it from your Profile page."
+                          : `Your CSC LMS password will expire in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}. Change it from your Profile page.`,
+                        targetUrl: "/profile",
+                      });
+                      sessionStorage.setItem(expiryKey, "1");
+                    }
+                  }
+                }, 2000);
+              }
+            }
           });
         }, 0);
       } else {
@@ -118,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const fallback = setTimeout(() => {
       if (!initialised) setLoading(false);
-    }, 2000);
+    }, 5000);
 
     return () => {
       sub.subscription.unsubscribe();

@@ -163,6 +163,18 @@ function SignInPage() {
     }
   }, [loading, session, role, navigate]);
 
+  // While checking stored session — show splash screen, never flash the login form
+  if (loading) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <img src="/csc-logo.png" alt="CSC Logo" className="h-16 w-auto" />
+          <div className="size-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid min-h-screen lg:grid-cols-[minmax(0,480px)_1fr] bg-background transition-colors duration-200">
       {/* Left panel */}
