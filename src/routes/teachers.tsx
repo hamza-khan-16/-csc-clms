@@ -240,6 +240,7 @@ function TeachersPage() {
             teacher={selected}
             onClose={() => setSelectedId(null)}
             isHod={role === "hod"}
+            hodDeptId={profile?.department_id ?? null}
           />
         )}
       </div>
@@ -252,10 +253,12 @@ function TeacherDetailPanel({
   teacher,
   onClose,
   isHod,
+  hodDeptId,
 }: {
   teacher: any;
   onClose: () => void;
   isHod: boolean;
+  hodDeptId: string | null;
 }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -273,7 +276,7 @@ function TeacherDetailPanel({
     if (tempPw.length < 12) return toast.error("Password must be at least 12 characters");
     setResetBusy(true);
     try {
-      await resetFn({ data: { targetUserId: teacher.id, newPassword: tempPw } });
+      await resetFn({ data: { targetUserId: teacher.user_id, newPassword: tempPw } });
       toast.success(`Password reset for ${teacher.full_name}`);
     } catch (e: any) {
       toast.error(e?.message ?? "Reset failed");
@@ -603,8 +606,8 @@ function TeacherDetailPanel({
           </div>
         )}
 
-        {/* HOD: Password reset + WhatsApp */}
-        {isHod && (
+        {/* HOD: Password reset + WhatsApp — only for teachers in HOD's own dept */}
+        {isHod && teacher.department_id === hodDeptId && (
           <div className="rounded-xl border border-border p-4 space-y-3">
             <div className="flex items-center gap-2">
               <KeyRound className="size-4 text-muted-foreground" />

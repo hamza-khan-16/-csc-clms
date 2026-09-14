@@ -39,13 +39,14 @@ import {
   type LeaveType,
   type DocStatus,
 } from "@/lib/leave";
-import { AlertCircle, Check, CheckCircle2, ChevronRight, Clock, FileText, Gift, KeyRound, Lightbulb, LockKeyhole } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, ChevronRight, Clock, FileText, Gift, Lightbulb, LockKeyhole, Loader2, MessageCircle } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { GuardedInput, GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
 import { groqModerationCheck, localBlocklistCheck } from "@/lib/textGuard";
 import { useServerFn } from "@tanstack/react-start";
 import { firePush } from "@/lib/push.functions";
-import { unlockAccount, directPasswordReset, fetchPasswordResetRequests, completePasswordResetRequest } from "@/lib/admin.functions";
+import { directPasswordReset, fetchHodPasswordResetRequests, completeHodPasswordResetRequest } from "@/lib/admin.functions";
+import { unlockAccount } from "@/lib/admin.functions";
 
 export const Route = createFileRoute("/requests")({
   head: () => ({
@@ -542,139 +543,93 @@ function LockedAccountsPanel({ role, deptId }: { role: "hod" | "principal"; dept
   );
 }
 
-// ── HOD: Rejected proxy banner ────────────────────────────────────────────────
-// Queries all proxy_assignments with status="rejected" across every leave request
-// that belongs to this HOD's department, then shows a summary alert linking the
-// HOD to the specific leave in the "All requests" list below.
-function RejectedProxyBanner({ leaveRequestIds }: { leaveRequestIds: string[] }) {
-  const { data: rejected = [] } = useQuery({
-    queryKey: ["all-rejected-proxies-banner", leaveRequestIds.join(",")],
-    enabled: leaveRequestIds.length > 0,
-    refetchInterval: 12_000,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("proxy_assignments")
-        .select("id, leave_request_id, proxy_date, subject, class_name")
-        .in("leave_request_id", leaveRequestIds)
-        .eq("status", "rejected");
-      return data ?? [];
-    },
+// ── Requests page ─────────────────────────────────────────────────────────────
+// ── HOD: Password Reset Requests Panel ───────────────────────────────────────
+function HodPasswordResetRequests({ deptId }: { deptId: string }) {
+  const qc = useQueryClient();
+  const fetchFn = useServerFn(fetchHodPasswordResetRequests);
+  const completeFn = useServerFn(completeHodPasswordResetRequest);
+  const resetFn = useServerFn(directPasswordReset);
+
+  const { data: requests = [], isLoading } = useQuery({
+    queryKey: ["hod-pw-reset-requests", deptId],
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    queryFn: () => fetchFn(),
   });
 
-  if (rejected.length === 0) return null;
-
-  // Group by leave_request_id
-  const byLeave = rejected.reduce<Record<string, typeof rejected>>((acc, r) => {
-    if (!acc[r.leave_request_id]) acc[r.leave_request_id] = [];
-    acc[r.leave_request_id].push(r);
-    return acc;
-  }, {});
-
-  return (
-    <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-2">
-      <div className="flex items-center gap-2">
-        <AlertCircle className="size-4 text-destructive shrink-0" />
-        <p className="text-sm font-semibold text-destructive">
-          {rejected.length} proxy slot{rejected.length > 1 ? "s" : ""} rejected — reassignment needed
-        </p>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Open the relevant leave request in the list below to reassign each slot.
-      </p>
-      <ul className="space-y-1 mt-1">
-        {Object.entries(byLeave).map(([leaveId, slots]) => (
-          <li key={leaveId} className="text-xs text-destructive/80 flex items-center gap-1.5">
-            <span className="inline-block size-1.5 rounded-full bg-destructive/60 shrink-0" />
-            Leave request has {slots.length} rejected proxy slot{slots.length > 1 ? "s" : ""}
-            {slots[0]?.proxy_date ? ` (${new Date(slots[0].proxy_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" })})` : ""}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-// ── HOD: Forgot-password reset requests panel ─────────────────────────────────
-// When a teacher clicks "Forgot password?" on the login page, it writes a row
-// to password_reset_requests.  Previously only Admin could see and action these.
-// Now HODs see requests from teachers in their own department and set a temp
-// password directly — same UI as the Admin panel but department-scoped.
-function HodPasswordResetRequests() {
-  const qc = useQueryClient();
-  const fetchRequests = useServerFn(fetchPasswordResetRequests);
-  const completeRequest = useServerFn(completePasswordResetRequest);
-  const resetFn = useServerFn(directPasswordReset);
   const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
-  const { data: requests = [], isLoading } = useQuery({
-    queryKey: ["hod-password-reset-requests"],
-    refetchInterval: 20_000,
-    queryFn: () => fetchRequests(),
-  });
-
-  if (isLoading || requests.length === 0) return null;
-
-  async function handleSetTemp(req: { id: string; teacher_id: string; full_name: string }) {
-    const pw = tempPasswords[req.id]?.trim() ?? "";
-    if (pw.length < 12) return toast.error("Temporary password must be at least 12 characters");
+  async function handleReset(req: { id: string; teacher_id: string; full_name: string }) {
+    const pw = tempPasswords[req.id]?.trim();
+    if (!pw || pw.length < 12) return toast.error("Temporary password must be at least 12 characters");
     setBusy(req.id);
     try {
-      // Set the new password in Supabase Auth
       await resetFn({ data: { targetUserId: req.teacher_id, newPassword: pw } });
-      // Mark the request as completed
-      await completeRequest({ data: { requestId: req.id } });
-      toast.success(`Temporary password set for ${req.full_name}. Share it with them securely.`);
-      setTempPasswords((prev) => { const n = { ...prev }; delete n[req.id]; return n; });
-      qc.invalidateQueries({ queryKey: ["hod-password-reset-requests"] });
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to set password");
+      await completeFn({ data: { requestId: req.id } });
+      toast.success(`Password reset for ${req.full_name}`);
+      setTempPasswords((p) => { const n = { ...p }; delete n[req.id]; return n; });
+      qc.invalidateQueries({ queryKey: ["hod-pw-reset-requests"] });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Reset failed");
     } finally {
       setBusy(null);
     }
   }
 
+  function sendWhatsApp(req: { teacher_id: string; full_name: string }, pw: string) {
+    // Fetch phone from supabase client-side
+    supabase.from("profiles").select("phone").eq("id", req.teacher_id).maybeSingle().then(({ data }) => {
+      const phone = data?.phone ?? "";
+      if (!phone) { toast.error("No mobile number on file for this teacher"); return; }
+      const digits = phone.replace(/\D/g, "");
+      const intl = digits.startsWith("91") ? digits : `91${digits}`;
+      const msg = encodeURIComponent(
+        `Dear ${req.full_name},\n\nYour CSC LMS password has been reset by your HOD.\n\nTemporary password: ${pw}\n\nPlease log in and change your password immediately from your Profile page.\n\nRegards,\nChandrabhan Sharma College`
+      );
+      window.open(`https://wa.me/${intl}?text=${msg}`, "_blank");
+    });
+  }
+
+  if (isLoading || requests.length === 0) return null;
+
   return (
     <SectionCard
-      title="Forgot Password Requests"
-      subtitle={`${requests.length} teacher${requests.length > 1 ? "s" : ""} in your department need${requests.length === 1 ? "s" : ""} a password reset`}
+      title="Password Reset Requests"
+      subtitle={`${requests.length} pending from your department`}
     >
       <ul className="space-y-3">
-        {(requests as any[]).map((req) => (
-          <li key={req.id} className="rounded-xl border border-warning/25 bg-warning/5 p-4 space-y-3">
-            <div className="flex items-start gap-3">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-warning/15">
-                <KeyRound className="size-4 text-warning" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm">{req.full_name}</p>
-                <p className="text-xs text-muted-foreground">College ID: {req.college_id}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Requested {new Date(req.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                </p>
-              </div>
+        {requests.map((req: any) => (
+          <li key={req.id} className="rounded-xl border border-warning/30 bg-warning/5 p-4 space-y-3">
+            <div>
+              <p className="font-semibold text-sm">{req.full_name}</p>
+              <p className="text-xs text-muted-foreground">College ID: {req.college_id} · Requested: {new Date(req.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>
             </div>
             <div className="flex gap-2">
               <Input
                 type="text"
                 placeholder="Set temporary password (min 12 chars)"
                 className="flex-1 h-9 text-sm font-mono"
-                autoComplete="off"
                 value={tempPasswords[req.id] ?? ""}
-                onChange={(e) => setTempPasswords((prev) => ({ ...prev, [req.id]: e.target.value }))}
+                onChange={(e) => setTempPasswords((p) => ({ ...p, [req.id]: e.target.value }))}
+                autoComplete="off"
               />
-              <Button
-                size="sm"
-                className="h-9 shrink-0"
+              <Button size="sm" className="h-9 shrink-0"
                 disabled={busy === req.id || (tempPasswords[req.id]?.trim().length ?? 0) < 12}
-                onClick={() => handleSetTemp(req)}
+                onClick={() => handleReset(req)}
               >
-                {busy === req.id ? "Setting…" : "Set & Complete"}
+                {busy === req.id ? <Loader2 className="size-4 animate-spin" /> : "Reset"}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Set a temporary password, then share it with the teacher directly or via WhatsApp from the Teachers page.
-            </p>
+            {(tempPasswords[req.id]?.trim().length ?? 0) >= 12 && (
+              <Button size="sm" className="w-full gap-2 bg-[#25D366] hover:bg-[#20bc5a] text-white"
+                onClick={() => sendWhatsApp(req, tempPasswords[req.id])}
+              >
+                <MessageCircle className="size-4" />
+                Send via WhatsApp
+              </Button>
+            )}
           </li>
         ))}
       </ul>
@@ -682,7 +637,6 @@ function HodPasswordResetRequests() {
   );
 }
 
-// ── Requests page ─────────────────────────────────────────────────────────────
 function RequestsPage() {
   const { profile, role } = useAuth();
   const isHod = role === "hod";
@@ -761,7 +715,56 @@ function RequestsPage() {
     },
   });
 
-  // ── Realtime: invalidate requests + comp approvals on DB changes ──────────
+  // All rejected proxies across HOD's dept — shown regardless of leave status
+  const { data: allRejectedProxies = [] } = useQuery({
+    queryKey: ["all-rejected-proxies", profile?.department_id],
+    enabled: isHod && !!profile?.department_id,
+    refetchInterval: 15_000,
+    queryFn: async () => {
+      // Get dept teachers
+      const { data: deptMembers } = await supabase
+        .from("profiles").select("id").eq("department_id", profile!.department_id!);
+      const deptIds = (deptMembers ?? []).map((m: any) => m.id);
+      if (deptIds.length === 0) return [];
+
+      // Get all rejected proxy assignments where absentee is in dept
+      const allPending = await Promise.all(
+        deptIds.map((id) =>
+          supabase.from("proxy_assignments")
+            .select("id, proxy_date, start_time, end_time, subject, class_name, lecture_id, leave_request_id, absentee_teacher_id")
+            .eq("absentee_teacher_id", id)
+            .eq("status", "rejected")
+            .order("proxy_date", { ascending: true })
+        )
+      );
+      const rows = allPending.flatMap((r) => r.data ?? []);
+
+      // Fetch absentee names
+      const absenteeIds = [...new Set(rows.map((r: any) => r.absentee_teacher_id))];
+      const { data: absentees } = await supabase
+        .from("profiles").select("id, full_name").in("id", absenteeIds);
+      const absenteeMap = new Map((absentees ?? []).map((a: any) => [a.id, a.full_name]));
+
+      return rows.map((r: any) => ({
+        ...r,
+        absenteeName: absenteeMap.get(r.absentee_teacher_id) ?? "Unknown",
+      }));
+    },
+  });
+
+  const { data: deptDataForReassign } = useQuery({
+    queryKey: ["dept-for-reassign", profile?.department_id],
+    enabled: isHod && !!profile?.department_id && allRejectedProxies.length > 0,
+    queryFn: async () => {
+      const { data: people } = await supabase
+        .from("profiles").select("id, full_name")
+        .eq("department_id", profile!.department_id!)
+        .eq("approved", true);
+      return people ?? [];
+    },
+  });
+
+  const [reassignChoices, setReassignChoices] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!profile?.id) return;
     const channel = supabase
@@ -974,6 +977,80 @@ function RequestsPage() {
       subtitle={isHod ? "Review and approve teacher leave requests" : "Final approval for HOD-recommended requests"}
     >
       <div className="space-y-6">
+        {/* HOD: Password Reset Requests from dept teachers */}
+        {isHod && profile?.department_id && (
+          <HodPasswordResetRequests deptId={profile.department_id} />
+        )}
+
+        {/* HOD: Rejected proxy slots needing reassignment (across all approved leaves) */}
+        {isHod && allRejectedProxies.length > 0 && (
+          <SectionCard
+            title="Proxy Rejections — Reassignment Needed"
+            subtitle={`${allRejectedProxies.length} slot${allRejectedProxies.length > 1 ? "s" : ""} rejected by teachers`}
+          >
+            <ul className="space-y-3">
+              {(allRejectedProxies as any[]).map((rp) => {
+                const key = `global-reassign-${rp.id}`;
+                const people = deptDataForReassign ?? [];
+                const chosen = people.find((p: any) => p.id === reassignChoices[key]);
+                const dateStr = new Date(rp.proxy_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+                return (
+                  <li key={rp.id} className="rounded-xl border border-destructive/25 bg-destructive/5 p-4 space-y-2">
+                    <div>
+                      <p className="text-sm font-semibold">{rp.subject} · {rp.class_name}</p>
+                      <p className="text-xs text-muted-foreground">{dateStr} · {fmtTime(rp.start_time)} – {fmtTime(rp.end_time)} · Cover for {rp.absenteeName}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <Select value={reassignChoices[key] ?? ""} onValueChange={(v) => setReassignChoices((c) => ({ ...c, [key]: v }))}>
+                        <SelectTrigger className="flex-1 sm:w-64 h-8 text-xs">
+                          <SelectValue placeholder="Select new proxy teacher" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {people.filter((p: any) => p.id !== rp.absentee_teacher_id).map((p: any) => (
+                            <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button size="sm" disabled={!reassignChoices[key]}
+                        onClick={async () => {
+                          const newId = reassignChoices[key];
+                          if (!newId) return;
+                          await supabase.from("proxy_assignments").delete().eq("id", rp.id);
+                          const { error } = await supabase.from("proxy_assignments").insert({
+                            leave_request_id: rp.leave_request_id,
+                            lecture_id: rp.lecture_id ?? null,
+                            proxy_teacher_id: newId,
+                            absentee_teacher_id: rp.absentee_teacher_id,
+                            proxy_date: rp.proxy_date,
+                            start_time: rp.start_time,
+                            end_time: rp.end_time,
+                            subject: rp.subject,
+                            class_name: rp.class_name,
+                            status: "pending",
+                          });
+                          if (error) { toast.error(error.message); return; }
+                          firePush({
+                            userIds: [newId],
+                            title: "Proxy Lecture Assigned",
+                            body: `You have been assigned to cover ${rp.subject} (${rp.class_name}) on ${dateStr}`,
+                            targetUrl: "/proxies",
+                          });
+                          const teacherName = people.find((p: any) => p.id === newId)?.full_name ?? "teacher";
+                          toast.success(`Reassigned to ${teacherName}`);
+                          setReassignChoices((c) => { const n = { ...c }; delete n[key]; return n; });
+                          qc.invalidateQueries({ queryKey: ["all-rejected-proxies"] });
+                        }}
+                      >
+                        Reassign
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </SectionCard>
+        )}
+
         {/* HOD: Compensation lecture approvals */}
         {isHod && pendingCompApprovals.length > 0 && (
           <SectionCard
@@ -1037,15 +1114,6 @@ function RequestsPage() {
             role={isHod ? "hod" : "principal"}
             deptId={profile?.department_id ?? null}
           />
-        )}
-
-        {/* HOD: Forgot-password requests from teachers in their department */}
-        {isHod && <HodPasswordResetRequests />}
-
-        {/* HOD: Rejected proxy alert — summarises all leave requests that have proxy slots
-            needing reassignment so the HOD doesn't have to scroll through the full list */}
-        {isHod && requests.length > 0 && (
-          <RejectedProxyBanner leaveRequestIds={requests.map((r) => r.id)} />
         )}
 
         <SectionCard
