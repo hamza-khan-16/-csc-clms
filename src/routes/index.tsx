@@ -156,15 +156,22 @@ function SignInPage() {
   const navigate = useNavigate();
   const { session, role, loading } = useAuth();
   const [mode, setMode] = useState<"signin" | "register">("signin");
+  const [navigating, setNavigating] = useState(false);
 
   useEffect(() => {
     if (!loading && session) {
-      navigate({ to: role === "admin" ? "/admin" : "/dashboard", replace: true });
+      setNavigating(true);
+      // 800ms buffer — gives router time to complete redirect before login form could render
+      const t = setTimeout(() => {
+        navigate({ to: role === "admin" ? "/admin" : "/dashboard", replace: true })
+          .finally(() => setNavigating(false));
+      }, 800);
+      return () => clearTimeout(t);
     }
   }, [loading, session, role, navigate]);
 
-  // While checking stored session — show splash screen, never flash the login form
-  if (loading) {
+  // Show splash while: auth resolving OR session found (navigating to dashboard)
+  if (loading || navigating) {
     return (
       <div className="grid min-h-screen place-items-center bg-background">
         <div className="flex flex-col items-center gap-4">
