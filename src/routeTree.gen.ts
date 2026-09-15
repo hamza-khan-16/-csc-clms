@@ -29,6 +29,7 @@ import { Route as RequestsRouteImport } from './routes/requests'
 import { Route as ScheduleRouteImport } from './routes/schedule'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TeachersRouteImport } from './routes/teachers'
+import { Route as ApiProxyCleanupRouteImport } from './routes/api.proxy-cleanup'
 import { Route as ApiPushDebugRouteImport } from './routes/api.push-debug'
 import { Route as ApiPushSendRouteImport } from './routes/api.push-send'
 import { Route as ApiPushSyncAllRouteImport } from './routes/api.push-sync-all'
@@ -134,6 +135,11 @@ const TeachersRoute = TeachersRouteImport.update({
   path: '/teachers',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiProxyCleanupRoute = ApiProxyCleanupRouteImport.update({
+  id: '/api/proxy-cleanup',
+  path: '/api/proxy-cleanup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPushDebugRoute = ApiPushDebugRouteImport.update({
   id: '/api/push-debug',
   path: '/api/push-debug',
@@ -176,6 +182,7 @@ export interface FileRoutesByFullPath {
   '/schedule': typeof ScheduleRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/teachers': typeof TeachersRoute
+  '/api/proxy-cleanup': typeof ApiProxyCleanupRoute
   '/api/push-debug': typeof ApiPushDebugRoute
   '/api/push-send': typeof ApiPushSendRoute
   '/api/push-sync-all': typeof ApiPushSyncAllRoute
@@ -202,6 +209,7 @@ export interface FileRoutesByTo {
   '/schedule': typeof ScheduleRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/teachers': typeof TeachersRoute
+  '/api/proxy-cleanup': typeof ApiProxyCleanupRoute
   '/api/push-debug': typeof ApiPushDebugRoute
   '/api/push-send': typeof ApiPushSendRoute
   '/api/push-sync-all': typeof ApiPushSyncAllRoute
@@ -229,6 +237,7 @@ export interface FileRoutesById {
   '/schedule': typeof ScheduleRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/teachers': typeof TeachersRoute
+  '/api/proxy-cleanup': typeof ApiProxyCleanupRoute
   '/api/push-debug': typeof ApiPushDebugRoute
   '/api/push-send': typeof ApiPushSendRoute
   '/api/push-sync-all': typeof ApiPushSyncAllRoute
@@ -257,6 +266,7 @@ export interface FileRouteTypes {
     | '/schedule'
     | '/sitemap.xml'
     | '/teachers'
+    | '/api/proxy-cleanup'
     | '/api/push-debug'
     | '/api/push-send'
     | '/api/push-sync-all'
@@ -283,6 +293,7 @@ export interface FileRouteTypes {
     | '/schedule'
     | '/sitemap.xml'
     | '/teachers'
+    | '/api/proxy-cleanup'
     | '/api/push-debug'
     | '/api/push-send'
     | '/api/push-sync-all'
@@ -309,6 +320,7 @@ export interface FileRouteTypes {
     | '/schedule'
     | '/sitemap.xml'
     | '/teachers'
+    | '/api/proxy-cleanup'
     | '/api/push-debug'
     | '/api/push-send'
     | '/api/push-sync-all'
@@ -336,6 +348,7 @@ export interface RootRouteChildren {
   ScheduleRoute: typeof ScheduleRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TeachersRoute: typeof TeachersRoute
+  ApiProxyCleanupRoute: typeof ApiProxyCleanupRoute
   ApiPushDebugRoute: typeof ApiPushDebugRoute
   ApiPushSendRoute: typeof ApiPushSendRoute
   ApiPushSyncAllRoute: typeof ApiPushSyncAllRoute
@@ -484,6 +497,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeachersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/proxy-cleanup': {
+      id: '/api/proxy-cleanup'
+      path: '/api/proxy-cleanup'
+      fullPath: '/api/proxy-cleanup'
+      preLoaderRoute: typeof ApiProxyCleanupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/push-debug': {
       id: '/api/push-debug'
       path: '/api/push-debug'
@@ -536,6 +556,7 @@ const rootRouteChildren: RootRouteChildren = {
   ScheduleRoute: ScheduleRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   TeachersRoute: TeachersRoute,
+  ApiProxyCleanupRoute: ApiProxyCleanupRoute,
   ApiPushDebugRoute: ApiPushDebugRoute,
   ApiPushSendRoute: ApiPushSendRoute,
   ApiPushSyncAllRoute: ApiPushSyncAllRoute,

@@ -102,6 +102,7 @@ function HodMarkLeavePanel({ deptId }: { deptId: string }) {
         .select("id, full_name")
         .eq("department_id", deptId)
         .eq("approved", true)
+        .eq("hr_approved", true)
         .order("full_name");
       if (error) throw error;
       return (data ?? []).filter((p) => !excludedIds.has(p.id));
@@ -558,8 +559,11 @@ function HodPasswordResetRequests({ deptId }: { deptId: string }) {
     queryFn: () => fetchFn(),
   });
 
+  // Per-request state: password typed, whether reset was successfully done
   const [tempPasswords, setTempPasswords] = useState<Record<string, string>>({});
+  const [resetDone, setResetDone] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [waSending, setWaSending] = useState<string | null>(null);
 
   async function handleReset(req: { id: string; teacher_id: string; full_name: string }) {
     const pw = tempPasswords[req.id]?.trim();
@@ -567,10 +571,9 @@ function HodPasswordResetRequests({ deptId }: { deptId: string }) {
     setBusy(req.id);
     try {
       await resetFn({ data: { targetUserId: req.teacher_id, newPassword: pw } });
-      await completeFn({ data: { requestId: req.id } });
-      toast.success(`Password reset for ${req.full_name}`);
-      setTempPasswords((p) => { const n = { ...p }; delete n[req.id]; return n; });
-      qc.invalidateQueries({ queryKey: ["hod-pw-reset-requests"] });
+      // Mark reset as done for this request — unlocks WhatsApp button
+      setResetDone((prev) => ({ ...prev, [req.id]: true }));
+      toast.success(`Password reset for ${req.full_name} — now send it via WhatsApp`);
     } catch (e: any) {
       toast.error(e?.message ?? "Reset failed");
     } finally {
@@ -578,18 +581,41 @@ function HodPasswordResetRequests({ deptId }: { deptId: string }) {
     }
   }
 
-  function sendWhatsApp(req: { teacher_id: string; full_name: string }, pw: string) {
-    // Fetch phone from supabase client-side
-    supabase.from("profiles").select("phone").eq("id", req.teacher_id).maybeSingle().then(({ data }) => {
-      const phone = data?.phone ?? "";
-      if (!phone) { toast.error("No mobile number on file for this teacher"); return; }
+  async function handleSendWhatsApp(req: { id: string; teacher_id: string; full_name: string }) {
+    const pw = tempPasswords[req.id]?.trim();
+    if (!pw) return;
+    setWaSending(req.id);
+    try {
+      // Fetch phone
+      const { data: profile } = await supabase
+        .from("profiles").select("phone").eq("id", req.teacher_id).maybeSingle();
+      const phone = (profile as any)?.phone ?? "";
+      if (!phone) {
+        toast.error("No mobile number on file for this teacher");
+        setWaSending(null);
+        return;
+      }
       const digits = phone.replace(/\D/g, "");
       const intl = digits.startsWith("91") ? digits : `91${digits}`;
       const msg = encodeURIComponent(
         `Dear ${req.full_name},\n\nYour CSC LMS password has been reset by your HOD.\n\nTemporary password: ${pw}\n\nPlease log in and change your password immediately from your Profile page.\n\nRegards,\nChandrabhan Sharma College`
       );
       window.open(`https://wa.me/${intl}?text=${msg}`, "_blank");
-    });
+
+      // Mark request as completed — removes from list, prevents repeat sends
+      await completeFn({ data: { requestId: req.id } });
+      toast.success("WhatsApp opened — request marked as completed");
+
+      // Clean up local state
+      setTempPasswords((p) => { const n = { ...p }; delete n[req.id]; return n; });
+      setResetDone((p) => { const n = { ...p }; delete n[req.id]; return n; });
+      qc.invalidateQueries({ queryKey: ["hod-pw-reset-requests"] });
+      qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === "staff" });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to complete request");
+    } finally {
+      setWaSending(null);
+    }
   }
 
   if (isLoading || requests.length === 0) return null;
@@ -599,39 +625,73 @@ function HodPasswordResetRequests({ deptId }: { deptId: string }) {
       title="Password Reset Requests"
       subtitle={`${requests.length} pending from your department`}
     >
-      <ul className="space-y-3">
-        {requests.map((req: any) => (
-          <li key={req.id} className="rounded-xl border border-warning/30 bg-warning/5 p-4 space-y-3">
-            <div>
-              <p className="font-semibold text-sm">{req.full_name}</p>
-              <p className="text-xs text-muted-foreground">College ID: {req.college_id} · Requested: {new Date(req.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>
-            </div>
-            <div className="flex gap-2">
-              <Input
-                type="text"
-                placeholder="Set temporary password (min 12 chars)"
-                className="flex-1 h-9 text-sm font-mono"
-                value={tempPasswords[req.id] ?? ""}
-                onChange={(e) => setTempPasswords((p) => ({ ...p, [req.id]: e.target.value }))}
-                autoComplete="off"
-              />
-              <Button size="sm" className="h-9 shrink-0"
-                disabled={busy === req.id || (tempPasswords[req.id]?.trim().length ?? 0) < 12}
-                onClick={() => handleReset(req)}
-              >
-                {busy === req.id ? <Loader2 className="size-4 animate-spin" /> : "Reset"}
-              </Button>
-            </div>
-            {(tempPasswords[req.id]?.trim().length ?? 0) >= 12 && (
-              <Button size="sm" className="w-full gap-2 bg-[#25D366] hover:bg-[#20bc5a] text-white"
-                onClick={() => sendWhatsApp(req, tempPasswords[req.id])}
-              >
-                <MessageCircle className="size-4" />
-                Send via WhatsApp
-              </Button>
-            )}
-          </li>
-        ))}
+      <ul className="space-y-4">
+        {requests.map((req: any) => {
+          const pw = tempPasswords[req.id] ?? "";
+          const pwOk = pw.trim().length >= 12;
+          const didReset = !!resetDone[req.id];
+          return (
+            <li key={req.id} className="rounded-xl border border-warning/30 bg-warning/5 p-4 space-y-3">
+              <div>
+                <p className="font-semibold text-sm">{req.full_name}</p>
+                <p className="text-xs text-muted-foreground">
+                  College ID: {req.college_id} · Requested: {new Date(req.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                </p>
+              </div>
+
+              {/* Step 1: Set + Reset */}
+              <div className="flex gap-2">
+                <Input
+                  type="text"
+                  placeholder="Set temporary password (min 12 chars)"
+                  className="flex-1 h-9 text-sm font-mono"
+                  value={pw}
+                  onChange={(e) => {
+                    setTempPasswords((p) => ({ ...p, [req.id]: e.target.value }));
+                    // If they change the password after reset, require reset again
+                    if (resetDone[req.id]) setResetDone((p) => ({ ...p, [req.id]: false }));
+                  }}
+                  autoComplete="off"
+                  disabled={didReset}
+                />
+                <Button
+                  size="sm"
+                  className="h-9 shrink-0"
+                  variant={didReset ? "outline" : "default"}
+                  disabled={busy === req.id || !pwOk || didReset}
+                  onClick={() => handleReset(req)}
+                >
+                  {busy === req.id
+                    ? <Loader2 className="size-4 animate-spin" />
+                    : didReset ? "✓ Reset done" : "Reset password"
+                  }
+                </Button>
+              </div>
+
+              {/* Step 2: Send via WhatsApp — only enabled after reset confirmed */}
+              <div className="space-y-1">
+                <Button
+                  size="sm"
+                  className={`w-full gap-2 ${didReset ? "bg-[#25D366] hover:bg-[#20bc5a] text-white" : ""}`}
+                  variant={didReset ? "default" : "outline"}
+                  disabled={!didReset || waSending === req.id}
+                  onClick={() => handleSendWhatsApp(req)}
+                >
+                  {waSending === req.id
+                    ? <Loader2 className="size-4 animate-spin" />
+                    : <MessageCircle className="size-4" />
+                  }
+                  {didReset ? "Send via WhatsApp (completes request)" : "Reset password first to unlock WhatsApp"}
+                </Button>
+                {!didReset && pwOk && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    Click "Reset password" above first, then WhatsApp will be unlocked.
+                  </p>
+                )}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </SectionCard>
   );
@@ -756,11 +816,17 @@ function RequestsPage() {
     queryKey: ["dept-for-reassign", profile?.department_id],
     enabled: isHod && !!profile?.department_id && allRejectedProxies.length > 0,
     queryFn: async () => {
+      // Exclude admin and principal from proxy candidates
+      const { data: excludedRoles } = await supabase
+        .from("user_roles").select("user_id")
+        .in("role", ["admin", "principal"]);
+      const excludedIds = new Set((excludedRoles ?? []).map((r: any) => r.user_id));
       const { data: people } = await supabase
         .from("profiles").select("id, full_name")
         .eq("department_id", profile!.department_id!)
-        .eq("approved", true);
-      return people ?? [];
+        .eq("approved", true)
+        .eq("hr_approved", true);
+      return (people ?? []).filter((p: any) => !excludedIds.has(p.id));
     },
   });
 

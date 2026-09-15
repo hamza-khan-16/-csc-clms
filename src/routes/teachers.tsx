@@ -89,14 +89,23 @@ function TeachersPage() {
         .in("status", ["approved", "hod_approved"])
         .gte("from_date", `${year}-01-01`);
 
-      return (data ?? [])
-        .filter((p) => !excludedIds.has(p.id))
-        .map((p) => ({
+      const baseData = (data ?? []).filter((p: any) => !excludedIds.has(p.id));
+
+      // Check which teachers have pending password reset requests (HOD only)
+      const pendingResetIds = new Set<string>();
+      if (role === "hod") {
+        const { data: resets } = await supabase
+          .from("password_reset_requests").select("teacher_id").eq("status", "pending");
+        (resets ?? []).forEach((r: any) => pendingResetIds.add(r.teacher_id));
+      }
+
+      return baseData.map((p: any) => ({
           ...p,
           deptName: (p.departments as { name: string } | null)?.name ?? "—",
-          taken: (leaves ?? []).filter((l) => l.teacher_id === p.id).reduce((s, l) => s + Number(l.total_days), 0),
-          unpaid: (leaves ?? []).filter((l) => l.teacher_id === p.id).reduce((s, l) => s + Number(l.unpaid_days), 0),
-          leaveHistory: (leaves ?? []).filter((l) => l.teacher_id === p.id),
+          taken: (leaves ?? []).filter((l: any) => l.teacher_id === p.id).reduce((s: number, l: any) => s + Number(l.total_days), 0),
+          unpaid: (leaves ?? []).filter((l: any) => l.teacher_id === p.id).reduce((s: number, l: any) => s + Number(l.unpaid_days), 0),
+          leaveHistory: (leaves ?? []).filter((l: any) => l.teacher_id === p.id),
+          _hasPendingReset: pendingResetIds.has(p.id),
         }));
     },
   });
@@ -187,6 +196,13 @@ function TeachersPage() {
                         <td className="py-3 font-medium">{r.full_name}</td>
                         <td className="py-3 capitalize text-muted-foreground">{r.designation}</td>
                         <td className="py-3">{r.deptName}</td>
+                        <td className="py-3">
+                          {r._hasPendingReset && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 text-warning text-[10px] font-semibold px-2 py-0.5">
+                              🔑 Reset pending
+                            </span>
+                          )}
+                        </td>
                         <td className="py-3 text-muted-foreground">
                           {r.experience_years != null ? `${r.experience_years} yr` : "—"}
                         </td>
@@ -606,8 +622,8 @@ function TeacherDetailPanel({
           </div>
         )}
 
-        {/* HOD: Password reset + WhatsApp — only for teachers in HOD's own dept */}
-        {isHod && teacher.department_id === hodDeptId && (
+        {/* HOD: Password reset — only shown when teacher has a pending request */}
+        {isHod && teacher.department_id === hodDeptId && teacher._hasPendingReset && (
           <div className="rounded-xl border border-border p-4 space-y-3">
             <div className="flex items-center gap-2">
               <KeyRound className="size-4 text-muted-foreground" />
