@@ -152,81 +152,27 @@ function ThemeToggle() {
   );
 }
 
-// ── Splash Screen ─────────────────────────────────────────────────────────────
-// Shows the branded loading screen (dark/light image) while auth state is being
-// resolved. The spinner replaces the static one in the design images.
-function SplashScreen() {
-  // Detect dark mode via the class set on <html> by the ThemeProvider blocking script
-  const isDark =
-    typeof document !== "undefined" &&
-    document.documentElement.classList.contains("dark");
-
-  return (
-    <div className="fixed inset-0 overflow-hidden" style={{ background: isDark ? "#0a0a0a" : "#f8f4ef" }}>
-      {/* Full-screen background image — covers the entire viewport */}
-      <img
-        src={isDark ? "/splash-dark.png" : "/splash-light.png"}
-        alt="CSC CLMS Loading"
-        className="absolute inset-0 h-full w-full object-cover object-top"
-        style={{ userSelect: "none", pointerEvents: "none" }}
-        draggable={false}
-      />
-
-      {/* Spinning loader — replaces the static spinner in the design */}
-      {/* Positioned at bottom-center matching the "Loading..." position in the mockup */}
-      <div className="absolute bottom-[8%] left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
-        <svg
-          className="animate-spin"
-          width="40"
-          height="40"
-          viewBox="0 0 40 40"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <circle
-            cx="20" cy="20" r="17"
-            stroke={isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.10)"}
-            strokeWidth="4"
-          />
-          <path
-            d="M20 3 A17 17 0 0 1 37 20"
-            stroke="#EA580C"
-            strokeWidth="4"
-            strokeLinecap="round"
-          />
-        </svg>
-        <span
-          className="text-sm font-medium tracking-wide"
-          style={{ color: isDark ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.55)" }}
-        >
-          Loading...
-        </span>
-      </div>
-    </div>
-  );
-}
-
 function SignInPage() {
   const navigate = useNavigate();
   const { session, role, loading } = useAuth();
   const [mode, setMode] = useState<"signin" | "register">("signin");
-  const [navigating, setNavigating] = useState(false);
 
   useEffect(() => {
     if (!loading && session) {
-      setNavigating(true);
-      // 800ms buffer — gives router time to complete redirect before login form could render
-      const t = setTimeout(() => {
-        navigate({ to: role === "admin" ? "/admin" : "/dashboard", replace: true })
-          .finally(() => setNavigating(false));
-      }, 800);
-      return () => clearTimeout(t);
+      navigate({ to: role === "admin" ? "/admin" : "/dashboard", replace: true });
     }
   }, [loading, session, role, navigate]);
 
-  // Show splash while: auth resolving OR session found (navigating to dashboard)
-  if (loading || navigating) {
-    return <SplashScreen />;
+  // While checking stored session — show splash screen, never flash the login form
+  if (loading) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <img src="/csc-logo.png" alt="CSC Logo" className="h-16 w-auto" />
+          <div className="size-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      </div>
+    );
   }
 
   return (

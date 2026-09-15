@@ -265,9 +265,13 @@ function ProfilePage() {
 
     // Step 2: Update password
     const { error: updateError } = await supabase.auth.updateUser({ password: newPw });
+    // Sign out all other sessions so old sessions are invalidated
+    if (!updateError) {
+      await supabase.auth.signOut({ scope: "others" }).catch(() => {});
+    }
     if (updateError) { setPwBusy(false); return toast.error(updateError.message); }
 
-    // Step 3: Update password_changed_at to restart the expiry clock
+    // Step 3: Update password_changed_at to restart the 90-day clock
     await supabase
       .from("profiles")
       .update({ password_changed_at: new Date().toISOString() })
@@ -275,14 +279,10 @@ function ProfilePage() {
 
     setPwBusy(false);
     setPwSuccess(true);
-    setOldPw(""); setNewPw(""); setConfirmPw("");
-    toast.success("Password changed — please log in again with your new password");
-
-    // Sign out ALL sessions (including this one) so the new password takes effect cleanly
-    // Small delay so the toast is visible before the screen transitions
-    setTimeout(async () => {
-      await supabase.auth.signOut({ scope: "global" });
-    }, 1800);
+    setOldPw("");
+    setNewPw("");
+    setConfirmPw("");
+    toast.success("Password changed successfully");
     qc.invalidateQueries();
 
     setTimeout(() => setPwSuccess(false), 4000);
