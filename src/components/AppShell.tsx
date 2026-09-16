@@ -103,6 +103,52 @@ export function AppShell({
   const [offline, setOffline] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
+  // ── Android double-back-to-exit (PWA standalone only, dashboard screen only) ─
+  const [showExitToast, setShowExitToast] = useState(false);
+  const backPressedOnce = useRef(false);
+  const backToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isStandalone = typeof window !== "undefined" &&
+    (window.matchMedia("(display-mode: standalone)").matches ||
+     (window.navigator as any).standalone === true);
+  const isDashboard = pathname === "/dashboard";
+
+  useEffect(() => {
+    // Only intercept on Android PWA home (dashboard) screen
+    if (!isStandalone || !isDashboard) return;
+
+    function handlePopState(e: PopStateEvent) {
+      // Push a dummy state back so the user stays on the page
+      window.history.pushState(null, "", window.location.href);
+
+      if (backPressedOnce.current) {
+        // Second press within 2 s — close the app
+        if (backToastTimer.current) clearTimeout(backToastTimer.current);
+        // In a PWA on Android, history.go(-history.length) or just navigating
+        // to a blank page triggers the app to close reliably
+        window.history.go(-(window.history.length));
+        return;
+      }
+
+      backPressedOnce.current = true;
+      setShowExitToast(true);
+
+      backToastTimer.current = setTimeout(() => {
+        backPressedOnce.current = false;
+        setShowExitToast(false);
+      }, 2000);
+    }
+
+    // Push an initial dummy state so popstate fires when back is pressed
+    window.history.pushState(null, "", window.location.href);
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      if (backToastTimer.current) clearTimeout(backToastTimer.current);
+      backPressedOnce.current = false;
+    };
+  }, [isStandalone, isDashboard]);
+
   // Dark mode — use shared ThemeProvider so login page and app stay in sync
   const { theme, toggle: toggleTheme } = useTheme();
   const dark = theme === "dark";
@@ -261,6 +307,14 @@ export function AppShell({
   return (
     <TooltipProvider delayDuration={300}>
     <div className="flex min-h-screen bg-background">
+      {/* Android double-back-to-exit toast */}
+      {showExitToast && (
+        <div className="fixed bottom-20 inset-x-0 z-[100] flex justify-center pointer-events-none">
+          <div className="rounded-xl bg-foreground/90 text-background text-sm font-medium px-5 py-2.5 shadow-lg backdrop-blur-sm animate-in fade-in slide-in-from-bottom-3 duration-200">
+            Press back again to exit
+          </div>
+        </div>
+      )}
       <OfflineBanner onToggle={setOffline} />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex shadow-sm overflow-hidden">
         <div className="px-5 pb-6 shrink-0">

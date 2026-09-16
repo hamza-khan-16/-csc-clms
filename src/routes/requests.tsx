@@ -891,6 +891,9 @@ function RequestsPage() {
   const rest = requests.filter((r) => !actionable.includes(r) && !docPending.includes(r));
 
   const [searchQ, setSearchQ] = useState("");
+  const [allReqPage, setAllReqPage] = useState(1);
+  const ALL_REQ_PAGE_SIZE = 10;
+
   const filteredRest = useMemo(() => {
     if (!searchQ.trim()) return rest;
     const q = searchQ.toLowerCase();
@@ -900,6 +903,12 @@ function RequestsPage() {
       r.status?.toLowerCase().includes(q)
     );
   }, [rest, searchQ]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => { setAllReqPage(1); }, [searchQ]);
+
+  const allReqTotalPages = Math.max(1, Math.ceil(filteredRest.length / ALL_REQ_PAGE_SIZE));
+  const pagedRest = filteredRest.slice((allReqPage - 1) * ALL_REQ_PAGE_SIZE, allReqPage * ALL_REQ_PAGE_SIZE);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -1249,7 +1258,7 @@ function RequestsPage() {
             <>
               {/* Mobile card list */}
               <div className="space-y-3 sm:hidden">
-                {filteredRest.map((r) => (
+                {pagedRest.map((r) => (
                   <div key={r.id} className="rounded-lg border border-border p-3 text-sm">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -1279,7 +1288,7 @@ function RequestsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredRest.map((r) => (
+                    {pagedRest.map((r) => (
                       <tr key={r.id} className="border-t border-border">
                         <td className="py-3 pr-4 font-medium whitespace-nowrap">{r.teacher?.full_name}</td>
                         <td className="py-3 pr-4 whitespace-nowrap">{leaveTypeLabel(r.leave_type as LeaveType)}</td>
@@ -1292,6 +1301,39 @@ function RequestsPage() {
                   </tbody>
                 </table>
               </div>
+              {/* Pagination */}
+              {allReqTotalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t border-border mt-2">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {(allReqPage - 1) * ALL_REQ_PAGE_SIZE + 1}–{Math.min(allReqPage * ALL_REQ_PAGE_SIZE, filteredRest.length)} of {filteredRest.length}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                      onClick={() => setAllReqPage((p) => Math.max(1, p - 1))}
+                      disabled={allReqPage === 1}
+                    >
+                      ← Prev
+                    </button>
+                    {Array.from({ length: allReqTotalPages }, (_, i) => i + 1).map((pg) => (
+                      <button
+                        key={pg}
+                        className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === allReqPage ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
+                        onClick={() => setAllReqPage(pg)}
+                      >
+                        {pg}
+                      </button>
+                    ))}
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                      onClick={() => setAllReqPage((p) => Math.min(allReqTotalPages, p + 1))}
+                      disabled={allReqPage === allReqTotalPages}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </SectionCard>

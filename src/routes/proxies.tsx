@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -209,6 +209,58 @@ function ProxiesPage() {
   const totalDeclined = rows.filter((r) => r.status === "rejected").length;
   const totalPending = pending.length;
 
+  // Pagination for proxy history
+  const PROXY_PAGE_SIZE = 10;
+  const [proxyHistPage, setProxyHistPage] = useState(1);
+  const proxyHistTotalPages = Math.max(1, Math.ceil(handled.length / PROXY_PAGE_SIZE));
+  const pagedHandled = handled.slice((proxyHistPage - 1) * PROXY_PAGE_SIZE, proxyHistPage * PROXY_PAGE_SIZE);
+
+  // Pagination for outgoing comp offers
+  const COMP_PAGE_SIZE = 10;
+  const [compPage, setCompPage] = useState(1);
+
+  // ── Offer Compensation filters ──────────────────────────────────────────────
+  const [offerSearch, setOfferSearch] = useState("");
+  const [offerCompStatus, setOfferCompStatus] = useState<"all" | "pending" | "offered">("all");
+  const [offerDateFrom, setOfferDateFrom] = useState("");
+  const [offerDateTo, setOfferDateTo] = useState("");
+  const [offerPage, setOfferPage] = useState(1);
+  const OFFER_PAGE_SIZE = 5;
+
+  const filteredAccepted = useMemo(() => {
+    let list = accepted as any[];
+    if (offerSearch.trim()) {
+      const q = offerSearch.toLowerCase();
+      list = list.filter((r) =>
+        r.absentee?.full_name?.toLowerCase().includes(q) ||
+        r.subject?.toLowerCase().includes(q) ||
+        r.class_name?.toLowerCase().includes(q)
+      );
+    }
+    if (offerDateFrom) list = list.filter((r) => r.proxy_date >= offerDateFrom);
+    if (offerDateTo) list = list.filter((r) => r.proxy_date <= offerDateTo);
+    // offerCompStatus filters whether a comp offer has already been sent
+    // We can't easily know at this point without fetching — handled at CompensationForm level
+    // So we expose "all" and future status can be extended
+    return list;
+  }, [accepted, offerSearch, offerDateFrom, offerDateTo]);
+
+  // Reset to page 1 whenever filters change
+  const prevOfferFilters = useMemo(() => ({ offerSearch, offerDateFrom, offerDateTo, offerCompStatus }), [offerSearch, offerDateFrom, offerDateTo, offerCompStatus]);
+  const offerTotalPages = Math.max(1, Math.ceil(filteredAccepted.length / OFFER_PAGE_SIZE));
+  const pagedAccepted = filteredAccepted.slice((offerPage - 1) * OFFER_PAGE_SIZE, offerPage * OFFER_PAGE_SIZE);
+
+  function clearOfferFilters() {
+    setOfferSearch("");
+    setOfferDateFrom("");
+    setOfferDateTo("");
+    setOfferCompStatus("all");
+    setOfferPage(1);
+  }
+
+  // Reset to page 1 whenever offer filters change
+  useEffect(() => { setOfferPage(1); }, [offerSearch, offerDateFrom, offerDateTo, offerCompStatus]);
+
   if (rowsLoading) {
     return (
       <AppShell title="Proxy Duties" subtitle="Lectures your HOD has assigned you to cover">
@@ -361,17 +413,102 @@ function ProxiesPage() {
               <h2 className="font-semibold text-sm">Offer compensation</h2>
             </div>
             <p className="text-xs text-muted-foreground -mt-1 mb-3">You've covered someone's leave — offer one of your lectures as compensation.</p>
-            <ul className="space-y-4">
-              {accepted.map((r) => (
-                <CompensationForm
-                  key={r.id}
-                  proxyRow={r}
-                  myLectures={myLectures}
-                  today={today}
-                  onDone={() => qc.invalidateQueries()}
+
+            {/* Filters */}
+            <div className="rounded-xl border border-border bg-muted/30 p-3 mb-3 space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {/* Search */}
+                <div className="relative flex-1 min-w-[160px]">
+                  <input
+                    className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                    placeholder="Search teacher / subject…"
+                    value={offerSearch}
+                    onChange={(e) => setOfferSearch(e.target.value)}
+                  />
+                  <svg className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                </div>
+                {/* Date from */}
+                <input
+                  type="date"
+                  className="h-8 rounded-lg border border-border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                  value={offerDateFrom}
+                  onChange={(e) => setOfferDateFrom(e.target.value)}
+                  title="Proxy date from"
                 />
-              ))}
-            </ul>
+                {/* Date to */}
+                <input
+                  type="date"
+                  className="h-8 rounded-lg border border-border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                  value={offerDateTo}
+                  onChange={(e) => setOfferDateTo(e.target.value)}
+                  title="Proxy date to"
+                />
+                {/* Clear */}
+                {(offerSearch || offerDateFrom || offerDateTo) && (
+                  <button
+                    className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium hover:bg-muted transition-colors"
+                    onClick={clearOfferFilters}
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+              {filteredAccepted.length !== accepted.length && (
+                <p className="text-xs text-muted-foreground">{filteredAccepted.length} of {accepted.length} entries shown</p>
+              )}
+            </div>
+
+            {filteredAccepted.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-muted/30 py-8 text-center">
+                <p className="text-sm text-muted-foreground">No entries match your filters.</p>
+              </div>
+            ) : (
+              <>
+                <ul className="space-y-4">
+                  {pagedAccepted.map((r: any) => (
+                    <CompensationForm
+                      key={r.id}
+                      proxyRow={r}
+                      myLectures={myLectures}
+                      today={today}
+                      onDone={() => qc.invalidateQueries()}
+                    />
+                  ))}
+                </ul>
+                {offerTotalPages > 1 && (
+                  <div className="flex items-center justify-between pt-3 border-t border-border mt-2">
+                    <p className="text-xs text-muted-foreground">
+                      Showing {(offerPage - 1) * OFFER_PAGE_SIZE + 1}–{Math.min(offerPage * OFFER_PAGE_SIZE, filteredAccepted.length)} of {filteredAccepted.length}
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <button
+                        className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                        onClick={() => setOfferPage((p) => Math.max(1, p - 1))}
+                        disabled={offerPage === 1}
+                      >
+                        ← Prev
+                      </button>
+                      {Array.from({ length: offerTotalPages }, (_, i) => i + 1).map((pg) => (
+                        <button
+                          key={pg}
+                          className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === offerPage ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
+                          onClick={() => setOfferPage(pg)}
+                        >
+                          {pg}
+                        </button>
+                      ))}
+                      <button
+                        className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                        onClick={() => setOfferPage((p) => Math.min(offerTotalPages, p + 1))}
+                        disabled={offerPage === offerTotalPages}
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -386,78 +523,148 @@ function ProxiesPage() {
               <p className="text-sm text-muted-foreground">Nothing here yet.</p>
             </div>
           ) : (
-            <div className="rounded-xl border border-border overflow-hidden overflow-x-auto">
-              <table className="w-full text-sm min-w-[480px]">
-                <thead>
-                  <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-2.5 text-left font-semibold">Date</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">Subject · Class</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">Time</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">Covering</th>
-                    <th className="px-4 py-2.5 text-right font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {handled.map((r, i) => (
-                    <tr key={r.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
-                      <td className="px-4 py-3 font-medium">{fmtDate(r.proxy_date)}</td>
-                      <td className="px-4 py-3">{r.subject} <span className="text-muted-foreground">· {r.class_name}</span></td>
-                      <td className="px-4 py-3 text-muted-foreground">{fmtTime(r.start_time)} – {fmtTime(r.end_time)}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{r.absentee?.full_name ?? "—"}</td>
-                      <td className="px-4 py-3 text-right">
-                        <Badge
-                          variant={r.status === "accepted" ? "default" : "secondary"}
-                          className={r.status === "accepted" ? "bg-success/15 text-success border-success/25" : ""}
-                        >
-                          {r.status === "accepted" ? "Accepted" : "Declined"}
-                        </Badge>
-                      </td>
+            <>
+              <div className="rounded-xl border border-border overflow-hidden overflow-x-auto">
+                <table className="w-full text-sm min-w-[480px]">
+                  <thead>
+                    <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-4 py-2.5 text-left font-semibold">Date</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Subject · Class</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Time</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Covering</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {pagedHandled.map((r, i) => (
+                      <tr key={r.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                        <td className="px-4 py-3 font-medium">{fmtDate(r.proxy_date)}</td>
+                        <td className="px-4 py-3">{r.subject} <span className="text-muted-foreground">· {r.class_name}</span></td>
+                        <td className="px-4 py-3 text-muted-foreground">{fmtTime(r.start_time)} – {fmtTime(r.end_time)}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{r.absentee?.full_name ?? "—"}</td>
+                        <td className="px-4 py-3 text-right">
+                          <Badge
+                            variant={r.status === "accepted" ? "default" : "secondary"}
+                            className={r.status === "accepted" ? "bg-success/15 text-success border-success/25" : ""}
+                          >
+                            {r.status === "accepted" ? "Accepted" : "Declined"}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {proxyHistTotalPages > 1 && (
+                <div className="flex items-center justify-between pt-3 border-t border-border mt-1">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {(proxyHistPage - 1) * PROXY_PAGE_SIZE + 1}–{Math.min(proxyHistPage * PROXY_PAGE_SIZE, handled.length)} of {handled.length}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                      onClick={() => setProxyHistPage((p) => Math.max(1, p - 1))}
+                      disabled={proxyHistPage === 1}
+                    >
+                      ← Prev
+                    </button>
+                    {Array.from({ length: proxyHistTotalPages }, (_, i) => i + 1).map((pg) => (
+                      <button
+                        key={pg}
+                        className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === proxyHistPage ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
+                        onClick={() => setProxyHistPage(pg)}
+                      >
+                        {pg}
+                      </button>
+                    ))}
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                      onClick={() => setProxyHistPage((p) => Math.min(proxyHistTotalPages, p + 1))}
+                      disabled={proxyHistPage === proxyHistTotalPages}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
         {/* My outgoing compensation offers */}
-        {myCompOffers.length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 mb-3">
-              <Gift className="size-4 text-muted-foreground" />
-              <h2 className="font-semibold text-sm">My compensation offers</h2>
-            </div>
-            <div className="rounded-xl border border-border overflow-hidden overflow-x-auto">
-              <table className="w-full text-sm min-w-[480px]">
-                <thead>
-                  <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-2.5 text-left font-semibold">To</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">Date</th>
-                    <th className="px-4 py-2.5 text-left font-semibold">Note</th>
-                    <th className="px-4 py-2.5 text-right font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {myCompOffers.map((o, i) => (
-                    <tr key={o.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
-                      <td className="px-4 py-3 font-medium">{o.to_teacher?.full_name ?? "colleague"}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{fmtDate(o.compensation_date)}</td>
-                      <td className="px-4 py-3 text-muted-foreground italic">{o.note ? `"${o.note}"` : "—"}</td>
-                      <td className="px-4 py-3 text-right">
-                        <Badge
-                          variant={o.status === "accepted" ? "default" : o.status === "rejected" ? "destructive" : o.status === "hod_pending" ? "secondary" : "secondary"}
-                          className={o.status === "accepted" ? "bg-success/15 text-success border-success/25" : o.status === "hod_pending" ? "bg-warning/15 text-warning border-warning/25" : ""}
-                        >
-                          {o.status === "accepted" ? "Approved" : o.status === "rejected" ? "Declined" : o.status === "hod_pending" ? "Awaiting HOD" : "Pending"}
-                        </Badge>
-                      </td>
+        {myCompOffers.length > 0 && (() => {
+          const compTotalPages = Math.max(1, Math.ceil(myCompOffers.length / COMP_PAGE_SIZE));
+          const pagedComp = myCompOffers.slice((compPage - 1) * COMP_PAGE_SIZE, compPage * COMP_PAGE_SIZE);
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 mb-3">
+                <Gift className="size-4 text-muted-foreground" />
+                <h2 className="font-semibold text-sm">My compensation offers</h2>
+              </div>
+              <div className="rounded-xl border border-border overflow-hidden overflow-x-auto">
+                <table className="w-full text-sm min-w-[480px]">
+                  <thead>
+                    <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-4 py-2.5 text-left font-semibold">To</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Date</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Note</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {pagedComp.map((o, i) => (
+                      <tr key={o.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                        <td className="px-4 py-3 font-medium">{o.to_teacher?.full_name ?? "colleague"}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{fmtDate(o.compensation_date)}</td>
+                        <td className="px-4 py-3 text-muted-foreground italic">{o.note ? `"${o.note}"` : "—"}</td>
+                        <td className="px-4 py-3 text-right">
+                          <Badge
+                            variant={o.status === "accepted" ? "default" : o.status === "rejected" ? "destructive" : o.status === "hod_pending" ? "secondary" : "secondary"}
+                            className={o.status === "accepted" ? "bg-success/15 text-success border-success/25" : o.status === "hod_pending" ? "bg-warning/15 text-warning border-warning/25" : ""}
+                          >
+                            {o.status === "accepted" ? "Approved" : o.status === "rejected" ? "Declined" : o.status === "hod_pending" ? "Awaiting HOD" : "Pending"}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {compTotalPages > 1 && (
+                <div className="flex items-center justify-between pt-3 border-t border-border mt-1">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {(compPage - 1) * COMP_PAGE_SIZE + 1}–{Math.min(compPage * COMP_PAGE_SIZE, myCompOffers.length)} of {myCompOffers.length}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                      onClick={() => setCompPage((p) => Math.max(1, p - 1))}
+                      disabled={compPage === 1}
+                    >
+                      ← Prev
+                    </button>
+                    {Array.from({ length: compTotalPages }, (_, i) => i + 1).map((pg) => (
+                      <button
+                        key={pg}
+                        className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === compPage ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
+                        onClick={() => setCompPage(pg)}
+                      >
+                        {pg}
+                      </button>
+                    ))}
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                      onClick={() => setCompPage((p) => Math.min(compTotalPages, p + 1))}
+                      disabled={compPage === compTotalPages}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </AppShell>
   );
