@@ -776,24 +776,30 @@ function RequestsPage() {
   });
 
   // All rejected proxies across HOD's dept — shown regardless of leave status
+  // Only show FUTURE/today rejections for reassignment. Past-date rejections are
+  // auto-expired empty classes (handled by cron) and cannot be reassigned.
   const { data: allRejectedProxies = [] } = useQuery({
     queryKey: ["all-rejected-proxies", profile?.department_id],
     enabled: isHod && !!profile?.department_id,
     refetchInterval: 15_000,
     queryFn: async () => {
+      const today = new Date().toISOString().slice(0, 10);
+
       // Get dept teachers
       const { data: deptMembers } = await supabase
         .from("profiles").select("id").eq("department_id", profile!.department_id!);
       const deptIds = (deptMembers ?? []).map((m: any) => m.id);
       if (deptIds.length === 0) return [];
 
-      // Get all rejected proxy assignments where absentee is in dept
+      // Get rejected proxy assignments where absentee is in dept AND date >= today
+      // Past-date rejections are empty classes — no reassignment possible
       const allPending = await Promise.all(
         deptIds.map((id) =>
           supabase.from("proxy_assignments")
             .select("id, proxy_date, start_time, end_time, subject, class_name, lecture_id, leave_request_id, absentee_teacher_id")
             .eq("absentee_teacher_id", id)
             .eq("status", "rejected")
+            .gte("proxy_date", today)  // only today or future — past ones are empty classes
             .order("proxy_date", { ascending: true })
         )
       );
@@ -1405,17 +1411,19 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     },
   });
 
-  // Rejected proxy slots — HOD needs to reassign these
+  // Rejected proxy slots — HOD needs to reassign these (only future/today — past ones are empty classes)
   const { data: rejectedProxies = [] } = useQuery({
     queryKey: ["rejected-proxies", request.id],
     enabled: isHod,
     refetchInterval: 10_000,
     queryFn: async () => {
+      const today = new Date().toISOString().slice(0, 10);
       const { data } = await supabase
         .from("proxy_assignments")
         .select("id, proxy_date, start_time, end_time, subject, class_name, lecture_id")
         .eq("leave_request_id", request.id)
-        .eq("status", "rejected");
+        .eq("status", "rejected")
+        .gte("proxy_date", today);
       return data ?? [];
     },
   });
