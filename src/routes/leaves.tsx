@@ -302,7 +302,10 @@ function MyLeavesPage() {
           const unpaid = Number(l.unpaid_days);
           const total  = Number(l.total_days);
           const paid   = Number(l.paid_days);
-          const hasBigContent = isHodFinalLeave(l.leave_type as LeaveType);
+          const hasBigContent =
+            isHodFinalLeave(l.leave_type as LeaveType) &&
+            (l.status === "hod_approved" || l.status === "approved") &&
+            l.doc_status !== "verified";
           return (
             <div key={l.id} className={`rounded-xl border border-border bg-card p-4 flex flex-col gap-3 ${hasBigContent ? "sm:col-span-2" : ""}`}>
               {/* Top row — type + status */}
