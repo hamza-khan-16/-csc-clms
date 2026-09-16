@@ -418,39 +418,49 @@ function ProxiesPage() {
             <div className="rounded-xl border border-border bg-muted/30 p-3 mb-3 space-y-2">
               <div className="flex flex-wrap gap-2">
                 {/* Search */}
-                <div className="relative flex-1 min-w-[160px]">
-                  <input
-                    className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
-                    placeholder="Search teacher / subject…"
-                    value={offerSearch}
-                    onChange={(e) => setOfferSearch(e.target.value)}
-                  />
-                  <svg className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                <div className="flex flex-col gap-0.5 flex-1 min-w-[160px]">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">Search</label>
+                  <div className="relative">
+                    <input
+                      className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                      placeholder="Teacher / subject…"
+                      value={offerSearch}
+                      onChange={(e) => setOfferSearch(e.target.value)}
+                    />
+                    <svg className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                  </div>
                 </div>
                 {/* Date from */}
-                <input
-                  type="date"
-                  className="h-8 rounded-lg border border-border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
-                  value={offerDateFrom}
-                  onChange={(e) => setOfferDateFrom(e.target.value)}
-                  title="Proxy date from"
-                />
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">From</label>
+                  <input
+                    type="date"
+                    className="h-8 rounded-lg border border-border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                    value={offerDateFrom}
+                    onChange={(e) => setOfferDateFrom(e.target.value)}
+                  />
+                </div>
                 {/* Date to */}
-                <input
-                  type="date"
-                  className="h-8 rounded-lg border border-border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
-                  value={offerDateTo}
-                  onChange={(e) => setOfferDateTo(e.target.value)}
-                  title="Proxy date to"
-                />
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">To</label>
+                  <input
+                    type="date"
+                    className="h-8 rounded-lg border border-border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                    value={offerDateTo}
+                    onChange={(e) => setOfferDateTo(e.target.value)}
+                  />
+                </div>
                 {/* Clear */}
                 {(offerSearch || offerDateFrom || offerDateTo) && (
-                  <button
-                    className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium hover:bg-muted transition-colors"
-                    onClick={clearOfferFilters}
-                  >
-                    Clear filters
-                  </button>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] invisible">x</span>
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium hover:bg-muted transition-colors"
+                      onClick={clearOfferFilters}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
                 )}
               </div>
               {filteredAccepted.length !== accepted.length && (

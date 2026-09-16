@@ -107,25 +107,39 @@ export function AppShell({
   const [showExitToast, setShowExitToast] = useState(false);
   const backPressedOnce = useRef(false);
   const backToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isStandalone = typeof window !== "undefined" &&
+
+  // Detect standalone PWA (Android Chrome uses display-mode, iOS Safari uses navigator.standalone)
+  const isStandalone = useRef(
+    typeof window !== "undefined" &&
     (window.matchMedia("(display-mode: standalone)").matches ||
-     (window.navigator as any).standalone === true);
-  const isDashboard = pathname === "/dashboard";
+     (window.navigator as any).standalone === true)
+  );
+
+  const isDashboard = pathname === "/dashboard" || pathname === "/";
 
   useEffect(() => {
-    // Only intercept on Android PWA home (dashboard) screen
-    if (!isStandalone || !isDashboard) return;
+    if (!isStandalone.current || !isDashboard) return;
+
+    // Push a sentinel state on top of current history.
+    // We tag it so we can distinguish our sentinel from router-pushed states.
+    const SENTINEL = "exit-guard";
+    window.history.pushState(SENTINEL, "");
 
     function handlePopState(e: PopStateEvent) {
-      // Push a dummy state back so the user stays on the page
-      window.history.pushState(null, "", window.location.href);
+      if (!isStandalone.current || !isDashboard) return;
+
+      // Always re-push the sentinel so back always fires popstate again
+      window.history.pushState(SENTINEL, "");
 
       if (backPressedOnce.current) {
-        // Second press within 2 s — close the app
+        // Second press within 2 s — exit the PWA
         if (backToastTimer.current) clearTimeout(backToastTimer.current);
-        // In a PWA on Android, history.go(-history.length) or just navigating
-        // to a blank page triggers the app to close reliably
-        window.history.go(-(window.history.length));
+        backPressedOnce.current = false;
+        setShowExitToast(false);
+        // On Android PWA, navigating to a non-existent origin closes the app
+        window.close();
+        // Fallback: navigate to a blank page (Android closes the activity)
+        setTimeout(() => { window.location.href = "about:blank"; }, 50);
         return;
       }
 
@@ -138,16 +152,19 @@ export function AppShell({
       }, 2000);
     }
 
-    // Push an initial dummy state so popstate fires when back is pressed
-    window.history.pushState(null, "", window.location.href);
     window.addEventListener("popstate", handlePopState);
 
     return () => {
       window.removeEventListener("popstate", handlePopState);
       if (backToastTimer.current) clearTimeout(backToastTimer.current);
       backPressedOnce.current = false;
+      setShowExitToast(false);
+      // Remove the sentinel we pushed
+      if (window.history.state === SENTINEL) {
+        window.history.back();
+      }
     };
-  }, [isStandalone, isDashboard]);
+  }, [isDashboard]);
 
   // Dark mode — use shared ThemeProvider so login page and app stay in sync
   const { theme, toggle: toggleTheme } = useTheme();
