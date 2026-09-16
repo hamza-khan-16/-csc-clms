@@ -116,6 +116,16 @@ function DobPicker({ value, onChange }: { value: string; onChange: (v: string) =
   );
 }
 
+// Indian mobile: exactly 10 digits, starts with 6-9
+const INDIAN_PHONE_RE = /^[6-9]\d{9}$/;
+function validateIndianPhone(v: string): string {
+  if (!v) return "";
+  if (!/^\d+$/.test(v)) return "Only digits allowed — no spaces or special characters";
+  if (v.length !== 10) return "Must be exactly 10 digits";
+  if (!/^[6-9]/.test(v)) return "Must start with 6, 7, 8, or 9";
+  return "";
+}
+
 export const Route = createFileRoute("/profile")({
   head: () => ({
     meta: [
@@ -167,7 +177,8 @@ function ProfilePage() {
   const { profile, role, session } = useAuth();
   const qc = useQueryClient();
   const [name, setName] = useState(profile?.full_name ?? "");
-  const [phone, setPhone] = useState((profile as any)?.phone ?? "");
+  const [phone, setPhone] = useState(profile?.phone ?? "");
+  const [phoneError, setPhoneError] = useState("");
   const nameGuardRef = useRef<GuardHandle>(null);
   const [gender, setGender] = useState(profile?.gender ?? "");
   const [dob, setDob] = useState(profile?.date_of_birth ?? "");
@@ -222,6 +233,12 @@ function ProfilePage() {
     if (name.trim().length < 3) return toast.error("Enter your full name");
     const guardErr = await nameGuardRef.current?.validateNow();
     if (guardErr) return;
+    // Phone validation — optional field but must be valid if filled
+    if (phone.trim()) {
+      const err = validateIndianPhone(phone.trim());
+      if (err) { setPhoneError(err); return; }
+    }
+    setPhoneError("");
     setBusy(true);
     const { error } = await supabase
       .from("profiles")
@@ -365,10 +382,19 @@ function ProfilePage() {
                 type="tel"
                 inputMode="numeric"
                 placeholder="e.g. 9876543210"
+                maxLength={10}
                 value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/[^0-9+\s]/g, ""))}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/\D/g, "").slice(0, 10);
+                  setPhone(v);
+                  setPhoneError(validateIndianPhone(v));
+                }}
+                className={phoneError ? "border-destructive focus-visible:ring-destructive/20" : ""}
               />
-              <p className="text-xs text-muted-foreground">Used by your HOD for password reset if needed.</p>
+              {phoneError
+                ? <p className="text-xs text-destructive">{phoneError}</p>
+                : <p className="text-xs text-muted-foreground">Indian mobile number (10 digits, starts with 6–9). Used by your HOD for password reset.</p>
+              }
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
@@ -601,10 +627,10 @@ function ProfilePage() {
                   <span className="font-medium capitalize">{profile.gender}</span>
                 </div>
               )}
-              {(profile as any)?.phone && (
+              {profile?.phone && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Mobile</span>
-                  <span className="font-medium">{(profile as any).phone}</span>
+                  <span className="font-medium">{profile.phone}</span>
                 </div>
               )}
             </div>

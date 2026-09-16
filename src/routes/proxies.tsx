@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fmtDate, fmtTime, todayISO } from "@/lib/leave";
-import { BookOpen, CalendarClock, CheckCircle2, Clock3, Gift, Info, Search, UserCheck, XCircle } from "lucide-react";
+import { BookOpen, CalendarClock, CheckCircle2, Clock3, Gift, Info, UserCheck, XCircle } from "lucide-react";
 
 export const Route = createFileRoute("/proxies")({
   head: () => ({
@@ -47,15 +47,6 @@ function ProxiesPage() {
   const { profile } = useAuth();
   const qc = useQueryClient();
   const today = todayISO();
-
-  // Compensation offer filters + pagination
-  const [compSearch, setCompSearch] = useState("");
-  const [compStatusFilter, setCompStatusFilter] = useState("all");
-  const [compDateFrom, setCompDateFrom] = useState("");
-  const [compDateTo, setCompDateTo] = useState("");
-  const [compPage, setCompPage] = useState(0);
-  const COMP_PAGE_SIZE = 8;
-  useEffect(() => { setCompPage(0); }, [compSearch, compStatusFilter, compDateFrom, compDateTo]);
 
   const { data: rows = [], isLoading: rowsLoading, isError: rowsError } = useQuery({
     queryKey: ["my-proxies", profile?.id],
@@ -160,7 +151,6 @@ function ProxiesPage() {
     if (error) return toast.error(error.message);
     toast.success(status === "accepted" ? "Proxy accepted" : "Proxy declined");
 
-    // Notify HOD when a proxy is declined so they can reassign
     if (status === "rejected") {
       const row = rows.find((r) => r.id === id);
       const absenteeName = row?.absentee?.full_name ?? "a teacher";
@@ -172,12 +162,30 @@ function ProxiesPage() {
         ? new Date(proxyDate + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" })
         : "";
       const timeStr = startTime ? startTime.slice(0, 5) : "";
-      firePush({
-        userIds: [`__hod_dept_${profile!.department_id}__`],
-        title: "Proxy Rejected — Reassignment Needed",
-        body: `${profile!.full_name} declined to cover ${subject}${className ? ` (${className})` : ""}${dateStr ? ` on ${dateStr}` : ""}${timeStr ? ` at ${timeStr}` : ""} for ${absenteeName}. Please reassign.`,
-        targetUrl: "/requests",
-      });
+
+      // If the leave date has already passed, the HOD can't reassign — no point notifying for reassignment.
+      // The cron job handles pending-expired proxies, but if the teacher actively rejects *after* the date,
+      // we handle it here immediately: no push for reassignment, just inform HOD it's an empty class.
+      const today = new Date().toISOString().slice(0, 10);
+      const isPastDate = proxyDate && proxyDate < today;
+
+      if (isPastDate) {
+        // Past date rejection → notify HOD it became an empty class automatically
+        firePush({
+          userIds: [`__hod_dept_${profile!.department_id}__`],
+          title: "Empty Class — Proxy Declined After Date",
+          body: `${profile!.full_name} declined to cover ${subject}${className ? ` (${className})` : ""}${dateStr ? ` on ${dateStr}` : ""}${timeStr ? ` at ${timeStr}` : ""} for ${absenteeName}. The class is marked as empty (date has passed).`,
+          targetUrl: "/requests",
+        });
+      } else {
+        // Future/same-day rejection → notify HOD for reassignment as before
+        firePush({
+          userIds: [`__hod_dept_${profile!.department_id}__`],
+          title: "Proxy Rejected — Reassignment Needed",
+          body: `${profile!.full_name} declined to cover ${subject}${className ? ` (${className})` : ""}${dateStr ? ` on ${dateStr}` : ""}${timeStr ? ` at ${timeStr}` : ""} for ${absenteeName}. Please reassign.`,
+          targetUrl: "/requests",
+        });
+      }
     }
 
     qc.invalidateQueries();
@@ -213,18 +221,62 @@ function ProxiesPage() {
   const pendingIncoming = incomingOffers.filter((o) => o.status === "pending");
   const hodPendingIncoming = incomingOffers.filter((o) => o.status === "hod_pending");
 
-  // Proxy assignment pagination
-  const PROXY_PAGE_SIZE = 8;
-  const [handledPage, setHandledPage] = useState(0);
-  useEffect(() => { setHandledPage(0); }, [rows.length]);
-  const handledTotalPages = Math.max(1, Math.ceil(handled.length / PROXY_PAGE_SIZE));
-  const handledPageSafe = Math.min(handledPage, handledTotalPages - 1);
-  const handledVisible = handled.slice(handledPageSafe * PROXY_PAGE_SIZE, (handledPageSafe + 1) * PROXY_PAGE_SIZE);
-
   // Stats
   const totalAccepted = rows.filter((r) => r.status === "accepted").length;
   const totalDeclined = rows.filter((r) => r.status === "rejected").length;
   const totalPending = pending.length;
+
+  // Pagination for proxy history
+  const PROXY_PAGE_SIZE = 10;
+  const [proxyHistPage, setProxyHistPage] = useState(1);
+  const proxyHistTotalPages = Math.max(1, Math.ceil(handled.length / PROXY_PAGE_SIZE));
+  const pagedHandled = handled.slice((proxyHistPage - 1) * PROXY_PAGE_SIZE, proxyHistPage * PROXY_PAGE_SIZE);
+
+  // Pagination for outgoing comp offers
+  const COMP_PAGE_SIZE = 10;
+  const [compPage, setCompPage] = useState(1);
+
+  // ── Offer Compensation filters ──────────────────────────────────────────────
+  const [offerSearch, setOfferSearch] = useState("");
+  const [offerCompStatus, setOfferCompStatus] = useState<"all" | "pending" | "offered">("all");
+  const [offerDateFrom, setOfferDateFrom] = useState("");
+  const [offerDateTo, setOfferDateTo] = useState("");
+  const [offerPage, setOfferPage] = useState(1);
+  const OFFER_PAGE_SIZE = 5;
+
+  const filteredAccepted = useMemo(() => {
+    let list = accepted as any[];
+    if (offerSearch.trim()) {
+      const q = offerSearch.toLowerCase();
+      list = list.filter((r) =>
+        r.absentee?.full_name?.toLowerCase().includes(q) ||
+        r.subject?.toLowerCase().includes(q) ||
+        r.class_name?.toLowerCase().includes(q)
+      );
+    }
+    if (offerDateFrom) list = list.filter((r) => r.proxy_date >= offerDateFrom);
+    if (offerDateTo) list = list.filter((r) => r.proxy_date <= offerDateTo);
+    // offerCompStatus filters whether a comp offer has already been sent
+    // We can't easily know at this point without fetching — handled at CompensationForm level
+    // So we expose "all" and future status can be extended
+    return list;
+  }, [accepted, offerSearch, offerDateFrom, offerDateTo]);
+
+  // Reset to page 1 whenever filters change
+  const prevOfferFilters = useMemo(() => ({ offerSearch, offerDateFrom, offerDateTo, offerCompStatus }), [offerSearch, offerDateFrom, offerDateTo, offerCompStatus]);
+  const offerTotalPages = Math.max(1, Math.ceil(filteredAccepted.length / OFFER_PAGE_SIZE));
+  const pagedAccepted = filteredAccepted.slice((offerPage - 1) * OFFER_PAGE_SIZE, offerPage * OFFER_PAGE_SIZE);
+
+  function clearOfferFilters() {
+    setOfferSearch("");
+    setOfferDateFrom("");
+    setOfferDateTo("");
+    setOfferCompStatus("all");
+    setOfferPage(1);
+  }
+
+  // Reset to page 1 whenever offer filters change
+  useEffect(() => { setOfferPage(1); }, [offerSearch, offerDateFrom, offerDateTo, offerCompStatus]);
 
   if (rowsLoading) {
     return (
@@ -233,23 +285,6 @@ function ProxiesPage() {
       </AppShell>
     );
   }
-
-  // ── Compensation offers filters ──────────────────────────────────────────
-  const filteredCompOffers = useMemo(() => {
-    let s = myCompOffers;
-    const q = compSearch.trim().toLowerCase();
-    if (q) s = s.filter((o: any) => o.to_teacher?.full_name?.toLowerCase().includes(q) || o.note?.toLowerCase().includes(q));
-    if (compStatusFilter !== "all") s = s.filter((o: any) => o.status === compStatusFilter);
-    if (compDateFrom) s = s.filter((o: any) => o.compensation_date >= compDateFrom);
-    if (compDateTo) s = s.filter((o: any) => o.compensation_date <= compDateTo);
-    return s;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myCompOffers, compSearch, compStatusFilter, compDateFrom, compDateTo]);
-
-  const compTotalPages = Math.max(1, Math.ceil(filteredCompOffers.length / COMP_PAGE_SIZE));
-  const compPageSafe = Math.min(compPage, compTotalPages - 1);
-  const compVisible = filteredCompOffers.slice(compPageSafe * COMP_PAGE_SIZE, (compPageSafe + 1) * COMP_PAGE_SIZE);
-  const anyCompFilter = compSearch || compStatusFilter !== "all" || compDateFrom || compDateTo;
 
   return (
     <AppShell title="Proxy Duties" subtitle="Lectures your HOD has assigned you to cover">
@@ -395,17 +430,112 @@ function ProxiesPage() {
               <h2 className="font-semibold text-sm">Offer compensation</h2>
             </div>
             <p className="text-xs text-muted-foreground -mt-1 mb-3">You've covered someone's leave — offer one of your lectures as compensation.</p>
-            <ul className="space-y-4">
-              {accepted.map((r) => (
-                <CompensationForm
-                  key={r.id}
-                  proxyRow={r}
-                  myLectures={myLectures}
-                  today={today}
-                  onDone={() => qc.invalidateQueries()}
-                />
-              ))}
-            </ul>
+
+            {/* Filters */}
+            <div className="rounded-xl border border-border bg-muted/30 p-3 mb-3 space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {/* Search */}
+                <div className="flex flex-col gap-0.5 flex-1 min-w-[160px]">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">Search</label>
+                  <div className="relative">
+                    <input
+                      className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                      placeholder="Teacher / subject…"
+                      value={offerSearch}
+                      onChange={(e) => setOfferSearch(e.target.value)}
+                    />
+                    <svg className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                  </div>
+                </div>
+                {/* Date from */}
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">From</label>
+                  <input
+                    type="date"
+                    className="h-8 rounded-lg border border-border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                    value={offerDateFrom}
+                    onChange={(e) => setOfferDateFrom(e.target.value)}
+                  />
+                </div>
+                {/* Date to */}
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">To</label>
+                  <input
+                    type="date"
+                    className="h-8 rounded-lg border border-border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                    value={offerDateTo}
+                    onChange={(e) => setOfferDateTo(e.target.value)}
+                  />
+                </div>
+                {/* Clear */}
+                {(offerSearch || offerDateFrom || offerDateTo) && (
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] invisible">x</span>
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium hover:bg-muted transition-colors"
+                      onClick={clearOfferFilters}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                )}
+              </div>
+              {filteredAccepted.length !== accepted.length && (
+                <p className="text-xs text-muted-foreground">{filteredAccepted.length} of {accepted.length} entries shown</p>
+              )}
+            </div>
+
+            {filteredAccepted.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-muted/30 py-8 text-center">
+                <p className="text-sm text-muted-foreground">No entries match your filters.</p>
+              </div>
+            ) : (
+              <>
+                <ul className="space-y-4">
+                  {pagedAccepted.map((r: any) => (
+                    <CompensationForm
+                      key={r.id}
+                      proxyRow={r}
+                      myLectures={myLectures}
+                      today={today}
+                      onDone={() => qc.invalidateQueries()}
+                    />
+                  ))}
+                </ul>
+                {offerTotalPages > 1 && (
+                  <div className="flex items-center justify-between pt-3 border-t border-border mt-2">
+                    <p className="text-xs text-muted-foreground">
+                      Showing {(offerPage - 1) * OFFER_PAGE_SIZE + 1}–{Math.min(offerPage * OFFER_PAGE_SIZE, filteredAccepted.length)} of {filteredAccepted.length}
+                    </p>
+                    <div className="flex items-center gap-1">
+                      <button
+                        className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                        onClick={() => setOfferPage((p) => Math.max(1, p - 1))}
+                        disabled={offerPage === 1}
+                      >
+                        ← Prev
+                      </button>
+                      {Array.from({ length: offerTotalPages }, (_, i) => i + 1).map((pg) => (
+                        <button
+                          key={pg}
+                          className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === offerPage ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
+                          onClick={() => setOfferPage(pg)}
+                        >
+                          {pg}
+                        </button>
+                      ))}
+                      <button
+                        className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                        onClick={() => setOfferPage((p) => Math.min(offerTotalPages, p + 1))}
+                        disabled={offerPage === offerTotalPages}
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -433,7 +563,7 @@ function ProxiesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {handledVisible.map((r, i) => (
+                    {pagedHandled.map((r, i) => (
                       <tr key={r.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
                         <td className="px-4 py-3 font-medium">{fmtDate(r.proxy_date)}</td>
                         <td className="px-4 py-3">{r.subject} <span className="text-muted-foreground">· {r.class_name}</span></td>
@@ -452,19 +582,35 @@ function ProxiesPage() {
                   </tbody>
                 </table>
               </div>
-              {handledTotalPages > 1 && (
-                <div className="flex items-center justify-between pt-2">
+              {proxyHistTotalPages > 1 && (
+                <div className="flex items-center justify-between pt-3 border-t border-border mt-1">
                   <p className="text-xs text-muted-foreground">
-                    {handledPageSafe * PROXY_PAGE_SIZE + 1}–{Math.min((handledPageSafe + 1) * PROXY_PAGE_SIZE, handled.length)} of {handled.length}
+                    Showing {(proxyHistPage - 1) * PROXY_PAGE_SIZE + 1}–{Math.min(proxyHistPage * PROXY_PAGE_SIZE, handled.length)} of {handled.length}
                   </p>
-                  <div className="flex gap-1 flex-wrap justify-end">
-                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={handledPageSafe === 0} onClick={() => setHandledPage((p) => p - 1)}>← Prev</Button>
-                    {Array.from({ length: Math.min(handledTotalPages, 7) }, (_, i) => Math.max(0, handledPageSafe - 3) + i)
-                      .filter((i) => i < handledTotalPages)
-                      .map((i) => (
-                        <Button key={i} size="sm" variant={i === handledPageSafe ? "default" : "outline"} className="h-7 w-7 p-0 text-xs" onClick={() => setHandledPage(i)}>{i + 1}</Button>
-                      ))}
-                    <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={handledPageSafe >= handledTotalPages - 1} onClick={() => setHandledPage((p) => p + 1)}>Next →</Button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                      onClick={() => setProxyHistPage((p) => Math.max(1, p - 1))}
+                      disabled={proxyHistPage === 1}
+                    >
+                      ← Prev
+                    </button>
+                    {Array.from({ length: proxyHistTotalPages }, (_, i) => i + 1).map((pg) => (
+                      <button
+                        key={pg}
+                        className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === proxyHistPage ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
+                        onClick={() => setProxyHistPage(pg)}
+                      >
+                        {pg}
+                      </button>
+                    ))}
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                      onClick={() => setProxyHistPage((p) => Math.min(proxyHistTotalPages, p + 1))}
+                      disabled={proxyHistPage === proxyHistTotalPages}
+                    >
+                      Next →
+                    </button>
                   </div>
                 </div>
               )}
@@ -473,100 +619,79 @@ function ProxiesPage() {
         </div>
 
         {/* My outgoing compensation offers */}
-        {myCompOffers.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Gift className="size-4 text-muted-foreground" />
-              <h2 className="font-semibold text-sm">My compensation offers</h2>
-              <span className="ml-1 rounded-full bg-muted text-muted-foreground text-xs font-bold px-2 py-0.5">{myCompOffers.length}</span>
-            </div>
-
-            {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-                <Input placeholder="Search by name or note…" value={compSearch} onChange={(e) => setCompSearch(e.target.value)} className="pl-8 h-8 text-xs" />
+        {myCompOffers.length > 0 && (() => {
+          const compTotalPages = Math.max(1, Math.ceil(myCompOffers.length / COMP_PAGE_SIZE));
+          const pagedComp = myCompOffers.slice((compPage - 1) * COMP_PAGE_SIZE, compPage * COMP_PAGE_SIZE);
+          return (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 mb-3">
+                <Gift className="size-4 text-muted-foreground" />
+                <h2 className="font-semibold text-sm">My compensation offers</h2>
               </div>
-              <Select value={compStatusFilter} onValueChange={setCompStatusFilter}>
-                <SelectTrigger className="h-8 text-xs w-full sm:w-36"><SelectValue placeholder="All statuses" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="hod_pending">Awaiting HOD</SelectItem>
-                  <SelectItem value="accepted">Approved</SelectItem>
-                  <SelectItem value="rejected">Declined</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input type="date" value={compDateFrom} onChange={(e) => setCompDateFrom(e.target.value)} className="h-8 text-xs w-full sm:w-36" placeholder="From date" />
-              <Input type="date" value={compDateTo} onChange={(e) => setCompDateTo(e.target.value)} className="h-8 text-xs w-full sm:w-36" placeholder="To date" />
-              {anyCompFilter && (
-                <Button size="sm" variant="ghost" className="h-8 text-xs shrink-0" onClick={() => { setCompSearch(""); setCompStatusFilter("all"); setCompDateFrom(""); setCompDateTo(""); }}>
-                  Clear
-                </Button>
+              <div className="rounded-xl border border-border overflow-hidden overflow-x-auto">
+                <table className="w-full text-sm min-w-[480px]">
+                  <thead>
+                    <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-4 py-2.5 text-left font-semibold">To</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Date</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Note</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedComp.map((o, i) => (
+                      <tr key={o.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                        <td className="px-4 py-3 font-medium">{o.to_teacher?.full_name ?? "colleague"}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{fmtDate(o.compensation_date)}</td>
+                        <td className="px-4 py-3 text-muted-foreground italic">{o.note ? `"${o.note}"` : "—"}</td>
+                        <td className="px-4 py-3 text-right">
+                          <Badge
+                            variant={o.status === "accepted" ? "default" : o.status === "rejected" ? "destructive" : o.status === "hod_pending" ? "secondary" : "secondary"}
+                            className={o.status === "accepted" ? "bg-success/15 text-success border-success/25" : o.status === "hod_pending" ? "bg-warning/15 text-warning border-warning/25" : ""}
+                          >
+                            {o.status === "accepted" ? "Approved" : o.status === "rejected" ? "Declined" : o.status === "hod_pending" ? "Awaiting HOD" : "Pending"}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {compTotalPages > 1 && (
+                <div className="flex items-center justify-between pt-3 border-t border-border mt-1">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {(compPage - 1) * COMP_PAGE_SIZE + 1}–{Math.min(compPage * COMP_PAGE_SIZE, myCompOffers.length)} of {myCompOffers.length}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                      onClick={() => setCompPage((p) => Math.max(1, p - 1))}
+                      disabled={compPage === 1}
+                    >
+                      ← Prev
+                    </button>
+                    {Array.from({ length: compTotalPages }, (_, i) => i + 1).map((pg) => (
+                      <button
+                        key={pg}
+                        className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === compPage ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
+                        onClick={() => setCompPage(pg)}
+                      >
+                        {pg}
+                      </button>
+                    ))}
+                    <button
+                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+                      onClick={() => setCompPage((p) => Math.min(compTotalPages, p + 1))}
+                      disabled={compPage === compTotalPages}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
-
-            {anyCompFilter && (
-              <p className="text-xs text-muted-foreground">
-                {filteredCompOffers.length === 0 ? "No offers match your filters." : `${filteredCompOffers.length} of ${myCompOffers.length} offers`}
-              </p>
-            )}
-
-            {filteredCompOffers.length === 0 ? (
-              <Empty>No offers match your filters.</Empty>
-            ) : (
-              <>
-                <div className="rounded-xl border border-border overflow-hidden overflow-x-auto">
-                  <table className="w-full text-sm min-w-[480px]">
-                    <thead>
-                      <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
-                        <th className="px-4 py-2.5 text-left font-semibold">To</th>
-                        <th className="px-4 py-2.5 text-left font-semibold">Date</th>
-                        <th className="px-4 py-2.5 text-left font-semibold">Note</th>
-                        <th className="px-4 py-2.5 text-right font-semibold">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {compVisible.map((o: any, i: number) => (
-                        <tr key={o.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
-                          <td className="px-4 py-3 font-medium">{o.to_teacher?.full_name ?? "colleague"}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{fmtDate(o.compensation_date)}</td>
-                          <td className="px-4 py-3 text-muted-foreground italic">{o.note ? `"${o.note}"` : "—"}</td>
-                          <td className="px-4 py-3 text-right">
-                            <Badge
-                              variant={o.status === "accepted" ? "default" : o.status === "rejected" ? "destructive" : "secondary"}
-                              className={o.status === "accepted" ? "bg-success/15 text-success border-success/25" : o.status === "hod_pending" ? "bg-warning/15 text-warning border-warning/25" : ""}
-                            >
-                              {o.status === "accepted" ? "Approved" : o.status === "rejected" ? "Declined" : o.status === "hod_pending" ? "Awaiting HOD" : "Pending"}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Pagination */}
-                {compTotalPages > 1 && (
-                  <div className="flex items-center justify-between pt-1">
-                    <p className="text-xs text-muted-foreground">
-                      {compPageSafe * COMP_PAGE_SIZE + 1}–{Math.min((compPageSafe + 1) * COMP_PAGE_SIZE, filteredCompOffers.length)} of {filteredCompOffers.length}
-                    </p>
-                    <div className="flex gap-1 flex-wrap justify-end">
-                      <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={compPageSafe === 0} onClick={() => setCompPage((p) => p - 1)}>← Prev</Button>
-                      {Array.from({ length: Math.min(compTotalPages, 7) }, (_, i) => Math.max(0, compPageSafe - 3) + i)
-                        .filter((i) => i < compTotalPages)
-                        .map((i) => (
-                          <Button key={i} size="sm" variant={i === compPageSafe ? "default" : "outline"} className="h-7 w-7 p-0 text-xs" onClick={() => setCompPage(i)}>{i + 1}</Button>
-                        ))}
-                      <Button size="sm" variant="outline" className="h-7 px-2 text-xs" disabled={compPageSafe >= compTotalPages - 1} onClick={() => setCompPage((p) => p + 1)}>Next →</Button>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
+          );
+        })()}
       </div>
     </AppShell>
   );

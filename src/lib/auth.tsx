@@ -22,6 +22,7 @@ export interface Profile {
   hr_approved: boolean | null;
   hr_rejection_reason: string | null;
   failed_login_attempts: number;
+  phone: string | null;
 }
 
 
@@ -49,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       supabase
         .from("profiles")
         .select(
-          "id, user_id, full_name, designation, department_id, monthly_salary, approved, password_changed_at, gender, date_of_birth, account_locked, failed_login_attempts, hr_approved, hr_rejection_reason, departments(name)",
+          "id, user_id, full_name, designation, department_id, monthly_salary, approved, password_changed_at, gender, date_of_birth, account_locked, failed_login_attempts, hr_approved, hr_rejection_reason, phone, departments(name)",
         )
         .eq("id", userId)
         .maybeSingle(),
@@ -72,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         hr_approved: (p as any).hr_approved ?? null,
         hr_rejection_reason: (p as any).hr_rejection_reason ?? null,
         failed_login_attempts: Number((p as any).failed_login_attempts ?? 0),
+        phone: (p as any).phone ?? null,
       });
     } else {
       setProfile(null);
@@ -148,6 +150,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
+    // ── Single-device enforcement: detect when this session was revoked ──────
+    // When another device logs in, Supabase revokes our refresh_token.
+    // The next auto-refresh attempt returns a 401. We intercept this at the
+    // fetch level and force a local sign-out so the UI reacts immediately.
+    const origFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const res = await origFetch(...args);
+      // Only intercept Supabase auth token refresh calls
+      const url = typeof args[0] === "string" ? args[0] : (args[0] as Request)?.url ?? "";
+      if (
+        res.status === 401 &&
+        url.includes("/auth/v1/token") &&
+        url.includes("grant_type=refresh_token")
+      ) {
+        // Our refresh token was revoked — another device logged in.
+        // Sign out locally and let the UI redirect to login.
+        supabase.auth.signOut({ scope: "local" }).catch(() => {});
+      }
+      return res;
+    };
+
     const fallback = setTimeout(() => {
       if (!initialised) setLoading(false);
     }, 5000);
@@ -155,6 +178,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       sub.subscription.unsubscribe();
       clearTimeout(fallback);
+      // Restore fetch if we replaced it
+      window.fetch = origFetch;
     };
   }, [loadProfile]);
 

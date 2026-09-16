@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/proxy-cleanup",
-      "schedule": "0 23 * * *"
+      "schedule": "30 17 * * *"
     }
   ],
   "headers": [

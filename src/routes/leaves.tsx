@@ -48,7 +48,7 @@ export const Route = createFileRoute("/leaves")({
       { title: "My Leaves — CSC Leave Management" },
       {
         name: "description",
-        content: "Track your leave history, approval progress, proxy cover and pay-cut days.",
+        content: "Track your leave history, approval progress and pay-cut days.",
       },
       { property: "og:title", content: "My Leaves — CSC Leave Management" },
       { property: "og:description", content: "Your leave history and approval status." },
@@ -100,23 +100,6 @@ function MyLeavesPage() {
     },
   });
 
-  // Sort IDs so the key is stable regardless of array reference changes (#3)
-  const leaveIdKey = useMemo(() => [...leaves.map((l) => l.id)].sort().join(","), [leaves]);
-  const { data: proxies = [] } = useQuery({
-    queryKey: ["my-leave-proxies", profile?.id, leaveIdKey],
-    enabled: leaves.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("proxy_assignments")
-        .select("*")
-        .in(
-          "leave_request_id",
-          leaves.map((l) => l.id),
-        );
-      if (error) throw error;
-      return data;
-    },
-  });
 
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
 
@@ -316,11 +299,13 @@ function MyLeavesPage() {
         {/* 2-column grid for leave cards */}
         <div className="grid gap-3 sm:grid-cols-2">
         {filteredLeaves.map((l) => {
-          const cover = proxies.filter((p) => p.leave_request_id === l.id);
           const unpaid = Number(l.unpaid_days);
           const total  = Number(l.total_days);
           const paid   = Number(l.paid_days);
-          const hasBigContent = cover.length > 0 || isHodFinalLeave(l.leave_type as LeaveType);
+          const hasBigContent =
+            isHodFinalLeave(l.leave_type as LeaveType) &&
+            (l.status === "hod_approved" || l.status === "approved") &&
+            l.doc_status !== "verified";
           return (
             <div key={l.id} className={`rounded-xl border border-border bg-card p-4 flex flex-col gap-3 ${hasBigContent ? "sm:col-span-2" : ""}`}>
               {/* Top row — type + status */}
@@ -392,29 +377,6 @@ function MyLeavesPage() {
                 </div>
               )}
 
-              {cover.length > 0 && (
-                <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Proxy cover
-                  </p>
-                  <ul className="space-y-2 text-sm">
-                    {cover.map((p) => (
-                      <li
-                        key={p.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-2.5"
-                      >
-                        <span>
-                          {fmtDate(p.proxy_date)} · {fmtTime(p.start_time)} – {fmtTime(p.end_time)} ·{" "}
-                          {p.subject} ({p.class_name})
-                        </span>
-                        <span className="text-xs font-semibold capitalize text-muted-foreground">
-                          {p.status}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </div>
           );
         })}

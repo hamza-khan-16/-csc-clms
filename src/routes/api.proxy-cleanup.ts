@@ -39,12 +39,12 @@ export const Route = createFileRoute("/api/proxy-cleanup")({
 
           const today = new Date().toISOString().slice(0, 10);
 
-          // 1. Find all pending proxy assignments whose date has passed
+          // 1. Find all pending proxy assignments whose date has passed (including today — cron runs at 23:00 IST)
           const { data: expired, error: fetchErr } = await supabaseAdmin
             .from("proxy_assignments")
             .select("id, proxy_date, subject, class_name, start_time, absentee_teacher_id, leave_request_id")
             .eq("status", "pending")
-            .lt("proxy_date", today);
+            .lte("proxy_date", today); // <= today: by 23:00 IST the class day is over
 
           if (fetchErr) {
             console.error("[proxy-cleanup] fetch error:", fetchErr.message);

@@ -161,6 +161,14 @@ export const signInWithIdentifier = createServerFn({ method: "POST" })
         .eq("id", profileId)
         .then(() => {});
 
+      // ── Single-device enforcement ──────────────────────────────────────────
+      // Revoke all existing Supabase sessions for this user before issuing the
+      // new one. This immediately invalidates any other device's access_token
+      // and refresh_token, forcing them to sign out on the next API call.
+      // We use the admin API so no extra DB column is needed.
+      supabaseAdmin.auth.admin.signOut(signIn.session.user.id, "others")
+        .catch(() => {}); // fire-and-forget — don't block login
+
       // Auto-sync push token from OneSignal for this user (fire-and-forget)
       // This replaces needing to manually visit /api/push-sync-all
       syncPushTokenForUser(profileId).catch(() => {});
