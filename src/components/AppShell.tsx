@@ -99,60 +99,50 @@ export function AppShell({
   const { profile, role, signOut } = useAuth();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const [open, setOpen] = useState(false);
-  const [offline, setOffline] = useState(false);
-  const [customizeOpen, setCustomizeOpen] = useState(false);
 
-  // ── Android double-back-to-exit (Median.co native app, dashboard screen only) ─
+  // Android double-back-press to exit — only on home/dashboard screen
+  const lastBackPress = useRef<number>(0);
   const [showExitToast, setShowExitToast] = useState(false);
-  const backPressedOnce = useRef(false);
-  const backToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const isDashboard = pathname === "/dashboard" || pathname === "/";
+  const exitToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!IS_NATIVE_APP || !isDashboard) return;
+    // Only works in Median/GoNative WebView which exposes gonative.hardware.backPressed
+    const isAndroidApp = typeof (window as any).gonative !== "undefined" ||
+      /Median|GoNative/i.test(navigator.userAgent);
+    if (!isAndroidApp) return;
 
-    const win = window as any;
+    const HOME_PATHS = ["/dashboard", "/admin"];
+    const isHomePath = HOME_PATHS.includes(pathname);
 
-    function handleBack() {
-      if (backPressedOnce.current) {
-        if (backToastTimer.current) clearTimeout(backToastTimer.current);
-        backPressedOnce.current = false;
+    function handleBack(e: Event) {
+      if (!isHomePath) return; // Let normal navigation handle non-home screens
+      e.preventDefault();
+      const now = Date.now();
+      if (now - lastBackPress.current < 2000) {
+        // Second press within 2s — exit
+        if (exitToastTimer.current) clearTimeout(exitToastTimer.current);
         setShowExitToast(false);
-        // Median's native exit — works on both window.median and window.gonative
-        win.median?.nativexit?.exit?.();
-        win.gonative?.nativexit?.exit?.();
+        (window as any).gonative?.window?.close?.();
+        (window as any).gonative?.nativebridge?.exitApp?.();
       } else {
-        backPressedOnce.current = true;
+        // First press — show toast
+        lastBackPress.current = now;
         setShowExitToast(true);
-        backToastTimer.current = setTimeout(() => {
-          backPressedOnce.current = false;
-          setShowExitToast(false);
-        }, 2000);
+        if (exitToastTimer.current) clearTimeout(exitToastTimer.current);
+        exitToastTimer.current = setTimeout(() => setShowExitToast(false), 2000);
       }
     }
 
-    // Median calls this global function when back is pressed on Android.
-    // It fires regardless of browser history when navigationLevels is set to 1.
-    win.gonative_android_back_pressed = handleBack;
-
-    // Tell Median the minimum history depth before it calls our handler.
-    // Setting navigationLevels to 1 means: once we're at the root page,
-    // call gonative_android_back_pressed instead of going back in history.
-    win.gonative?.navigationLevels?.setMinimum?.({ minimumLevel: 1 });
-    win.median?.navigationLevels?.setMinimum?.({ minimumLevel: 1 });
-
+    // Median exposes a custom backbutton event
+    document.addEventListener("backbutton", handleBack);
     return () => {
-      delete win.gonative_android_back_pressed;
-      // Restore default (allow back to exit naturally)
-      win.gonative?.navigationLevels?.setMinimum?.({ minimumLevel: 0 });
-      win.median?.navigationLevels?.setMinimum?.({ minimumLevel: 0 });
-      if (backToastTimer.current) clearTimeout(backToastTimer.current);
-      backPressedOnce.current = false;
-      setShowExitToast(false);
+      document.removeEventListener("backbutton", handleBack);
+      if (exitToastTimer.current) clearTimeout(exitToastTimer.current);
     };
-  }, [isDashboard]);
+  }, [pathname]);
+  const [open, setOpen] = useState(false);
+  const [offline, setOffline] = useState(false);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
 
   // Dark mode — use shared ThemeProvider so login page and app stay in sync
   const { theme, toggle: toggleTheme } = useTheme();
@@ -312,14 +302,6 @@ export function AppShell({
   return (
     <TooltipProvider delayDuration={300}>
     <div className="flex min-h-screen bg-background">
-      {/* Android double-back-to-exit toast */}
-      {showExitToast && (
-        <div className="fixed bottom-20 inset-x-0 z-[100] flex justify-center pointer-events-none">
-          <div className="rounded-xl bg-foreground/90 text-background text-sm font-medium px-5 py-2.5 shadow-lg backdrop-blur-sm animate-in fade-in slide-in-from-bottom-3 duration-200">
-            Press back again to exit
-          </div>
-        </div>
-      )}
       <OfflineBanner onToggle={setOffline} />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex shadow-sm overflow-hidden">
         <div className="px-5 pb-6 shrink-0">
@@ -520,6 +502,12 @@ export function AppShell({
       </div>
       <LeaveBot />
     </div>
+      {/* Double back press exit toast */}
+      {showExitToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[9999] bg-neutral-900 text-white text-sm font-medium px-5 py-2.5 rounded-full shadow-xl animate-in fade-in slide-in-from-bottom-2">
+          Press back again to exit
+        </div>
+      )}
     </TooltipProvider>
   );
 }
