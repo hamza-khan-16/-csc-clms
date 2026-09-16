@@ -103,66 +103,54 @@ export function AppShell({
   const [offline, setOffline] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
-  // ── Android double-back-to-exit (PWA standalone only, dashboard screen only) ─
+  // ── Android double-back-to-exit (Median.co native app, dashboard screen only) ─
   const [showExitToast, setShowExitToast] = useState(false);
   const backPressedOnce = useRef(false);
   const backToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Detect standalone PWA (Android Chrome uses display-mode, iOS Safari uses navigator.standalone)
-  const isStandalone = useRef(
-    typeof window !== "undefined" &&
-    (window.matchMedia("(display-mode: standalone)").matches ||
-     (window.navigator as any).standalone === true)
-  );
-
   const isDashboard = pathname === "/dashboard" || pathname === "/";
 
   useEffect(() => {
-    if (!isStandalone.current || !isDashboard) return;
+    if (!IS_NATIVE_APP || !isDashboard) return;
 
-    // Push a sentinel state on top of current history.
-    // We tag it so we can distinguish our sentinel from router-pushed states.
-    const SENTINEL = "exit-guard";
-    window.history.pushState(SENTINEL, "");
+    const win = window as any;
 
-    function handlePopState(e: PopStateEvent) {
-      if (!isStandalone.current || !isDashboard) return;
-
-      // Always re-push the sentinel so back always fires popstate again
-      window.history.pushState(SENTINEL, "");
-
+    function handleBack() {
       if (backPressedOnce.current) {
-        // Second press within 2 s — exit the PWA
         if (backToastTimer.current) clearTimeout(backToastTimer.current);
         backPressedOnce.current = false;
         setShowExitToast(false);
-        // On Android PWA, navigating to a non-existent origin closes the app
-        window.close();
-        // Fallback: navigate to a blank page (Android closes the activity)
-        setTimeout(() => { window.location.href = "about:blank"; }, 50);
-        return;
+        // Median's native exit — works on both window.median and window.gonative
+        win.median?.nativexit?.exit?.();
+        win.gonative?.nativexit?.exit?.();
+      } else {
+        backPressedOnce.current = true;
+        setShowExitToast(true);
+        backToastTimer.current = setTimeout(() => {
+          backPressedOnce.current = false;
+          setShowExitToast(false);
+        }, 2000);
       }
-
-      backPressedOnce.current = true;
-      setShowExitToast(true);
-
-      backToastTimer.current = setTimeout(() => {
-        backPressedOnce.current = false;
-        setShowExitToast(false);
-      }, 2000);
     }
 
-    window.addEventListener("popstate", handlePopState);
+    // Median calls this global function when back is pressed on Android.
+    // It fires regardless of browser history when navigationLevels is set to 1.
+    win.gonative_android_back_pressed = handleBack;
+
+    // Tell Median the minimum history depth before it calls our handler.
+    // Setting navigationLevels to 1 means: once we're at the root page,
+    // call gonative_android_back_pressed instead of going back in history.
+    win.gonative?.navigationLevels?.setMinimum?.({ minimumLevel: 1 });
+    win.median?.navigationLevels?.setMinimum?.({ minimumLevel: 1 });
 
     return () => {
-      window.removeEventListener("popstate", handlePopState);
+      delete win.gonative_android_back_pressed;
+      // Restore default (allow back to exit naturally)
+      win.gonative?.navigationLevels?.setMinimum?.({ minimumLevel: 0 });
+      win.median?.navigationLevels?.setMinimum?.({ minimumLevel: 0 });
       if (backToastTimer.current) clearTimeout(backToastTimer.current);
       backPressedOnce.current = false;
       setShowExitToast(false);
-      // Remove the sentinel we pushed
-      if (window.history.state === SENTINEL) {
-        window.history.back();
-      }
     };
   }, [isDashboard]);
 
