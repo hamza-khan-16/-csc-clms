@@ -551,8 +551,34 @@ function ProxiesPage() {
             </div>
           ) : (
             <>
-              <div className="rounded-xl border border-border overflow-hidden overflow-x-auto">
-                <table className="w-full text-sm min-w-[480px]">
+              {/* ── Mobile card list ── */}
+              <div className="flex flex-col gap-2 sm:hidden">
+                {pagedHandled.map((r) => (
+                  <div key={r.id} className="rounded-xl border border-border bg-card p-3.5 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm truncate">{r.subject} <span className="text-muted-foreground font-normal">· {r.class_name}</span></p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Covering: {r.absentee?.full_name ?? "—"}</p>
+                      </div>
+                      <Badge
+                        variant={r.status === "accepted" ? "default" : "secondary"}
+                        className={`shrink-0 ${r.status === "accepted" ? "bg-success/15 text-success border-success/25" : ""}`}
+                      >
+                        {r.status === "accepted" ? "Accepted" : "Declined"}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span>{fmtDate(r.proxy_date)}</span>
+                      <span className="text-border">·</span>
+                      <span>{fmtTime(r.start_time)} – {fmtTime(r.end_time)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* ── Desktop table ── */}
+              <div className="hidden sm:block rounded-xl border border-border overflow-hidden">
+                <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                       <th className="px-4 py-2.5 text-left font-semibold">Date</th>
@@ -565,9 +591,9 @@ function ProxiesPage() {
                   <tbody>
                     {pagedHandled.map((r, i) => (
                       <tr key={r.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
-                        <td className="px-4 py-3 font-medium">{fmtDate(r.proxy_date)}</td>
+                        <td className="px-4 py-3 font-medium whitespace-nowrap">{fmtDate(r.proxy_date)}</td>
                         <td className="px-4 py-3">{r.subject} <span className="text-muted-foreground">· {r.class_name}</span></td>
-                        <td className="px-4 py-3 text-muted-foreground">{fmtTime(r.start_time)} – {fmtTime(r.end_time)}</td>
+                        <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{fmtTime(r.start_time)} – {fmtTime(r.end_time)}</td>
                         <td className="px-4 py-3 text-muted-foreground">{r.absentee?.full_name ?? "—"}</td>
                         <td className="px-4 py-3 text-right">
                           <Badge
@@ -582,6 +608,7 @@ function ProxiesPage() {
                   </tbody>
                 </table>
               </div>
+
               {proxyHistTotalPages > 1 && (
                 <div className="flex items-center justify-between pt-3 border-t border-border mt-1">
                   <p className="text-xs text-muted-foreground">
@@ -628,8 +655,31 @@ function ProxiesPage() {
                 <Gift className="size-4 text-muted-foreground" />
                 <h2 className="font-semibold text-sm">My compensation offers</h2>
               </div>
-              <div className="rounded-xl border border-border overflow-hidden overflow-x-auto">
-                <table className="w-full text-sm min-w-[480px]">
+
+              {/* ── Mobile card list ── */}
+              <div className="flex flex-col gap-2 sm:hidden">
+                {pagedComp.map((o) => {
+                  const statusLabel = o.status === "accepted" ? "Approved" : o.status === "rejected" ? "Declined" : o.status === "hod_pending" ? "Awaiting HOD" : "Pending";
+                  const statusClass = o.status === "accepted" ? "bg-success/15 text-success border-success/25" : o.status === "hod_pending" ? "bg-warning/15 text-warning border-warning/25" : "";
+                  const statusVariant: "default" | "destructive" | "secondary" = o.status === "accepted" ? "default" : o.status === "rejected" ? "destructive" : "secondary";
+                  return (
+                    <div key={o.id} className="rounded-xl border border-border bg-card p-3.5 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm truncate">To: {o.to_teacher?.full_name ?? "colleague"}</p>
+                          {o.note && <p className="text-xs text-muted-foreground italic mt-0.5">"{o.note}"</p>}
+                        </div>
+                        <Badge variant={statusVariant} className={`shrink-0 ${statusClass}`}>{statusLabel}</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{fmtDate(o.compensation_date)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── Desktop table ── */}
+              <div className="hidden sm:block rounded-xl border border-border overflow-hidden">
+                <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                       <th className="px-4 py-2.5 text-left font-semibold">To</th>
@@ -642,11 +692,11 @@ function ProxiesPage() {
                     {pagedComp.map((o, i) => (
                       <tr key={o.id} className={`border-t border-border ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
                         <td className="px-4 py-3 font-medium">{o.to_teacher?.full_name ?? "colleague"}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{fmtDate(o.compensation_date)}</td>
+                        <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{fmtDate(o.compensation_date)}</td>
                         <td className="px-4 py-3 text-muted-foreground italic">{o.note ? `"${o.note}"` : "—"}</td>
                         <td className="px-4 py-3 text-right">
                           <Badge
-                            variant={o.status === "accepted" ? "default" : o.status === "rejected" ? "destructive" : o.status === "hod_pending" ? "secondary" : "secondary"}
+                            variant={o.status === "accepted" ? "default" : o.status === "rejected" ? "destructive" : "secondary"}
                             className={o.status === "accepted" ? "bg-success/15 text-success border-success/25" : o.status === "hod_pending" ? "bg-warning/15 text-warning border-warning/25" : ""}
                           >
                             {o.status === "accepted" ? "Approved" : o.status === "rejected" ? "Declined" : o.status === "hod_pending" ? "Awaiting HOD" : "Pending"}
@@ -657,6 +707,7 @@ function ProxiesPage() {
                   </tbody>
                 </table>
               </div>
+
               {compTotalPages > 1 && (
                 <div className="flex items-center justify-between pt-3 border-t border-border mt-1">
                   <p className="text-xs text-muted-foreground">

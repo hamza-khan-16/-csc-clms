@@ -3,6 +3,11 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { initPush, logoutPush, registerNotificationTapHandler } from "@/lib/push";
 
+// Detect Median.co native WebView — same check used in AppShell
+const IS_NATIVE_APP =
+  typeof navigator !== "undefined" &&
+  /GoNative|Median/i.test(navigator.userAgent);
+
 export type AppRole = "teacher" | "hod" | "principal" | "admin" | "hr";
 
 export interface Profile {
@@ -23,6 +28,7 @@ export interface Profile {
   hr_rejection_reason: string | null;
   failed_login_attempts: number;
   phone: string | null;
+  session_token: string | null;
 }
 
 
@@ -74,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         hr_rejection_reason: (p as any).hr_rejection_reason ?? null,
         failed_login_attempts: Number((p as any).failed_login_attempts ?? 0),
         phone: (p as any).phone ?? null,
+        session_token: null, // fetched separately via raw query to avoid TS type issues
       });
     } else {
       setProfile(null);
@@ -102,12 +109,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else if (profileLoadEvents.has(event)) {
         setLoading(true);
         setTimeout(() => {
-          loadProfile(next.user.id).finally(() => {
+          loadProfile(next.user.id).finally(async () => {
             setLoading(false);
             initialised = true;
+
+            // ── Single-device enforcement (Median only, on every app open) ──
+            // On INITIAL_SESSION, read the session_token from the DB and compare
+            // it against what this device stored locally at login time.
+            // If another device logged in since, the DB token will be different
+            // and we sign this device out immediately — works reliably on restart.
+            if (IS_NATIVE_APP && event === 'INITIAL_SESSION') {
+              const localToken = localStorage.getItem(`sdt:${next.user.id}`);
+              if (localToken) {
+                const { data: p } = await (supabase as any)
+                  .from("profiles")
+                  .select("session_token")
+                  .eq("id", next.user.id)
+                  .maybeSingle();
+                const dbToken = p?.session_token ?? null;
+                if (dbToken && dbToken !== localToken) {
+                  localStorage.removeItem(`sdt:${next.user.id}`);
+                  supabase.auth.signOut({ scope: "local" });
+                  return;
+                }
+              }
+            }
+
             // Register device for push notifications after profile loads.
             // Run on INITIAL_SESSION too so token is refreshed on every app open.
             if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+              // ── Single-device: write new token on login (Median only) ──
+              // Generate a fresh UUID, store it locally and in the DB.
+              // Any other device will see a mismatched token on their next
+              // INITIAL_SESSION and be signed out immediately.
+              if (IS_NATIVE_APP && event === 'SIGNED_IN') {
+                const newToken = crypto.randomUUID();
+                localStorage.setItem(`sdt:${next.user.id}`, newToken);
+                (supabase as any).from("profiles")
+                  .update({ session_token: newToken })
+                  .eq("id", next.user.id)
+                  .then(() => {});
+              }
+
               initPush(next.user.id, next.access_token?.slice(-16));
               // Password expiry push — send once per session, not on every app open
               const expiryKey = `pw_expiry_push:${next.user.id}`;
@@ -150,26 +193,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    // ── Single-device enforcement: detect when this session was revoked ──────
-    // When another device logs in, Supabase revokes our refresh_token.
-    // The next auto-refresh attempt returns a 401. We intercept this at the
-    // fetch level and force a local sign-out so the UI reacts immediately.
+    // ── Single-device enforcement (Median app only) ──────────────────────────
+    // On every INITIAL_SESSION (app open / reload), compare the locally-stored
+    // session_token against the one in the DB. If they differ, another device
+    // has logged in and we must sign out immediately.
+    // Only runs inside Median WebView — browser users are not affected.
     const origFetch = window.fetch.bind(window);
-    window.fetch = async (...args) => {
-      const res = await origFetch(...args);
-      // Only intercept Supabase auth token refresh calls
-      const url = typeof args[0] === "string" ? args[0] : (args[0] as Request)?.url ?? "";
-      if (
-        res.status === 401 &&
-        url.includes("/auth/v1/token") &&
-        url.includes("grant_type=refresh_token")
-      ) {
-        // Our refresh token was revoked — another device logged in.
-        // Sign out locally and let the UI redirect to login.
-        supabase.auth.signOut({ scope: "local" }).catch(() => {});
-      }
-      return res;
-    };
+    if (IS_NATIVE_APP) {
+      window.fetch = async (...args) => {
+        const res = await origFetch(...args);
+        const url = typeof args[0] === "string" ? args[0] : (args[0] as Request)?.url ?? "";
+        if (
+          res.status === 401 &&
+          url.includes("/auth/v1/token") &&
+          url.includes("grant_type=refresh_token")
+        ) {
+          supabase.auth.signOut({ scope: "local" }).catch(() => {});
+        }
+        return res;
+      };
+    }
 
     const fallback = setTimeout(() => {
       if (!initialised) setLoading(false);

@@ -805,13 +805,23 @@ function RequestsPage() {
       );
       const rows = allPending.flatMap((r) => r.data ?? []);
 
+      // Deduplicate by slot: same leave_request_id + proxy_date + start_time + end_time
+      // Multiple rejected rows for the same slot (from repeated assignments) → show only one
+      const seen = new Set<string>();
+      const uniqueRows = rows.filter((r: any) => {
+        const key = `${r.leave_request_id}|${r.proxy_date}|${r.start_time}|${r.end_time}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
       // Fetch absentee names
-      const absenteeIds = [...new Set(rows.map((r: any) => r.absentee_teacher_id))];
+      const absenteeIds = [...new Set(uniqueRows.map((r: any) => r.absentee_teacher_id))];
       const { data: absentees } = await supabase
         .from("profiles").select("id, full_name").in("id", absenteeIds);
       const absenteeMap = new Map((absentees ?? []).map((a: any) => [a.id, a.full_name]));
 
-      return rows.map((r: any) => ({
+      return uniqueRows.map((r: any) => ({
         ...r,
         absenteeName: absenteeMap.get(r.absentee_teacher_id) ?? "Unknown",
       }));
@@ -1424,7 +1434,15 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         .eq("leave_request_id", request.id)
         .eq("status", "rejected")
         .gte("proxy_date", today);
-      return data ?? [];
+
+      // Deduplicate by slot — same start_time+end_time on same date
+      const seen = new Set<string>();
+      return (data ?? []).filter((r) => {
+        const key = `${r.proxy_date}|${r.start_time}|${r.end_time}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     },
   });
 

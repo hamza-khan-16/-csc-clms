@@ -103,7 +103,7 @@ export function AppShell({
   const [offline, setOffline] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
-  // ── Android double-back-to-exit (Median.co native app, dashboard screen only) ─
+  // ── Android double-back-to-exit (Median app, dashboard screen only) ─────────
   const [showExitToast, setShowExitToast] = useState(false);
   const backPressedOnce = useRef(false);
   const backToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -120,9 +120,9 @@ export function AppShell({
         if (backToastTimer.current) clearTimeout(backToastTimer.current);
         backPressedOnce.current = false;
         setShowExitToast(false);
-        // Median's native exit — works on both window.median and window.gonative
-        win.median?.nativexit?.exit?.();
-        win.gonative?.nativexit?.exit?.();
+        // Median's documented exit calls — try both namespaces
+        win.median?.app?.exit?.();
+        win.gonative?.app?.exit?.();
       } else {
         backPressedOnce.current = true;
         setShowExitToast(true);
@@ -133,21 +133,26 @@ export function AppShell({
       }
     }
 
-    // Median calls this global function when back is pressed on Android.
-    // It fires regardless of browser history when navigationLevels is set to 1.
+    // Method 1: Median JS bridge callback (requires "Javascript Callback" in
+    // Median dashboard → App Settings → Navigation → Back Button).
     win.gonative_android_back_pressed = handleBack;
 
-    // Tell Median the minimum history depth before it calls our handler.
-    // Setting navigationLevels to 1 means: once we're at the root page,
-    // call gonative_android_back_pressed instead of going back in history.
-    win.gonative?.navigationLevels?.setMinimum?.({ minimumLevel: 1 });
-    win.median?.navigationLevels?.setMinimum?.({ minimumLevel: 1 });
+    // Method 2: popstate sentinel — works regardless of dashboard setting.
+    // Push a tagged entry; every time back is pressed popstate fires and we
+    // immediately re-push so there is always a sentinel to intercept.
+    window.history.pushState({ _exitSentinel: true }, "");
+
+    function handlePopState(e: PopStateEvent) {
+      if (!(e.state as any)?._exitSentinel) return;
+      window.history.pushState({ _exitSentinel: true }, "");
+      handleBack();
+    }
+
+    window.addEventListener("popstate", handlePopState);
 
     return () => {
       delete win.gonative_android_back_pressed;
-      // Restore default (allow back to exit naturally)
-      win.gonative?.navigationLevels?.setMinimum?.({ minimumLevel: 0 });
-      win.median?.navigationLevels?.setMinimum?.({ minimumLevel: 0 });
+      window.removeEventListener("popstate", handlePopState);
       if (backToastTimer.current) clearTimeout(backToastTimer.current);
       backPressedOnce.current = false;
       setShowExitToast(false);
@@ -341,7 +346,7 @@ export function AppShell({
                   <button
                     onClick={() => setOpen(false)}
                     aria-label="Close menu"
-                    className="flex items-center justify-center size-8 rounded-full bg-muted/60 hover:bg-muted text-sidebar-foreground transition-colors shrink-0"
+                    className="flex items-center justify-center size-8 rounded-full border-2 border-primary text-primary hover:bg-primary hover:text-white transition-colors shrink-0"
                   >
                     <X className="size-4" />
                   </button>

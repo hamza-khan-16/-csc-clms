@@ -424,7 +424,7 @@ function TeacherDetailPanel({
           )}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-8" onClick={onClose}>
+              <Button variant="ghost" size="icon" className="size-8 rounded-full border-2 border-primary text-primary hover:bg-primary hover:text-white transition-colors" onClick={onClose}>
                 <X className="size-4" />
               </Button>
             </TooltipTrigger>

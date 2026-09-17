@@ -150,7 +150,7 @@ function DayDetailCard({ cell, onClose }: { cell: DayCell; onClose: () => void }
             </div>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button onClick={onClose} className="rounded-full p-1.5 hover:bg-muted transition-colors" aria-label="Close">
+                <button onClick={onClose} className="flex items-center justify-center size-8 rounded-full border-2 border-primary text-primary hover:bg-primary hover:text-white transition-colors" aria-label="Close">
                   <X className="size-4" />
                 </button>
               </TooltipTrigger>

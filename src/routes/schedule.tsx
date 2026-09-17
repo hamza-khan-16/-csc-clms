@@ -460,8 +460,8 @@ function TimetableModal({
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-white/10 transition-colors" aria-label="Close">
-                  <X className="size-5" />
+                <button type="button" onClick={onClose} className="flex items-center justify-center size-8 rounded-full border-2 border-primary text-primary hover:bg-primary hover:text-white transition-colors" aria-label="Close">
+                  <X className="size-4" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom">Close</TooltipContent>
