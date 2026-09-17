@@ -1671,8 +1671,41 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
           principal_acted_at: new Date().toISOString(),
         };
     const { error } = await supabase.from("leave_requests").update(patch).eq("id", request.id);
+    if (error) { setBusy(false); return toast.error(error.message); }
+
+    // ── When PRINCIPAL rejects, cancel all proxy assignments for this leave ──
+    // This restores the lectures back to the original (absentee) teacher's schedule.
+    // HOD rejection doesn't need this — proxies are only assigned after HOD approval.
+    if (!isHod) {
+      const { data: proxies } = await supabase
+        .from("proxy_assignments")
+        .select("id, proxy_teacher_id, proxy_date, start_time, end_time, subject, class_name")
+        .eq("leave_request_id", request.id)
+        .in("status", ["accepted", "pending"]);
+
+      if (proxies && proxies.length > 0) {
+        // Mark all as cancelled
+        await supabase
+          .from("proxy_assignments")
+          .update({ status: "cancelled" } as any)
+          .eq("leave_request_id", request.id)
+          .in("status", ["accepted", "pending"]);
+
+        // Notify each proxy teacher that their assignment is cancelled
+        const proxyTeacherIds = [...new Set(proxies.map((p: any) => p.proxy_teacher_id).filter(Boolean))];
+        if (proxyTeacherIds.length > 0) {
+          const dateStr = new Date(request.from_date + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+          firePush({
+            userIds: proxyTeacherIds,
+            title: "Proxy Assignment Cancelled",
+            body: `Your proxy duty for ${request.teacher?.full_name ?? "a colleague"}'s leave (${dateStr}) has been cancelled — the principal rejected the leave, so the original schedule is restored.`,
+            targetUrl: "/proxies",
+          });
+        }
+      }
+    }
+
     setBusy(false);
-    if (error) return toast.error(error.message);
     toast.success("Leave rejected");
     // Notify teacher their leave was rejected
     firePush({ userIds: [request.teacher_id], title: "Leave Rejected", body: note.trim() ? `Your ${request.leave_type} leave was rejected: ${note.trim()}` : `Your ${request.leave_type} leave request has been rejected`, targetUrl: "/leaves" });

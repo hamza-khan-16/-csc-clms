@@ -56,6 +56,7 @@ function ProxiesPage() {
         .from("proxy_assignments")
         .select("*, leave_requests(id, teacher_id)")
         .eq("proxy_teacher_id", profile!.id)
+        .not("status", "eq", "cancelled")  // exclude cancelled (principal rejected the leave)
         .order("proxy_date");
       if (error) throw error;
       const raw = data ?? [];
