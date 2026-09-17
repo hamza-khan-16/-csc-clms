@@ -812,7 +812,7 @@ export function LeaveBot() {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button onClick={()=>setOpen(false)} className="flex items-center justify-center size-8 rounded-full border-2 border-primary text-primary hover:bg-primary hover:text-white transition-colors" aria-label="Close">
+                  <button onClick={()=>setOpen(false)} className="flex items-center justify-center size-8 rounded-full border-2 border-white text-white hover:bg-white hover:text-primary transition-colors" aria-label="Close">
                     <X className="w-4 h-4" />
                   </button>
                 </TooltipTrigger>
