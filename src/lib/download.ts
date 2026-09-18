@@ -67,17 +67,31 @@ async function downloadBlob(blob: Blob, filename: string): Promise<void> {
   if (process.env.NODE_ENV === "development") console.log("[download] isMedian:", isMedian(), "isWebView:", isWebView());
 
   if (isMedian()) {
-    // Median native download
-    const toastId = toast.loading("Preparing download…");
+    // Median native share sheet — shows system share dialog (AirDrop, WhatsApp, etc.)
+    // median.share.sharePDF / gonative.share.sharePDF opens the native share sheet
+    // median.share.downloadFile / gonative.share.downloadFile just saves to Downloads
+    const toastId = toast.loading("Preparing file…");
     try {
       const url = await uploadAndSign(blob, filename);
       const m = window as any;
-      const downloadFn = m.median?.share?.downloadFile ?? m.gonative?.share?.downloadFile;
-      downloadFn({ url, filename });
-      toast.success("Download started!", { id: toastId });
+
+      // Prefer share sheet (sharePDF) if available, fall back to downloadFile
+      const shareFn =
+        m.median?.share?.sharePDF ?? m.gonative?.share?.sharePDF ??
+        m.median?.share?.shareFile ?? m.gonative?.share?.shareFile;
+      const downloadFn =
+        m.median?.share?.downloadFile ?? m.gonative?.share?.downloadFile;
+
+      if (typeof shareFn === "function") {
+        shareFn({ url, filename });
+      } else if (typeof downloadFn === "function") {
+        downloadFn({ url, filename });
+      }
+
+      toast.success("File ready!", { id: toastId });
     } catch (err: any) {
       console.error("[download] Median path failed:", err);
-      toast.error(`Download failed: ${err.message}`, { id: toastId });
+      toast.error(`Export failed: ${err.message}`, { id: toastId });
     }
   } else if (isWebView()) {
     // Webview but no Median bridge — open in new tab as fallback

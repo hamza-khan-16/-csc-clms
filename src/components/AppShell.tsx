@@ -63,6 +63,72 @@ type NavItem = {
 
 const BANNER_H = 32; // px — matches py-2 + text-xs line height
 
+// ── App Download Banner ────────────────────────────────────────────────────────
+// Shown only on web browsers (not inside the Median app) to prompt users to
+// download the native app. Can be dismissed and won't reappear for 7 days.
+// Replace APK_URL with your actual APK download link.
+const APK_URL = "https://drive.google.com/file/d/1-5cO6CxaVQdjf7c8Tp8XACE1VT3GIqvt/view?pli=1";
+const DISMISS_KEY = "app_banner_dismissed";
+const DISMISS_DAYS = 7;
+
+function AppDownloadBanner() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (IS_NATIVE_APP) return;
+    try {
+      const dismissed = localStorage.getItem(DISMISS_KEY);
+      if (dismissed && Date.now() - Number(dismissed) < DISMISS_DAYS * 86400_000) return;
+    } catch (_) {}
+    setVisible(true);
+    document.documentElement.style.setProperty("--app-banner-h", `${APP_BANNER_H}px`);
+    return () => { document.documentElement.style.removeProperty("--app-banner-h"); };
+  }, []);
+
+  function dismiss() {
+    setVisible(false);
+    document.documentElement.style.removeProperty("--app-banner-h");
+    try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch (_) {}
+  }
+
+  if (!visible) return null;
+
+  return (
+    <div className="fixed top-0 inset-x-0 z-[199] flex items-center gap-3 bg-white dark:bg-zinc-900 border-b border-border shadow-sm px-3 py-2">
+      {/* App icon */}
+      <div className="shrink-0 size-10 rounded-xl bg-primary flex items-center justify-center shadow-sm">
+        <span className="text-white font-bold text-base leading-none">CSC</span>
+      </div>
+
+      {/* Text */}
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-foreground leading-tight">CSC CLMS App</p>
+        <p className="text-[11px] text-muted-foreground leading-tight">Fast. Easy. Download the app today.</p>
+      </div>
+
+      {/* Download button */}
+      <a
+        href={APK_URL}
+        className="shrink-0 rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-white hover:bg-primary/90 active:scale-95 transition-all"
+        onClick={dismiss}
+      >
+        Install
+      </a>
+
+      {/* Dismiss */}
+      <button
+        onClick={dismiss}
+        aria-label="Dismiss app banner"
+        className="shrink-0 flex items-center justify-center size-6 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+const APP_BANNER_H = 52; // px — height of the app download banner
+
 function OfflineBanner({ onToggle }: { onToggle: (v: boolean) => void }) {
   const [offline, setOffline] = useState(false);
   useEffect(() => {
@@ -115,14 +181,22 @@ export function AppShell({
 
     const win = window as any;
 
+    function exitApp() {
+      // Median's correct app-close call
+      // Ref: https://median.co/docs/javascript-bridge#close-app
+      if (typeof win.median?.app?.close === "function") { win.median.app.close(); return; }
+      if (typeof win.gonative?.app?.close === "function") { win.gonative.app.close(); return; }
+      // Fallback: move task to background (Android)
+      if (typeof win.median?.app?.moveTaskToBack === "function") { win.median.app.moveTaskToBack(); return; }
+      if (typeof win.gonative?.app?.moveTaskToBack === "function") { win.gonative.app.moveTaskToBack(); return; }
+    }
+
     function handleBack() {
       if (backPressedOnce.current) {
         if (backToastTimer.current) clearTimeout(backToastTimer.current);
         backPressedOnce.current = false;
         setShowExitToast(false);
-        // Median's documented exit calls — try both namespaces
-        win.median?.app?.exit?.();
-        win.gonative?.app?.exit?.();
+        exitApp();
       } else {
         backPressedOnce.current = true;
         setShowExitToast(true);
@@ -133,17 +207,28 @@ export function AppShell({
       }
     }
 
-    // Method 1: Median JS bridge callback (requires "Javascript Callback" in
-    // Median dashboard → App Settings → Navigation → Back Button).
+    // Method 1: Median screen back event listener (most reliable, no dashboard config needed)
+    // Ref: median.co/docs/javascript-bridge
+    let medianListenerRegistered = false;
+    if (typeof win.median?.screen?.on === "function") {
+      win.median.screen.on("back", handleBack);
+      medianListenerRegistered = true;
+    } else if (typeof win.gonative?.screen?.on === "function") {
+      win.gonative.screen.on("back", handleBack);
+      medianListenerRegistered = true;
+    }
+
+    // Method 2: gonative_android_back_pressed global callback
+    // Fires when Median dashboard → Navigation → Back Button = "Javascript Callback"
     win.gonative_android_back_pressed = handleBack;
 
-    // Method 2: popstate sentinel — works regardless of dashboard setting.
-    // Push a tagged entry; every time back is pressed popstate fires and we
-    // immediately re-push so there is always a sentinel to intercept.
+    // Method 3: popstate sentinel — fallback when above methods aren't available.
+    // TanStack Router doesn't interfere if we check the state tag.
     window.history.pushState({ _exitSentinel: true }, "");
 
     function handlePopState(e: PopStateEvent) {
       if (!(e.state as any)?._exitSentinel) return;
+      // Re-push so next back press fires popstate again
       window.history.pushState({ _exitSentinel: true }, "");
       handleBack();
     }
@@ -151,7 +236,14 @@ export function AppShell({
     window.addEventListener("popstate", handlePopState);
 
     return () => {
+      // Clean up Method 1
+      if (medianListenerRegistered) {
+        if (typeof win.median?.screen?.off === "function") win.median.screen.off("back", handleBack);
+        else if (typeof win.gonative?.screen?.off === "function") win.gonative.screen.off("back", handleBack);
+      }
+      // Clean up Method 2
       delete win.gonative_android_back_pressed;
+      // Clean up Method 3
       window.removeEventListener("popstate", handlePopState);
       if (backToastTimer.current) clearTimeout(backToastTimer.current);
       backPressedOnce.current = false;
@@ -316,7 +408,7 @@ export function AppShell({
 
   return (
     <TooltipProvider delayDuration={300}>
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-screen bg-background" style={{ paddingTop: "var(--app-banner-h, 0px)" }}>
       {/* Android double-back-to-exit toast */}
       {showExitToast && (
         <div className="fixed bottom-20 inset-x-0 z-[100] flex justify-center pointer-events-none">
@@ -325,6 +417,7 @@ export function AppShell({
           </div>
         </div>
       )}
+      <AppDownloadBanner />
       <OfflineBanner onToggle={setOffline} />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar py-6 lg:flex shadow-sm overflow-hidden">
         <div className="px-5 pb-6 shrink-0">

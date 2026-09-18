@@ -123,12 +123,11 @@ export function registerNotificationTapHandler(): void {
   }) => {
     const url = data?.targetUrl ?? data?.openUrl ?? data?.additionalData?.targetUrl;
     if (!url) return;
-    // Build a full path including any query params (e.g. /leaves?highlight=<id>)
     const path = url.startsWith("http")
       ? new URL(url).pathname + new URL(url).search
       : url;
-    // Use history.pushState so TanStack Router picks it up without a full reload
-    window.history.pushState({}, "", path);
-    window.dispatchEvent(new PopStateEvent("popstate", { state: {} }));
+    // Use location.href — TanStack Router's SSR hydration handles this correctly
+    // and it's the only reliable way to navigate from outside React in a Median WebView
+    window.location.href = path;
   };
 }
