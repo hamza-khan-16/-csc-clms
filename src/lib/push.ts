@@ -116,18 +116,32 @@ export function logoutPush(): void {
 
 export function registerNotificationTapHandler(): void {
   if (typeof window === "undefined") return;
-  (window as any).median_onesignal_push_opened = (data: {
+
+  function handleTap(data: {
     targetUrl?: string;
     openUrl?: string;
     additionalData?: Record<string, string>;
-  }) => {
+  }) {
     const url = data?.targetUrl ?? data?.openUrl ?? data?.additionalData?.targetUrl;
     if (!url) return;
     const path = url.startsWith("http")
       ? new URL(url).pathname + new URL(url).search
       : url;
-    // Use location.href — TanStack Router's SSR hydration handles this correctly
-    // and it's the only reliable way to navigate from outside React in a Median WebView
     window.location.href = path;
-  };
+  }
+
+  // Register immediately — handles taps when app is already running
+  (window as any).median_onesignal_push_opened = handleTap;
+
+  // Also register gonative variant used in some APK builds
+  (window as any).gonative_onesignal_push_opened = handleTap;
+
+  // Handle the case where the notification tap launched the app cold:
+  // Median stores the tap data in window.median_push_data before the page loads
+  const pendingData = (window as any).median_push_data ?? (window as any).gonative_push_data;
+  if (pendingData) {
+    handleTap(pendingData);
+    (window as any).median_push_data = null;
+    (window as any).gonative_push_data = null;
+  }
 }

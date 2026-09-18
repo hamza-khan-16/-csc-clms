@@ -1,26 +1,22 @@
 /**
  * CSC LMS Service Worker
- * Caches the schedule and leaves pages + static assets for offline viewing.
- * Strategy: Cache-first for assets, Network-first with cache fallback for pages.
+ * Caches schedule and leaves pages + static assets for offline viewing.
  */
 
-const CACHE_VERSION = "csc-lms-v1";
+const CACHE_VERSION = "csc-lms-v2";
 const ASSET_CACHE   = `${CACHE_VERSION}-assets`;
 const PAGE_CACHE    = `${CACHE_VERSION}-pages`;
 
-// Pages to pre-cache and serve offline
 const OFFLINE_PAGES = ["/dashboard", "/leaves", "/schedule", "/proxies"];
 
-// ── Install: pre-cache offline pages ──────────────────────────────────────────
 self.addEventListener("install", (e) => {
   e.waitUntil(
-    caches.open(PAGE_CACHE).then((cache) =>
-      cache.addAll(OFFLINE_PAGES).catch(() => {})
-    ).then(() => self.skipWaiting())
+    caches.open(PAGE_CACHE)
+      .then((cache) => cache.addAll(OFFLINE_PAGES).catch(() => {}))
+      .then(() => self.skipWaiting())
   );
 });
 
-// ── Activate: remove old caches ────────────────────────────────────────────────
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys().then((keys) =>
@@ -33,22 +29,21 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// ── Fetch: Network-first for navigations, Cache-first for assets ───────────────
 self.addEventListener("fetch", (e) => {
   const { request } = e;
   const url = new URL(request.url);
 
-  // Only handle same-origin requests
+  // Only same-origin
   if (url.origin !== self.location.origin) return;
 
-  // Skip Supabase API, auth, and server functions — always need fresh data
+  // Skip API, server functions — always need fresh data
   if (
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/_server/") ||
     url.hostname.includes("supabase.co")
   ) return;
 
-  // Static assets (JS, CSS, fonts, images) — Cache-first
+  // Static assets — Cache-first
   if (
     url.pathname.startsWith("/_build/") ||
     url.pathname.startsWith("/fonts/") ||
@@ -60,10 +55,14 @@ self.addEventListener("fetch", (e) => {
         if (cached) return cached;
         try {
           const response = await fetch(request);
-          if (response.ok) cache.put(request, response.clone());
+          // Fix: clone BEFORE reading, return the clone, cache the original
+          if (response.ok) {
+            const toCache = response.clone();
+            cache.put(request, toCache);
+          }
           return response;
         } catch {
-          return cached ?? Response.error();
+          return Response.error();
         }
       })
     );
@@ -75,14 +74,18 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(
       fetch(request)
         .then((response) => {
+          // Fix: clone first, cache the clone, return original
           if (response.ok) {
-            caches.open(PAGE_CACHE).then((cache) => cache.put(request, response.clone()));
+            const toCache = response.clone();
+            caches.open(PAGE_CACHE).then((cache) => cache.put(request, toCache));
           }
           return response;
         })
         .catch(async () => {
           const cached = await caches.match(request);
-          return cached ?? caches.match("/dashboard") ?? Response.error();
+          if (cached) return cached;
+          const fallback = await caches.match("/dashboard");
+          return fallback ?? Response.error();
         })
     );
   }

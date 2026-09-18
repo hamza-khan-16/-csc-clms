@@ -64,45 +64,36 @@ type NavItem = {
 const BANNER_H = 32; // px — matches py-2 + text-xs line height
 
 // ── App Download Banner ────────────────────────────────────────────────────────
-// Shown only on web browsers (not inside the Median app) to prompt users to
-// download the native app. Can be dismissed and won't reappear for 7 days.
-// Replace APK_URL with your actual APK download link.
-const APK_URL = "https://drive.google.com/file/d/1-5cO6CxaVQdjf7c8Tp8XACE1VT3GIqvt/view?pli=1";
-const DISMISS_KEY = "app_banner_dismissed";
-const DISMISS_DAYS = 7;
+const APK_URL = "https://drive.google.com/file/d/1-5cO6CxaVQdjf7c8Tp8XACE1VT3GIqvt/view?usp=sharing";
 
 function AppDownloadBanner() {
-  const [visible, setVisible] = useState(false);
+  // Show on every page load in a browser (not in Median app), session-only dismiss
+  const [visible, setVisible] = useState(!IS_NATIVE_APP);
 
   useEffect(() => {
-    if (IS_NATIVE_APP) return;
-    try {
-      const dismissed = localStorage.getItem(DISMISS_KEY);
-      if (dismissed && Date.now() - Number(dismissed) < DISMISS_DAYS * 86400_000) return;
-    } catch (_) {}
-    setVisible(true);
-    document.documentElement.style.setProperty("--app-banner-h", `${APP_BANNER_H}px`);
-    return () => { document.documentElement.style.removeProperty("--app-banner-h"); };
+    if (IS_NATIVE_APP) setVisible(false);
   }, []);
 
-  function dismiss() {
-    setVisible(false);
-    document.documentElement.style.removeProperty("--app-banner-h");
-    try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch (_) {}
-  }
+  useEffect(() => {
+    if (visible) {
+      document.documentElement.style.setProperty("--app-banner-h", `${APP_BANNER_H}px`);
+    } else {
+      document.documentElement.style.removeProperty("--app-banner-h");
+    }
+  }, [visible]);
+
+  function dismiss() { setVisible(false); }
 
   if (!visible) return null;
 
   return (
     <div className="fixed top-0 inset-x-0 z-[199] flex items-center gap-3 bg-white dark:bg-zinc-900 border-b border-border shadow-sm px-3 py-2">
-      {/* App icon */}
-      <div className="shrink-0 size-10 rounded-xl bg-primary flex items-center justify-center shadow-sm">
-        <span className="text-white font-bold text-base leading-none">CSC</span>
-      </div>
+      {/* Favicon as app icon */}
+      <img src="/favicon.ico" alt="CSC LMS" className="shrink-0 size-10 rounded-xl object-contain bg-primary p-1" />
 
       {/* Text */}
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold text-foreground leading-tight">CSC CLMS App</p>
+        <p className="text-xs font-semibold text-foreground leading-tight">CSC LMS App</p>
         <p className="text-[11px] text-muted-foreground leading-tight">Fast. Easy. Download the app today.</p>
       </div>
 
@@ -110,12 +101,11 @@ function AppDownloadBanner() {
       <a
         href={APK_URL}
         className="shrink-0 rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-white hover:bg-primary/90 active:scale-95 transition-all"
-        onClick={dismiss}
       >
         Install
       </a>
 
-      {/* Dismiss */}
+      {/* Dismiss for this session only */}
       <button
         onClick={dismiss}
         aria-label="Dismiss app banner"
@@ -182,13 +172,15 @@ export function AppShell({
     const win = window as any;
 
     function exitApp() {
-      // Median's correct app-close call
-      // Ref: https://median.co/docs/javascript-bridge#close-app
+      // Try every known Median/GoNative exit method
       if (typeof win.median?.app?.close === "function") { win.median.app.close(); return; }
       if (typeof win.gonative?.app?.close === "function") { win.gonative.app.close(); return; }
-      // Fallback: move task to background (Android)
-      if (typeof win.median?.app?.moveTaskToBack === "function") { win.median.app.moveTaskToBack(); return; }
-      if (typeof win.gonative?.app?.moveTaskToBack === "function") { win.gonative.app.moveTaskToBack(); return; }
+      if (typeof win.median?.app?.exit === "function") { win.median.app.exit(); return; }
+      if (typeof win.gonative?.app?.exit === "function") { win.gonative.app.exit(); return; }
+      if (typeof win.median?.nativexit?.exit === "function") { win.median.nativexit.exit(); return; }
+      if (typeof win.gonative?.nativexit?.exit === "function") { win.gonative.nativexit.exit(); return; }
+      // Last resort — navigate back past all history
+      window.history.go(-(window.history.length + 1));
     }
 
     function handleBack() {
@@ -207,44 +199,45 @@ export function AppShell({
       }
     }
 
-    // Method 1: Median screen back event listener (most reliable, no dashboard config needed)
-    // Ref: median.co/docs/javascript-bridge
-    let medianListenerRegistered = false;
-    if (typeof win.median?.screen?.on === "function") {
-      win.median.screen.on("back", handleBack);
-      medianListenerRegistered = true;
-    } else if (typeof win.gonative?.screen?.on === "function") {
-      win.gonative.screen.on("back", handleBack);
-      medianListenerRegistered = true;
+    function register() {
+      // Method 1: Median screen event listener
+      if (typeof win.median?.screen?.on === "function") {
+        win.median.screen.on("back", handleBack);
+      } else if (typeof win.gonative?.screen?.on === "function") {
+        win.gonative.screen.on("back", handleBack);
+      }
+
+      // Method 2: Global callback (Median dashboard → Back Button = "Javascript Callback")
+      win.gonative_android_back_pressed = handleBack;
+
+      // Method 3: popstate sentinel — always register as final fallback
+      window.history.pushState({ _exitSentinel: true }, "");
     }
 
-    // Method 2: gonative_android_back_pressed global callback
-    // Fires when Median dashboard → Navigation → Back Button = "Javascript Callback"
-    win.gonative_android_back_pressed = handleBack;
+    // Register immediately — works if bridge already loaded
+    register();
 
-    // Method 3: popstate sentinel — fallback when above methods aren't available.
-    // TanStack Router doesn't interfere if we check the state tag.
-    window.history.pushState({ _exitSentinel: true }, "");
+    // Also register on deviceready — fires after Median bridge fully loads in APK
+    function onDeviceReady() { register(); }
+    document.addEventListener("deviceready", onDeviceReady, false);
+
+    // And on a short delay for sideloaded APKs where bridge loads slightly late
+    const delayTimer = setTimeout(register, 500);
 
     function handlePopState(e: PopStateEvent) {
       if (!(e.state as any)?._exitSentinel) return;
-      // Re-push so next back press fires popstate again
       window.history.pushState({ _exitSentinel: true }, "");
       handleBack();
     }
-
     window.addEventListener("popstate", handlePopState);
 
     return () => {
-      // Clean up Method 1
-      if (medianListenerRegistered) {
-        if (typeof win.median?.screen?.off === "function") win.median.screen.off("back", handleBack);
-        else if (typeof win.gonative?.screen?.off === "function") win.gonative.screen.off("back", handleBack);
-      }
-      // Clean up Method 2
+      if (typeof win.median?.screen?.off === "function") win.median.screen.off("back", handleBack);
+      else if (typeof win.gonative?.screen?.off === "function") win.gonative.screen.off("back", handleBack);
       delete win.gonative_android_back_pressed;
-      // Clean up Method 3
+      document.removeEventListener("deviceready", onDeviceReady);
       window.removeEventListener("popstate", handlePopState);
+      clearTimeout(delayTimer);
       if (backToastTimer.current) clearTimeout(backToastTimer.current);
       backPressedOnce.current = false;
       setShowExitToast(false);
