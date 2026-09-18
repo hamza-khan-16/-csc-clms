@@ -547,32 +547,51 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
                 {approvedLeaves.length === 0 ? (
                   <p className="text-sm text-muted-foreground italic text-center py-4">No approved leaves for this period.</p>
                 ) : (
-                  <div className="rounded-lg border border-border overflow-hidden overflow-x-auto">
-                    <table className="w-full text-xs min-w-[400px]">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-semibold">Type</th>
-                          <th className="px-3 py-2 text-left font-semibold">From</th>
-                          <th className="px-3 py-2 text-left font-semibold">To</th>
-                          <th className="px-3 py-2 text-left font-semibold">Days</th>
-                          <th className="px-3 py-2 text-left font-semibold">Unpaid</th>
-                          <th className="px-3 py-2 text-left font-semibold">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {approvedLeaves.map((l) => (
-                          <tr key={l.id} className="hover:bg-muted/20">
-                            <td className="px-3 py-2">{leaveTypeLabel(l.leave_type as LeaveType)}</td>
-                            <td className="px-3 py-2">{fmtDate(l.from_date)}</td>
-                            <td className="px-3 py-2">{fmtDate(l.to_date)}</td>
-                            <td className="px-3 py-2">{l.total_days}</td>
-                            <td className="px-3 py-2 text-destructive font-medium">{Number(l.unpaid_days) > 0 ? l.unpaid_days : "—"}</td>
-                            <td className="px-3 py-2"><StatusBadge status={l.status as any} /></td>
+                  <>
+                    {/* Mobile cards */}
+                    <div className="flex flex-col gap-2 sm:hidden">
+                      {approvedLeaves.map((l) => (
+                        <div key={l.id} className="rounded-xl border border-border bg-card p-3 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-semibold text-sm">{leaveTypeLabel(l.leave_type as LeaveType)}</p>
+                            <StatusBadge status={l.status as any} />
+                          </div>
+                          <p className="text-xs text-muted-foreground">{fmtDate(l.from_date)} – {fmtDate(l.to_date)}</p>
+                          <div className="flex gap-3 text-xs">
+                            <span>{l.total_days} day(s)</span>
+                            {Number(l.unpaid_days) > 0 && <span className="text-destructive font-medium">{l.unpaid_days} unpaid</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Desktop table */}
+                    <div className="hidden sm:block rounded-lg border border-border overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted/50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold">Type</th>
+                            <th className="px-3 py-2 text-left font-semibold">From</th>
+                            <th className="px-3 py-2 text-left font-semibold">To</th>
+                            <th className="px-3 py-2 text-left font-semibold">Days</th>
+                            <th className="px-3 py-2 text-left font-semibold">Unpaid</th>
+                            <th className="px-3 py-2 text-left font-semibold">Status</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {approvedLeaves.map((l) => (
+                            <tr key={l.id} className="hover:bg-muted/20">
+                              <td className="px-3 py-2">{leaveTypeLabel(l.leave_type as LeaveType)}</td>
+                              <td className="px-3 py-2">{fmtDate(l.from_date)}</td>
+                              <td className="px-3 py-2">{fmtDate(l.to_date)}</td>
+                              <td className="px-3 py-2">{l.total_days}</td>
+                              <td className="px-3 py-2 text-destructive font-medium">{Number(l.unpaid_days) > 0 ? l.unpaid_days : "—"}</td>
+                              <td className="px-3 py-2"><StatusBadge status={l.status as any} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </>
             )}

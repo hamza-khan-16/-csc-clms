@@ -8,7 +8,8 @@ import { fetchPeople } from "@/lib/people";
 import { firePush } from "@/lib/push.functions";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
-import { Empty, ListSkeleton } from "@/components/ui-bits";
+import { Empty, ListSkeleton, Pagination } from "@/components/ui-bits";
+import { haptic } from "@/lib/haptics";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -51,6 +52,7 @@ function ProxiesPage() {
   const { data: rows = [], isLoading: rowsLoading, isError: rowsError } = useQuery({
     queryKey: ["my-proxies", profile?.id],
     enabled: !!profile,
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("proxy_assignments")
@@ -97,6 +99,7 @@ function ProxiesPage() {
   const { data: myLectures = [] } = useQuery({
     queryKey: ["my-lectures-for-comp", profile?.id],
     enabled: !!profile,
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("lectures")
@@ -112,7 +115,8 @@ function ProxiesPage() {
   const { data: myCompOffers = [] } = useQuery({
     queryKey: ["my-comp-offers", profile?.id],
     enabled: !!profile,
-    refetchInterval: 8_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -131,7 +135,8 @@ function ProxiesPage() {
   const { data: incomingOffers = [] } = useQuery({
     queryKey: ["incoming-comp-offers", profile?.id],
     enabled: !!profile,
-    refetchInterval: 8_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -148,8 +153,18 @@ function ProxiesPage() {
   });
 
   async function respond(id: string, status: "accepted" | "rejected") {
+    // Optimistic update — immediately reflect the change in the UI
+    qc.setQueryData(["my-proxies", profile?.id], (old: any[] | undefined) =>
+      old ? old.map((r) => r.id === id ? { ...r, status } : r) : old
+    );
+
     const { error } = await supabase.from("proxy_assignments").update({ status }).eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) {
+      // Rollback on failure
+      qc.invalidateQueries({ queryKey: ["my-proxies", profile?.id] });
+      return toast.error(error.message);
+    }
+    haptic(status === "accepted" ? "success" : "warning");
     toast.success(status === "accepted" ? "Proxy accepted" : "Proxy declined");
 
     if (status === "rejected") {
@@ -278,6 +293,23 @@ function ProxiesPage() {
 
   // Reset to page 1 whenever offer filters change
   useEffect(() => { setOfferPage(1); }, [offerSearch, offerDateFrom, offerDateTo, offerCompStatus]);
+
+  // Realtime: invalidate proxy + compensation queries instantly on any DB change
+  // so the 60s polling interval doesn't cause stale UI
+  useEffect(() => {
+    if (!profile?.id) return;
+    const channel = supabase
+      .channel(`proxies-rt-${profile.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "proxy_assignments" }, () => {
+        qc.invalidateQueries({ queryKey: ["my-proxies", profile.id] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "compensation_assignments" }, () => {
+        qc.invalidateQueries({ queryKey: ["my-comp-offers", profile.id] });
+        qc.invalidateQueries({ queryKey: ["incoming-comp-offers", profile.id] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id, qc]);
 
   if (rowsLoading) {
     return (
@@ -437,9 +469,10 @@ function ProxiesPage() {
               <div className="flex flex-wrap gap-2">
                 {/* Search */}
                 <div className="flex flex-col gap-0.5 flex-1 min-w-[160px]">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">Search</label>
+                  <label htmlFor="offer-search" className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">Search</label>
                   <div className="relative">
                     <input
+                      id="offer-search"
                       className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
                       placeholder="Teacher / subject…"
                       value={offerSearch}
@@ -450,8 +483,9 @@ function ProxiesPage() {
                 </div>
                 {/* Date from */}
                 <div className="flex flex-col gap-0.5">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">From</label>
+                  <label htmlFor="offer-date-from" className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">From</label>
                   <input
+                    id="offer-date-from"
                     type="date"
                     className="h-8 rounded-lg border border-border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
                     value={offerDateFrom}
@@ -460,8 +494,9 @@ function ProxiesPage() {
                 </div>
                 {/* Date to */}
                 <div className="flex flex-col gap-0.5">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">To</label>
+                  <label htmlFor="offer-date-to" className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-0.5">To</label>
                   <input
+                    id="offer-date-to"
                     type="date"
                     className="h-8 rounded-lg border border-border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
                     value={offerDateTo}
@@ -505,36 +540,9 @@ function ProxiesPage() {
                 </ul>
                 {offerTotalPages > 1 && (
                   <div className="flex items-center justify-between pt-3 border-t border-border mt-2">
-                    <p className="text-xs text-muted-foreground">
-                      Showing {(offerPage - 1) * OFFER_PAGE_SIZE + 1}–{Math.min(offerPage * OFFER_PAGE_SIZE, filteredAccepted.length)} of {filteredAccepted.length}
-                    </p>
-                    <div className="flex items-center gap-1">
-                      <button
-                        className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
-                        onClick={() => setOfferPage((p) => Math.max(1, p - 1))}
-                        disabled={offerPage === 1}
-                      >
-                        ← Prev
-                      </button>
-                      {Array.from({ length: offerTotalPages }, (_, i) => i + 1).map((pg) => (
-                        <button
-                          key={pg}
-                          className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === offerPage ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
-                          onClick={() => setOfferPage(pg)}
-                        >
-                          {pg}
-                        </button>
-                      ))}
-                      <button
-                        className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
-                        onClick={() => setOfferPage((p) => Math.min(offerTotalPages, p + 1))}
-                        disabled={offerPage === offerTotalPages}
-                      >
-                        Next →
-                      </button>
-                    </div>
+                    <Pagination page={offerPage} totalPages={offerTotalPages} onPage={setOfferPage} totalItems={filteredAccepted.length} pageSize={OFFER_PAGE_SIZE} />
                   </div>
-                )}
+                )}\
               </>
             )}
           </div>
@@ -610,38 +618,7 @@ function ProxiesPage() {
                 </table>
               </div>
 
-              {proxyHistTotalPages > 1 && (
-                <div className="flex items-center justify-between pt-3 border-t border-border mt-1">
-                  <p className="text-xs text-muted-foreground">
-                    Showing {(proxyHistPage - 1) * PROXY_PAGE_SIZE + 1}–{Math.min(proxyHistPage * PROXY_PAGE_SIZE, handled.length)} of {handled.length}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <button
-                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
-                      onClick={() => setProxyHistPage((p) => Math.max(1, p - 1))}
-                      disabled={proxyHistPage === 1}
-                    >
-                      ← Prev
-                    </button>
-                    {Array.from({ length: proxyHistTotalPages }, (_, i) => i + 1).map((pg) => (
-                      <button
-                        key={pg}
-                        className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === proxyHistPage ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
-                        onClick={() => setProxyHistPage(pg)}
-                      >
-                        {pg}
-                      </button>
-                    ))}
-                    <button
-                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
-                      onClick={() => setProxyHistPage((p) => Math.min(proxyHistTotalPages, p + 1))}
-                      disabled={proxyHistPage === proxyHistTotalPages}
-                    >
-                      Next →
-                    </button>
-                  </div>
-                </div>
-              )}
+              <Pagination page={proxyHistPage} totalPages={proxyHistTotalPages} onPage={setProxyHistPage} totalItems={handled.length} pageSize={PROXY_PAGE_SIZE} className="mt-1" />
             </>
           )}
         </div>
@@ -709,38 +686,7 @@ function ProxiesPage() {
                 </table>
               </div>
 
-              {compTotalPages > 1 && (
-                <div className="flex items-center justify-between pt-3 border-t border-border mt-1">
-                  <p className="text-xs text-muted-foreground">
-                    Showing {(compPage - 1) * COMP_PAGE_SIZE + 1}–{Math.min(compPage * COMP_PAGE_SIZE, myCompOffers.length)} of {myCompOffers.length}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <button
-                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
-                      onClick={() => setCompPage((p) => Math.max(1, p - 1))}
-                      disabled={compPage === 1}
-                    >
-                      ← Prev
-                    </button>
-                    {Array.from({ length: compTotalPages }, (_, i) => i + 1).map((pg) => (
-                      <button
-                        key={pg}
-                        className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === compPage ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
-                        onClick={() => setCompPage(pg)}
-                      >
-                        {pg}
-                      </button>
-                    ))}
-                    <button
-                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
-                      onClick={() => setCompPage((p) => Math.min(compTotalPages, p + 1))}
-                      disabled={compPage === compTotalPages}
-                    >
-                      Next →
-                    </button>
-                  </div>
-                </div>
-              )}
+              <Pagination page={compPage} totalPages={compTotalPages} onPage={setCompPage} totalItems={myCompOffers.length} pageSize={COMP_PAGE_SIZE} className="mt-1" />
             </div>
           );
         })()}

@@ -4,8 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { savePDF, saveXLSX } from "../lib/download";
-import { jsPDF } from "jspdf";
-import { autoTable } from "jspdf-autotable";
+// jsPDF loaded dynamically inside export functions to keep initial bundle lean.
 import { supabase } from "@/integrations/supabase/client";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Tooltip as UITooltip, TooltipContent as _UITooltipContent, TooltipTrigger as UITooltipTrigger } from "@/components/ui/tooltip";
@@ -456,6 +455,8 @@ function AdminReportsPage() {
       const headers  = Object.keys(rows[0]);
       const body     = rows.map((r) => headers.map((h) => String(r[h] ?? "—")));
       const isWide   = headers.length > 6;
+      const { jsPDF } = await import("jspdf");
+      const { autoTable } = await import("jspdf-autotable");
       const doc      = new jsPDF({ orientation: isWide ? "landscape" : "portrait", unit: "mm", format: "a4" });
       const pageW    = doc.internal.pageSize.getWidth();
 
@@ -920,8 +921,38 @@ function LeaveBalancesOverview({ people, filterYear }: { people: PeopleMap; filt
 
   return (
     <SectionCard title="Leave Balances Overview" subtitle={`All teachers · ${filterYear}`}>
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-xs min-w-[480px]">
+      {/* Mobile card list */}
+      <div className="flex flex-col gap-2 sm:hidden">
+        {rows.map((r, i) => (
+          <div key={i} className="rounded-xl border border-border bg-card p-3.5 space-y-2">
+            <div>
+              <p className="font-semibold text-sm">{r.name}</p>
+              <p className="text-xs text-muted-foreground">{r.department}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-muted/50 px-3 py-2 text-center">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">Casual Used</p>
+                <p className="font-semibold text-sm">{r.casualUsed}</p>
+              </div>
+              <div className="rounded-lg bg-muted/50 px-3 py-2 text-center">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">Casual Left</p>
+                <p className={`font-semibold text-sm ${r.casualLeft === 0 ? "text-destructive" : r.casualLeft <= 2 ? "text-warning-foreground" : "text-success"}`}>{r.casualLeft}</p>
+              </div>
+              <div className="rounded-lg bg-muted/50 px-3 py-2 text-center">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">Medical Used</p>
+                <p className="font-semibold text-sm">{r.medUsed}</p>
+              </div>
+              <div className="rounded-lg bg-muted/50 px-3 py-2 text-center">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">Medical Left</p>
+                <p className={`font-semibold text-sm ${r.medLeft === 0 ? "text-destructive" : r.medLeft <= 3 ? "text-warning-foreground" : "text-success"}`}>{r.medLeft}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* Desktop table */}
+      <div className="hidden sm:block overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-xs">
           <thead className="bg-muted/50">
             <tr>
               <th className="px-3 py-2 text-left font-semibold">Teacher</th>

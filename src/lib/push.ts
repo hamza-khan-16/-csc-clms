@@ -123,9 +123,12 @@ export function registerNotificationTapHandler(): void {
   }) => {
     const url = data?.targetUrl ?? data?.openUrl ?? data?.additionalData?.targetUrl;
     if (!url) return;
+    // Build a full path including any query params (e.g. /leaves?highlight=<id>)
     const path = url.startsWith("http")
       ? new URL(url).pathname + new URL(url).search
       : url;
-    window.location.href = path;
+    // Use history.pushState so TanStack Router picks it up without a full reload
+    window.history.pushState({}, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate", { state: {} }));
   };
 }

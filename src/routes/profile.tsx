@@ -179,6 +179,17 @@ function ProfilePage() {
   const [name, setName] = useState(profile?.full_name ?? "");
   const [phone, setPhone] = useState(profile?.phone ?? "");
   const [phoneError, setPhoneError] = useState("");
+
+  // Sync fields from profile once it loads (avoids stale useState initial value
+  // when profile arrives after first render or after a page reload)
+  useEffect(() => {
+    if (profile) {
+      setPhone(profile.phone ?? "");
+      setName(profile.full_name ?? "");
+      setGender((profile.gender as any) ?? "");
+      setDob((profile.date_of_birth as any) ?? "");
+    }
+  }, [profile?.id]); // only re-sync when the profile ID changes (login/switch), not on every field save
   const nameGuardRef = useRef<GuardHandle>(null);
   const [gender, setGender] = useState(profile?.gender ?? "");
   const [dob, setDob] = useState(profile?.date_of_birth ?? "");
@@ -202,15 +213,37 @@ function ProfilePage() {
 
   async function uploadAvatar(file: File) {
     if (!profile?.id) return;
-    if (file.size > 2 * 1024 * 1024) return toast.error("Image must be under 2 MB");
+    if (file.size > 10 * 1024 * 1024) return toast.error("Image must be under 10 MB");
     setAvatarBusy(true);
     try {
+      // Compress client-side: resize to max 400×400 and encode as JPEG @80% quality
+      // This reduces a 3MB phone photo to ~40–80KB before uploading
+      const compressed = await new Promise<Blob>((resolve, reject) => {
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+          const MAX = 400;
+          const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+          canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Compression failed")), "image/jpeg", 0.8);
+        };
+        img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Invalid image")); };
+        img.src = objectUrl;
+      });
       const { error } = await supabase.storage.from("avatars")
-        .upload(`${profile.id}.jpg`, file, { upsert: true, contentType: "image/jpeg" });
+        .upload(`${profile.id}.jpg`, compressed, { upsert: true, contentType: "image/jpeg" });
       if (error) { toast.error(error.message); return; }
       const { data } = await supabase.storage.from("avatars").createSignedUrl(`${profile.id}.jpg`, 3600);
       if (data?.signedUrl) setAvatarUrl(data.signedUrl + `&t=${Date.now()}`);
       toast.success("Photo updated");
+    } catch (err: any) {
+      toast.error(err.message ?? "Upload failed");
     } finally {
       setAvatarBusy(false);
     }

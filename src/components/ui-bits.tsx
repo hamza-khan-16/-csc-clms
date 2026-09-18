@@ -153,3 +153,83 @@ export function Empty({ children, illustration = "inbox" }: { children: ReactNod
     </div>
   );
 }
+
+// Reusable accessible pagination component used across the app
+export function Pagination({
+  page,
+  totalPages,
+  onPage,
+  totalItems,
+  pageSize,
+  className = "",
+}: {
+  page: number;
+  totalPages: number;
+  onPage: (p: number) => void;
+  totalItems: number;
+  pageSize: number;
+  className?: string;
+}) {
+  if (totalPages <= 1) return null;
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, totalItems);
+
+  // Show at most 5 page numbers, centred around current page
+  const pages: number[] = [];
+  const range = 2;
+  for (let i = Math.max(1, page - range); i <= Math.min(totalPages, page + range); i++) {
+    pages.push(i);
+  }
+
+  return (
+    <nav
+      aria-label="Pagination"
+      className={`flex items-center justify-between pt-3 border-t border-border ${className}`}
+    >
+      <p className="text-xs text-muted-foreground">
+        Showing {from}–{to} of {totalItems}
+      </p>
+      <div className="flex items-center gap-1" role="group" aria-label="Page navigation">
+        <button
+          className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+          onClick={() => onPage(Math.max(1, page - 1))}
+          disabled={page === 1}
+          aria-label="Previous page"
+        >
+          ← Prev
+        </button>
+        {pages[0] > 1 && (
+          <>
+            <button className="h-8 w-8 rounded-lg border border-border bg-background text-xs font-medium hover:bg-muted transition-colors" onClick={() => onPage(1)} aria-label="Page 1">1</button>
+            {pages[0] > 2 && <span className="px-1 text-xs text-muted-foreground">…</span>}
+          </>
+        )}
+        {pages.map((pg) => (
+          <button
+            key={pg}
+            className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === page ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
+            onClick={() => onPage(pg)}
+            aria-label={`Page ${pg}`}
+            aria-current={pg === page ? "page" : undefined}
+          >
+            {pg}
+          </button>
+        ))}
+        {pages[pages.length - 1] < totalPages && (
+          <>
+            {pages[pages.length - 1] < totalPages - 1 && <span className="px-1 text-xs text-muted-foreground">…</span>}
+            <button className="h-8 w-8 rounded-lg border border-border bg-background text-xs font-medium hover:bg-muted transition-colors" onClick={() => onPage(totalPages)} aria-label={`Page ${totalPages}`}>{totalPages}</button>
+          </>
+        )}
+        <button
+          className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
+          onClick={() => onPage(Math.min(totalPages, page + 1))}
+          disabled={page === totalPages}
+          aria-label="Next page"
+        >
+          Next →
+        </button>
+      </div>
+    </nav>
+  );
+}

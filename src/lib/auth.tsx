@@ -114,13 +114,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             initialised = true;
 
             // ── Single-device enforcement (Median only, on every app open) ──
-            // On INITIAL_SESSION, read the session_token from the DB and compare
-            // it against what this device stored locally at login time.
-            // If another device logged in since, the DB token will be different
-            // and we sign this device out immediately — works reliably on restart.
             if (IS_NATIVE_APP && event === 'INITIAL_SESSION') {
               const localToken = localStorage.getItem(`sdt:${next.user.id}`);
               if (localToken) {
+                // Compare local token against DB — if different, another device logged in
                 const { data: p } = await (supabase as any)
                   .from("profiles")
                   .select("session_token")
@@ -132,6 +129,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   supabase.auth.signOut({ scope: "local" });
                   return;
                 }
+              } else {
+                // No local token — localStorage was cleared (reinstall/cache clear).
+                // Write a fresh token so this device is now the authoritative one.
+                // This is safe: if another device is logged in, the next login from
+                // either device will overwrite and kick the other out.
+                const newToken = crypto.randomUUID();
+                localStorage.setItem(`sdt:${next.user.id}`, newToken);
+                (supabase as any).from("profiles")
+                  .update({ session_token: newToken })
+                  .eq("id", next.user.id)
+                  .then(() => {});
               }
             }
 
@@ -139,12 +147,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Run on INITIAL_SESSION too so token is refreshed on every app open.
             if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
               // ── Single-device: write new token on login (Median only) ──
-              // Generate a fresh UUID, store it locally and in the DB.
-              // Any other device will see a mismatched token on their next
-              // INITIAL_SESSION and be signed out immediately.
+              // Do this first, synchronously, before initPush or any other
+              // async work — so a crash/kill after login still persists the token.
               if (IS_NATIVE_APP && event === 'SIGNED_IN') {
                 const newToken = crypto.randomUUID();
-                localStorage.setItem(`sdt:${next.user.id}`, newToken);
+                try { localStorage.setItem(`sdt:${next.user.id}`, newToken); } catch (_) {}
                 (supabase as any).from("profiles")
                   .update({ session_token: newToken })
                   .eq("id", next.user.id)

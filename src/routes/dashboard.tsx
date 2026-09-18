@@ -290,7 +290,8 @@ function TeacherDashboard() {
     queryKey: ["my-leaves-recent", profile?.id],
     enabled: !!profile,
     staleTime: 10_000,
-    refetchInterval: 10_000,  // staggered from proxies (12s)
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -420,7 +421,8 @@ function TeacherDashboard() {
   const { data: proxies = [] } = useQuery({
     queryKey: ["dash-proxies", profile?.id],
     enabled: !!profile,
-    refetchInterval: 12_000,  // staggered from leaves (10s)
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -594,7 +596,7 @@ function TeacherDashboard() {
             const remMonth = b.monthlyCap !== undefined
               ? Math.min(Math.max(b.monthlyCap - b.usedMonth, 0), remYear) : undefined;
             return (
-              <div key={b.type} className="surface p-4 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow" onClick={() => navigate({ to: "/leaves", search: { filter: "all" } })}>
+              <div key={b.type} className="surface p-4 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow" onClick={() => navigate({ to: "/leaves", search: { filter: "all", highlight: undefined } })}>
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">{b.label}</p>
@@ -612,7 +614,7 @@ function TeacherDashboard() {
           })}
 
           {/* Medical paid quota */}
-          <div className="surface p-4 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow" onClick={() => navigate({ to: "/leaves", search: { filter: "all" } })}>
+          <div className="surface p-4 cursor-pointer hover:ring-2 hover:ring-primary/30 transition-shadow" onClick={() => navigate({ to: "/leaves", search: { filter: "all", highlight: undefined } })}>
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-xs font-medium text-muted-foreground">Medical Leave (Paid)</p>
@@ -704,7 +706,7 @@ function TeacherDashboard() {
         <SectionCard
           title="Recent Leave Requests"
           className="lg:col-span-2"
-          action={<Button asChild variant="ghost" size="sm"><Link to="/leaves" search={{ filter: "all" }}>View all</Link></Button>}
+          action={<Button asChild variant="ghost" size="sm"><Link to="/leaves" search={{ filter: "all", highlight: undefined }}>View all</Link></Button>}
         >
           {leavesLoading ? <ListSkeleton rows={3} /> : leaves.length === 0 ? <Empty>No leave requests yet.</Empty> : (
             <>

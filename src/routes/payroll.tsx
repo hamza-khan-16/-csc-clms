@@ -11,8 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { fmtDate, leaveTypeLabel, money, perDaySalary, LEAVE_TYPES, type LeaveStatus, type LeaveType } from "@/lib/leave";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { jsPDF } from "jspdf";
-import { autoTable } from "jspdf-autotable";
+// jsPDF loaded dynamically inside export functions to keep initial bundle lean.
 import { savePDF, saveXLSX } from "../lib/download";
 import { toast } from "sonner";
 
@@ -139,6 +138,8 @@ function PayrollPage() {
   ].filter((d) => d.value > 0);
 
   async function downloadPayslip() {
+    const { jsPDF } = await import("jspdf");
+    const { autoTable } = await import("jspdf-autotable");
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const PW = doc.internal.pageSize.getWidth();   // 210
     const PH = doc.internal.pageSize.getHeight();  // 297

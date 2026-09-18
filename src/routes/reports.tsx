@@ -4,8 +4,8 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { savePDF, saveXLSX } from "../lib/download";
-import { jsPDF } from "jspdf";
-import { autoTable } from "jspdf-autotable";
+// jsPDF and autoTable are loaded dynamically inside export functions to avoid
+// adding ~500 KB to the initial bundle for users who never export a PDF.
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { fetchPeople } from "@/lib/people";
@@ -524,6 +524,8 @@ async function exportPrincipalPDF(
   leaves: any[],
   people: Record<string, any>,
 ) {
+  const { jsPDF } = await import("jspdf");
+  const { autoTable } = await import("jspdf-autotable");
   const doc    = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
   const pageW  = doc.internal.pageSize.getWidth();
   const generatedOn = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" });
@@ -617,6 +619,8 @@ async function exportPrincipalPDF(
   await savePDF(doc, `Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.pdf`);
 }
 async function exportPDF(month: number, year: number, label: string, summaries: ReturnType<typeof buildTeacherSummary>[], workingDays: Date[]) {
+  const { jsPDF } = await import("jspdf");
+  const { autoTable } = await import("jspdf-autotable");
   const weeks   = getWeeksInMonth(workingDays);
   const doc     = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
   const pageW   = doc.internal.pageSize.getWidth();

@@ -477,7 +477,7 @@ function ApplyPage() {
       toast.success("Leave request sent to your HOD");
     }
     supabase.auth.updateUser({ data: { leave_draft: null } }).catch(() => {});
-    navigate({ to: "/leaves", search: { filter: "all" } });
+    navigate({ to: "/leaves", search: { filter: "all", highlight: undefined } });
   }
 
   return (

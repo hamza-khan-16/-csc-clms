@@ -1,13 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { haptic } from "@/lib/haptics";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { fetchPeople } from "@/lib/people";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
-import { SectionCard, StatusBadge, Empty, ListSkeleton } from "@/components/ui-bits";
+import { SectionCard, StatusBadge, Empty, ListSkeleton, Pagination } from "@/components/ui-bits";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -556,6 +557,7 @@ function HodPasswordResetRequests({ deptId }: { deptId: string }) {
     queryKey: ["hod-pw-reset-requests", deptId],
     staleTime: 15_000,
     refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
     queryFn: () => fetchFn(),
   });
 
@@ -716,7 +718,8 @@ function RequestsPage() {
     queryKey: ["hod-comp-approvals", profile?.department_id],
     enabled: isHod && !!profile?.department_id,
     staleTime: 10_000,
-    refetchInterval: 8_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       // Step 1: fetch dept member IDs
@@ -781,49 +784,40 @@ function RequestsPage() {
   const { data: allRejectedProxies = [] } = useQuery({
     queryKey: ["all-rejected-proxies", profile?.department_id],
     enabled: isHod && !!profile?.department_id,
-    refetchInterval: 15_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
 
-      // Get dept teachers
+      // Single query: get dept teacher IDs, then one .in() for all rejected proxies
       const { data: deptMembers } = await supabase
-        .from("profiles").select("id").eq("department_id", profile!.department_id!);
+        .from("profiles").select("id, full_name").eq("department_id", profile!.department_id!);
       const deptIds = (deptMembers ?? []).map((m: any) => m.id);
       if (deptIds.length === 0) return [];
 
-      // Get rejected proxy assignments where absentee is in dept AND date >= today
-      // Past-date rejections are empty classes — no reassignment possible
-      const allPending = await Promise.all(
-        deptIds.map((id) =>
-          supabase.from("proxy_assignments")
-            .select("id, proxy_date, start_time, end_time, subject, class_name, lecture_id, leave_request_id, absentee_teacher_id")
-            .eq("absentee_teacher_id", id)
-            .eq("status", "rejected")
-            .gte("proxy_date", today)  // only today or future — past ones are empty classes
-            .order("proxy_date", { ascending: true })
-        )
-      );
-      const rows = allPending.flatMap((r) => r.data ?? []);
+      // One query instead of one-per-teacher
+      const { data: rows } = await supabase
+        .from("proxy_assignments")
+        .select("id, proxy_date, start_time, end_time, subject, class_name, lecture_id, leave_request_id, absentee_teacher_id")
+        .in("absentee_teacher_id", deptIds)
+        .eq("status", "rejected")
+        .gte("proxy_date", today)
+        .order("proxy_date", { ascending: true });
 
-      // Deduplicate by slot: same leave_request_id + proxy_date + start_time + end_time
-      // Multiple rejected rows for the same slot (from repeated assignments) → show only one
+      // Deduplicate by slot
       const seen = new Set<string>();
-      const uniqueRows = rows.filter((r: any) => {
+      const uniqueRows = (rows ?? []).filter((r: any) => {
         const key = `${r.leave_request_id}|${r.proxy_date}|${r.start_time}|${r.end_time}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       });
 
-      // Fetch absentee names
-      const absenteeIds = [...new Set(uniqueRows.map((r: any) => r.absentee_teacher_id))];
-      const { data: absentees } = await supabase
-        .from("profiles").select("id, full_name").in("id", absenteeIds);
-      const absenteeMap = new Map((absentees ?? []).map((a: any) => [a.id, a.full_name]));
-
+      // Map absentee names from already-fetched deptMembers
+      const nameMap = new Map((deptMembers ?? []).map((m: any) => [m.id, m.full_name]));
       return uniqueRows.map((r: any) => ({
         ...r,
-        absenteeName: absenteeMap.get(r.absentee_teacher_id) ?? "Unknown",
+        absenteeName: nameMap.get(r.absentee_teacher_id) ?? "Unknown",
       }));
     },
   });
@@ -861,6 +855,12 @@ function RequestsPage() {
       }, () => {
         qc.invalidateQueries({ queryKey: ["hod-comp-approvals"] });
       })
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "proxy_assignments",
+      }, () => {
+        qc.invalidateQueries({ queryKey: ["all-rejected-proxies"] });
+        qc.invalidateQueries({ queryKey: ["rejected-proxies"] });
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [profile?.id, qc]);
@@ -869,7 +869,8 @@ function RequestsPage() {
     queryKey: ["review-requests", role, profile?.id],
     enabled: !!profile,
     staleTime: 5_000,
-    refetchInterval: 8_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data: adminRoles } = await supabase.from("user_roles").select("user_id, role")
@@ -1261,6 +1262,8 @@ function RequestsPage() {
               <input
                 className="h-8 w-48 rounded-lg border border-border bg-muted/50 pl-8 pr-3 text-xs outline-none focus:ring-2 focus:ring-primary/30"
                 placeholder="Search by name…"
+                id="all-req-search"
+                aria-label="Search requests by name"
                 value={searchQ}
                 onChange={(e) => setSearchQ(e.target.value)}
               />
@@ -1291,7 +1294,7 @@ function RequestsPage() {
                 ))}
               </div>
               {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden sm:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -1317,39 +1320,7 @@ function RequestsPage() {
                   </tbody>
                 </table>
               </div>
-              {/* Pagination */}
-              {allReqTotalPages > 1 && (
-                <div className="flex items-center justify-between pt-4 border-t border-border mt-2">
-                  <p className="text-xs text-muted-foreground">
-                    Showing {(allReqPage - 1) * ALL_REQ_PAGE_SIZE + 1}–{Math.min(allReqPage * ALL_REQ_PAGE_SIZE, filteredRest.length)} of {filteredRest.length}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <button
-                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
-                      onClick={() => setAllReqPage((p) => Math.max(1, p - 1))}
-                      disabled={allReqPage === 1}
-                    >
-                      ← Prev
-                    </button>
-                    {Array.from({ length: allReqTotalPages }, (_, i) => i + 1).map((pg) => (
-                      <button
-                        key={pg}
-                        className={`h-8 w-8 rounded-lg border text-xs font-medium transition-colors ${pg === allReqPage ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background hover:bg-muted"}`}
-                        onClick={() => setAllReqPage(pg)}
-                      >
-                        {pg}
-                      </button>
-                    ))}
-                    <button
-                      className="h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium disabled:opacity-40 hover:bg-muted transition-colors"
-                      onClick={() => setAllReqPage((p) => Math.min(allReqTotalPages, p + 1))}
-                      disabled={allReqPage === allReqTotalPages}
-                    >
-                      Next →
-                    </button>
-                  </div>
-                </div>
-              )}
+              <Pagination page={allReqPage} totalPages={allReqTotalPages} onPage={setAllReqPage} totalItems={filteredRest.length} pageSize={ALL_REQ_PAGE_SIZE} className="mt-2" />
             </>
           )}
         </SectionCard>
@@ -1370,7 +1341,7 @@ interface RequestRow {
 
 function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }) {
   const qc = useQueryClient();
-  const { profile } = useAuth();
+  const { profile, role } = useAuth();
   const [note, setNote] = useState("");
   const noteGuardRef = useRef<GuardHandle>(null);
   const [busy, setBusy] = useState(false);
@@ -1425,7 +1396,8 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   const { data: rejectedProxies = [] } = useQuery({
     queryKey: ["rejected-proxies", request.id],
     enabled: isHod,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
       const { data } = await supabase
@@ -1641,14 +1613,18 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   async function hodDirectApprove() {
     if (!checkNote()) return;
     setBusy(true);
+    // Optimistic: immediately hide this card from the actionable list
+    qc.setQueryData(["review-requests", role, profile?.id], (old: any[] | undefined) =>
+      old ? old.map((r) => r.id === request.id ? { ...r, status: "hod_approved" } : r) : old
+    );
     const ok = await saveProxies();
-    if (!ok) { setBusy(false); return; }
+    if (!ok) { setBusy(false); qc.invalidateQueries({ queryKey: ["review-requests"] }); return; }
     const { error } = await supabase.from("leave_requests").update({ status: "hod_approved", doc_status: "required", hod_note: note.trim() || null, hod_acted_at: new Date().toISOString() }).eq("id", request.id);
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) { qc.invalidateQueries({ queryKey: ["review-requests"] }); return toast.error(error.message); }
+    haptic("success");
     toast.success(`Leave approved — teacher must upload ${requiredDoc}`);
-    // Notify teacher their leave was approved
-    firePush({ userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" });
+    firePush({ userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: `/leaves?highlight=${request.id}` });
     // Notify principal — they need to verify the document once the teacher uploads it
     firePush({ userIds: ["__principal__"], title: "Document Verification Pending", body: `${request.teacher?.full_name ?? "A teacher"}'s ${request.leave_type} leave was approved by HOD — awaiting document upload`, targetUrl: "/requests" });
     qc.invalidateQueries({ queryKey: ["leave-requests"] });
@@ -1684,12 +1660,30 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         .in("status", ["accepted", "pending"]);
 
       if (proxies && proxies.length > 0) {
-        // Mark all as cancelled
+        const proxyIds = proxies.map((p: any) => p.id);
+
+        // Cancel all accepted/pending proxy assignments
         await supabase
           .from("proxy_assignments")
           .update({ status: "cancelled" } as any)
           .eq("leave_request_id", request.id)
           .in("status", ["accepted", "pending"]);
+
+        // Also cancel any compensation_assignments linked to these proxies
+        // so the proxy teacher's compensation duty is also removed from their schedule
+        const { data: comps } = await supabase
+          .from("compensation_assignments")
+          .select("id, from_teacher_id")
+          .in("proxy_assignment_id", proxyIds)
+          .in("status", ["pending", "accepted", "hod_pending"]);
+
+        if (comps && comps.length > 0) {
+          await supabase
+            .from("compensation_assignments")
+            .update({ status: "cancelled" } as any)
+            .in("proxy_assignment_id", proxyIds)
+            .in("status", ["pending", "accepted", "hod_pending"]);
+        }
 
         // Notify each proxy teacher that their assignment is cancelled
         const proxyTeacherIds = [...new Set(proxies.map((p: any) => p.proxy_teacher_id).filter(Boolean))];
@@ -1706,15 +1700,20 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     }
 
     setBusy(false);
+    haptic("warning");
     toast.success("Leave rejected");
     // Notify teacher their leave was rejected
-    firePush({ userIds: [request.teacher_id], title: "Leave Rejected", body: note.trim() ? `Your ${request.leave_type} leave was rejected: ${note.trim()}` : `Your ${request.leave_type} leave request has been rejected`, targetUrl: "/leaves" });
+    firePush({ userIds: [request.teacher_id], title: "Leave Rejected", body: note.trim() ? `Your ${request.leave_type} leave was rejected: ${note.trim()}` : `Your ${request.leave_type} leave request has been rejected`, targetUrl: `/leaves?highlight=${request.id}` });
     qc.invalidateQueries();
   }
 
   async function principalApprove() {
     if (!checkNote()) return;
     setBusy(true);
+    // Optimistic: immediately reflect approval in UI
+    qc.setQueryData(["review-requests", role, profile?.id], (old: any[] | undefined) =>
+      old ? old.map((r) => r.id === request.id ? { ...r, status: "approved" } : r) : old
+    );
     const total = Number(request.total_days);
     let paidDays: number;
     let unpaidDays: number;
@@ -1735,10 +1734,10 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       principal_note: note.trim() || null, principal_acted_at: new Date().toISOString(),
     }).eq("id", request.id);
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) { qc.invalidateQueries({ queryKey: ["review-requests"] }); return toast.error(error.message); }
+    haptic("success");
     toast.success("Leave approved");
-    // Notify teacher their leave was approved by principal
-    firePush({ userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: "/leaves" });
+    firePush({ userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: `/leaves?highlight=${request.id}` });
     qc.invalidateQueries({ queryKey: ["leave-requests"] });
   }
 

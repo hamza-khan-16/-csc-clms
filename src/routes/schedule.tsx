@@ -4,8 +4,7 @@ import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, Gift, LayoutGrid, Printer, Trash2, Upload, X } from "lucide-react";
-import { jsPDF } from "jspdf";
-import { autoTable } from "jspdf-autotable";
+// jsPDF loaded dynamically inside export functions to keep initial bundle lean.
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -290,6 +289,8 @@ function TimetableModal({
   const [mobileDay, setMobileDay] = useState(1);
 
   async function downloadPDF() {
+    const { jsPDF } = await import("jspdf");
+    const { autoTable } = await import("jspdf-autotable");
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const PW = doc.internal.pageSize.getWidth();   // 297
     const PH = doc.internal.pageSize.getHeight();  // 210
@@ -470,7 +471,7 @@ function TimetableModal({
         </div>
 
         {/* Mobile: day tab strip */}
-        <div className="flex gap-1 px-3 pt-3 pb-1 overflow-x-auto md:hidden shrink-0">
+        <div className="flex gap-1 px-3 pt-3 pb-1 overflow-x-auto lg:hidden shrink-0">
           {WEEKDAYS_LIST.map((dow, i) => (
             <button
               key={dow}
@@ -489,7 +490,7 @@ function TimetableModal({
         </div>
 
         {/* Mobile: stacked card view */}
-        <div className="md:hidden overflow-y-auto p-3 space-y-2 flex-1">
+        <div className="lg:hidden overflow-y-auto p-3 space-y-2 flex-1">
           {timeSlots.length === 0 ? (
             <p className="py-8 text-center text-white/40 text-sm">No fixed lectures yet.</p>
           ) : (
@@ -520,7 +521,7 @@ function TimetableModal({
         </div>
 
         {/* Desktop: full grid */}
-        <div className="hidden md:block overflow-auto flex-1 p-4">
+        <div className="hidden lg:block overflow-auto flex-1 p-4">
           <table className="w-full border-separate border-spacing-1 text-sm">
             <thead>
               <tr>
@@ -631,6 +632,7 @@ function SchedulePage() {
   const { data: lectures = [] } = useQuery({
     queryKey: ["my-lectures", profile?.id],
     enabled: !!profile,
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("lectures")
@@ -647,6 +649,7 @@ function SchedulePage() {
   const { data: proxies = [] } = useQuery({
     queryKey: ["my-accepted-proxies", profile?.id],
     enabled: !!profile,
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("proxy_assignments")
@@ -699,6 +702,7 @@ function SchedulePage() {
   const { data: pendingCompOffers = [] } = useQuery({
     queryKey: ["pending-comp-offers", profile?.id],
     enabled: !!profile,
+    staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("compensation_assignments")

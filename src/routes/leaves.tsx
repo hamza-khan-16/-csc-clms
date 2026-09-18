@@ -41,6 +41,7 @@ export const Route = createFileRoute("/leaves")({
     filter: (["all","pending","approved","rejected","with_docs"].includes(search.filter as string)
       ? search.filter as FilterTab
       : "all") satisfies FilterTab,
+    highlight: typeof search.highlight === "string" ? search.highlight : undefined as string | undefined,
   }),
   head: () => ({
     meta: [
@@ -76,18 +77,19 @@ const WITHDRAWABLE_STATUSES: string[] = ["pending_hod"];
 function MyLeavesPage() {
   const { profile } = useAuth();
   const qc = useQueryClient();
-  const { filter } = Route.useSearch();
+  const { filter, highlight } = Route.useSearch();
   const navigate = useNavigate({ from: "/leaves" });
 
   function setFilter(f: FilterTab) {
-    navigate({ search: { filter: f }, replace: true });
+    navigate({ search: { filter: f, highlight: undefined }, replace: true });
   }
 
   const { data: leaves = [] } = useQuery({
     queryKey: ["my-leaves", profile?.id],
     enabled: !!profile,
     staleTime: 5_000,
-    refetchInterval: 8_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -102,6 +104,17 @@ function MyLeavesPage() {
 
 
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+
+  // Auto-scroll and highlight leave card when arriving from a notification deep link
+  useEffect(() => {
+    if (!highlight || !leaves.length) return;
+    const el = document.getElementById(`leave-${highlight}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-2", "ring-primary", "ring-offset-2");
+      setTimeout(() => el.classList.remove("ring-2", "ring-primary", "ring-offset-2"), 3000);
+    }
+  }, [highlight, leaves.length]);
 
   // Realtime — only invalidate when status field actually changed
   // Using a ref-based debounce to prevent the refetch from triggering
@@ -307,7 +320,7 @@ function MyLeavesPage() {
             (l.status === "hod_approved" || l.status === "approved") &&
             l.doc_status !== "verified";
           return (
-            <div key={l.id} className={`rounded-xl border border-border bg-card p-4 flex flex-col gap-3 ${hasBigContent ? "sm:col-span-2" : ""}`}>
+            <div key={l.id} id={`leave-${l.id}`} className={`rounded-xl border border-border bg-card p-4 flex flex-col gap-3 transition-shadow ${hasBigContent ? "sm:col-span-2" : ""}`}>
               {/* Top row — type + status */}
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
