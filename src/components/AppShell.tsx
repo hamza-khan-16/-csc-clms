@@ -89,7 +89,8 @@ function AppDownloadBanner() {
   return (
     <div className="fixed top-0 inset-x-0 z-[199] flex items-center gap-3 bg-white dark:bg-zinc-900 border-b border-border shadow-sm px-3 py-2">
       {/* Favicon as app icon */}
-<img src="/favicon.ico" alt="CSC LMS" className="shrink-0 size-10 rounded-xl object-contain bg-white p-1" />
+<img src="/favicon.ico" alt="CSC LMS" className="shrink-0 size-10 rounded-xl object-contain bg-white border border-black p-1" />
+
 
 
       {/* Text */}
