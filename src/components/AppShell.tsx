@@ -64,53 +64,40 @@ type NavItem = {
 const BANNER_H = 32; // px — matches py-2 + text-xs line height
 
 // ── App Download Banner ────────────────────────────────────────────────────────
-const APK_URL = "YOUR_APK_DOWNLOAD_LINK_HERE";
+const APK_URL = "https://drive.google.com/file/d/1-5cO6CxaVQdjf7c8Tp8XACE1VT3GIqvt/view?usp=sharing";
+const SESSION_BANNER_KEY = "app_banner_shown";
 
 function AppDownloadBanner() {
-  // Show on every page load in a browser (not in Median app), session-only dismiss
-  const [visible, setVisible] = useState(!IS_NATIVE_APP);
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    if (IS_NATIVE_APP) setVisible(false);
+    if (IS_NATIVE_APP) return;
+    // Show once per browser session — sessionStorage clears when tab/browser closes
+    // so it reappears on every fresh login/visit, but not on in-session page navigation
+    if (sessionStorage.getItem(SESSION_BANNER_KEY)) return;
+    sessionStorage.setItem(SESSION_BANNER_KEY, "1");
+    setVisible(true);
+    document.documentElement.style.setProperty("--app-banner-h", `${APP_BANNER_H}px`);
   }, []);
 
-  useEffect(() => {
-    if (visible) {
-      document.documentElement.style.setProperty("--app-banner-h", `${APP_BANNER_H}px`);
-    } else {
-      document.documentElement.style.removeProperty("--app-banner-h");
-    }
-  }, [visible]);
-
-  function dismiss() { setVisible(false); }
+  function dismiss() {
+    setVisible(false);
+    document.documentElement.style.removeProperty("--app-banner-h");
+  }
 
   if (!visible) return null;
 
   return (
     <div className="fixed top-0 inset-x-0 z-[199] flex items-center gap-3 bg-white dark:bg-zinc-900 border-b border-border shadow-sm px-3 py-2">
-      {/* Favicon as app icon */}
       <img src="/favicon.ico" alt="CSC LMS" className="shrink-0 size-10 rounded-xl object-contain bg-white p-1 border border-border" />
-
-      {/* Text */}
       <div className="flex-1 min-w-0">
         <p className="text-xs font-semibold text-foreground leading-tight">CSC LMS App</p>
         <p className="text-[11px] text-muted-foreground leading-tight">Fast. Easy. Download the app today.</p>
       </div>
-
-      {/* Download button */}
-      <a
-        href={APK_URL}
-        className="shrink-0 rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-white hover:bg-primary/90 active:scale-95 transition-all"
-      >
+      <a href={APK_URL} className="shrink-0 rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-white hover:bg-primary/90 active:scale-95 transition-all">
         Install
       </a>
-
-      {/* Dismiss for this session only */}
-      <button
-        onClick={dismiss}
-        aria-label="Dismiss app banner"
-        className="shrink-0 flex items-center justify-center size-6 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-      >
+      <button onClick={dismiss} aria-label="Dismiss app banner" className="shrink-0 flex items-center justify-center size-6 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
         <X className="size-3.5" />
       </button>
     </div>
