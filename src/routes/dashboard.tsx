@@ -1042,7 +1042,27 @@ function AdminHrDashboard() {
         supabase.from("leave_requests").select("id", { count: "exact", head: true }).in("status", ["pending_hod","hod_recommended","pending_principal"]),
         supabase.from("leave_requests").select("id", { count: "exact", head: true }).in("status", ["approved","hod_approved"]).gte("from_date", `${year}-01-01`),
         supabase.from("departments").select("id", { count: "exact", head: true }),
-        isHr ? supabase.from("profiles").select("id", { count: "exact", head: true }).eq("approved", true).is("hr_approved", null) : Promise.resolve({ count: 0 }),
+        isHr ? (async () => {
+          // Count only teachers/HODs with hr_approved IS NULL (pending review)
+          // Exclude admin, principal, hr roles — same filter as the HR panel page
+          const { data: pendingProfiles } = await supabase
+            .from("profiles")
+            .select("id")
+            .eq("approved", true)
+            .is("hr_approved", null);
+          if (!pendingProfiles?.length) return { count: 0 };
+          const ids = pendingProfiles.map((p) => p.id);
+          const { data: roleRows } = await supabase
+            .from("user_roles")
+            .select("user_id, role")
+            .in("user_id", ids);
+          const excluded = new Set(["admin", "principal", "hr"]);
+          const pendingCount = ids.filter((id) => {
+            const r = roleRows?.find((rr) => rr.user_id === id)?.role ?? "teacher";
+            return !excluded.has(r);
+          }).length;
+          return { count: pendingCount };
+        })() : Promise.resolve({ count: 0 }),
       ]);
       return {
         teachers:      teachers.count ?? 0,
