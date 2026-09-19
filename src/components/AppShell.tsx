@@ -64,7 +64,7 @@ type NavItem = {
 const BANNER_H = 32; // px — matches py-2 + text-xs line height
 
 // ── App Download Banner ────────────────────────────────────────────────────────
-const APK_URL = "https://drive.google.com/file/d/1-5cO6CxaVQdjf7c8Tp8XACE1VT3GIqvt/view?usp=sharing";
+const APK_URL = "YOUR_APK_DOWNLOAD_LINK_HERE";
 const SESSION_BANNER_KEY = "app_banner_shown";
 
 function AppDownloadBanner() {

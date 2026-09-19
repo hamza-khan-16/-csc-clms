@@ -97,7 +97,7 @@ export const Route = createFileRoute("/notices")({
     ],
   }),
   component: () => (
-    <Guarded roles={["hod", "principal", "admin"]}>
+    <Guarded roles={["hod", "principal", "admin", "hr"]}>
       <NoticesPage />
     </Guarded>
   ),
@@ -107,6 +107,7 @@ function NoticesPage() {
   const { profile, role } = useAuth();
   const qc = useQueryClient();
   const isPrincipal = role === "principal";
+  const isHr = role === "hr";
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [scope, setScope] = useState<string>("all");
@@ -132,7 +133,7 @@ function NoticesPage() {
 
   const { data: departments = [] } = useQuery({
     queryKey: ["departments-list"],
-    enabled: isPrincipal,
+    enabled: isPrincipal || isHr,
     queryFn: async () => {
       const { data, error } = await supabase.from("departments").select("id, name").order("name");
       if (error) throw error;
@@ -177,12 +178,12 @@ function NoticesPage() {
       const chosen = new Date(eventDate);
       if (chosen < today) return toast.error("Event date cannot be in the past");
     }
-    const departmentId = isPrincipal
+    const departmentId = (isPrincipal || isHr)
       ? scope === "all"
         ? null
         : scope
       : (profile!.department_id ?? null);
-    if (!isPrincipal && !departmentId) return toast.error("You are not linked to a department");
+    if (!isPrincipal && !isHr && !departmentId) return toast.error("You are not linked to a department");
 
     setBusy(true);
     const { error } = await supabase.from("notices").insert({
@@ -236,7 +237,7 @@ function NoticesPage() {
     <AppShell
       title="Notices"
       subtitle={
-        isPrincipal
+        (isPrincipal || isHr)
           ? "Publish to all departments or a single department"
           : `Published to ${profile?.department_name ?? "your department"} teachers`
       }
@@ -348,7 +349,7 @@ function NoticesPage() {
               )}
             </div>
 
-            {isPrincipal && (
+            {(isPrincipal || isHr) && (
               <div className="space-y-2">
                 <Label>Audience</Label>
                 <Select value={scope} onValueChange={setScope}>

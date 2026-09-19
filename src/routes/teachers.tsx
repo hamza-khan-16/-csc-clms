@@ -43,7 +43,7 @@ export const Route = createFileRoute("/teachers")({
     ],
   }),
   component: () => (
-    <Guarded roles={["hod", "principal", "admin"]}>
+    <Guarded roles={["hod", "principal", "admin", "hr"]}>
       <TeachersPage />
     </Guarded>
   ),
@@ -79,6 +79,7 @@ function TeachersPage() {
         .eq("approved", true)   // Fix: exclude unapproved/pending registrations
         .order("full_name");
       if (role === "hod") q = q.eq("department_id", profile!.department_id ?? "");
+      // hr sees all depts (same as principal/admin) — no extra filter needed
       const { data, error } = await q;
       if (error) throw error;
 
