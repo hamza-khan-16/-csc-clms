@@ -195,3 +195,21 @@ textarea:not([disabled]):not([readonly]):hover {
 
 /* Tooltip suppression on touch/WebView apps is handled in AppShell.tsx via
    isNativeApp detection (Median user-agent) — setting delayDuration to 999999. */
+
+/* ── Cursor: pointer on all interactive elements ────────────────────────────
+   Browsers don't always default to pointer on <button> or role="tab" elements.
+   This rule covers every interactive surface in one place. */
+button:not([disabled]),
+[role="button"]:not([aria-disabled="true"]),
+[role="tab"],
+[role="checkbox"],
+[role="radio"],
+[role="menuitem"],
+[role="option"],
+[role="switch"],
+select:not([disabled]),
+label[for],
+summary,
+a[href] {
+  cursor: pointer;
+}
