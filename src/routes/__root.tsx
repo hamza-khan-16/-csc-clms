@@ -197,6 +197,18 @@ function RootShell({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})();` }} />
         {/* Lock orientation to portrait — prevents layout breaking on phone rotation */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{if(screen.orientation&&screen.orientation.lock){screen.orientation.lock('portrait').catch(function(){});}}catch(e){}})();` }} />
+        {/* Deep-link queue — captures Median push tap before app JS loads.
+            Median calls median_onesignal_push_opened immediately after WebView starts.
+            We store the data and the app picks it up once React hydrates. */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          window._pendingPushTap = null;
+          window.median_onesignal_push_opened = function(data) {
+            window._pendingPushTap = data;
+          };
+          window.gonative_onesignal_push_opened = function(data) {
+            window._pendingPushTap = data;
+          };
+        `}} />
         {/* JSON-LD structured data — enables Google sitelinks (the 2–3 link buttons below the search result) */}
         <script
           type="application/ld+json"

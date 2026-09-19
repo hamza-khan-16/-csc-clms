@@ -89,8 +89,7 @@ function AppDownloadBanner() {
   return (
     <div className="fixed top-0 inset-x-0 z-[199] flex items-center gap-3 bg-white dark:bg-zinc-900 border-b border-border shadow-sm px-3 py-2">
       {/* Favicon as app icon */}
-<img src="/favicon.ico" alt="CSC LMS" className="shrink-0 size-10 rounded-xl object-contain bg-white p-1" />
-
+      <img src="/favicon.ico" alt="CSC LMS" className="shrink-0 size-10 rounded-xl object-contain bg-white p-1 border border-border" />
 
       {/* Text */}
       <div className="flex-1 min-w-0">
@@ -208,36 +207,27 @@ export function AppShell({
         win.gonative.screen.on("back", handleBack);
       }
 
-      // Method 2: Global callback (Median dashboard → Back Button = "Javascript Callback")
+      // Method 2: Global callback — requires Median dashboard → App Settings →
+      // Navigation → Back Button → "Javascript Callback". This is the primary
+      // method and works for sideloaded APKs without any history manipulation.
       win.gonative_android_back_pressed = handleBack;
-
-      // Method 3: popstate sentinel — always register as final fallback
-      window.history.pushState({ _exitSentinel: true }, "");
     }
 
-    // Register immediately — works if bridge already loaded
+    // Register immediately
     register();
 
     // Also register on deviceready — fires after Median bridge fully loads in APK
     function onDeviceReady() { register(); }
     document.addEventListener("deviceready", onDeviceReady, false);
 
-    // And on a short delay for sideloaded APKs where bridge loads slightly late
-    const delayTimer = setTimeout(register, 500);
-
-    function handlePopState(e: PopStateEvent) {
-      if (!(e.state as any)?._exitSentinel) return;
-      window.history.pushState({ _exitSentinel: true }, "");
-      handleBack();
-    }
-    window.addEventListener("popstate", handlePopState);
+    // Delayed re-registration for sideloaded APKs where bridge loads slightly late
+    const delayTimer = setTimeout(register, 800);
 
     return () => {
       if (typeof win.median?.screen?.off === "function") win.median.screen.off("back", handleBack);
       else if (typeof win.gonative?.screen?.off === "function") win.gonative.screen.off("back", handleBack);
       delete win.gonative_android_back_pressed;
       document.removeEventListener("deviceready", onDeviceReady);
-      window.removeEventListener("popstate", handlePopState);
       clearTimeout(delayTimer);
       if (backToastTimer.current) clearTimeout(backToastTimer.current);
       backPressedOnce.current = false;

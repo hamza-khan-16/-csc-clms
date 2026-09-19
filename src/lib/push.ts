@@ -130,18 +130,15 @@ export function registerNotificationTapHandler(): void {
     window.location.href = path;
   }
 
-  // Register immediately — handles taps when app is already running
+  // Override the queue placeholders set in the HTML head script with real handlers
   (window as any).median_onesignal_push_opened = handleTap;
-
-  // Also register gonative variant used in some APK builds
   (window as any).gonative_onesignal_push_opened = handleTap;
 
-  // Handle the case where the notification tap launched the app cold:
-  // Median stores the tap data in window.median_push_data before the page loads
-  const pendingData = (window as any).median_push_data ?? (window as any).gonative_push_data;
-  if (pendingData) {
-    handleTap(pendingData);
-    (window as any).median_push_data = null;
-    (window as any).gonative_push_data = null;
+  // Process any tap that arrived before React hydrated (cold launch)
+  const pending = (window as any)._pendingPushTap;
+  if (pending) {
+    (window as any)._pendingPushTap = null;
+    // Defer slightly so React has finished rendering the target route
+    setTimeout(() => handleTap(pending), 300);
   }
 }

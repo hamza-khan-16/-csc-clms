@@ -1056,6 +1056,18 @@ function RequestsPage() {
       toast.success(
         `${eligibleIds.length} request(s) approved${skipped > 0 ? ` · ${skipped} medical/duty skipped (approve individually)` : ""}`
       );
+      haptic("success");
+
+      // Notify each affected teacher
+      const approvedRequests = actionable.filter((r) => eligibleIds.includes(r.id));
+      for (const r of approvedRequests) {
+        const title = isHod ? "Leave Approved by HOD" : "Leave Approved";
+        const body = isHod
+          ? `Your ${r.leave_type} leave has been approved by your HOD and forwarded to the principal.`
+          : `Your ${r.leave_type} leave for ${r.total_days} day(s) has been approved.`;
+        firePush({ userIds: [r.teacher_id], title, body, targetUrl: `/leaves?highlight=${r.id}` });
+      }
+
       setSelectedIds(new Set());
       qc.invalidateQueries({ queryKey: ["review-requests", role, profile?.id] });
     } finally {
@@ -1601,10 +1613,12 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     const { error } = await supabase.from("leave_requests").update({ status: "pending_principal", hod_note: note.trim() || null, hod_acted_at: new Date().toISOString() }).eq("id", request.id);
     setBusy(false);
     if (error) return toast.error(error.message);
+    haptic("success");
     toast.success("Recommended to the principal");
-    // Notify principal a leave is awaiting their approval
+    // Notify teacher their leave was approved by HOD (awaiting principal)
+    firePush({ userIds: [request.teacher_id], title: "Leave Approved by HOD", body: `Your ${request.leave_type} leave has been approved by your HOD and forwarded to the principal for final approval.`, targetUrl: `/leaves?highlight=${request.id}` });
+    // Notify principal
     if (profile?.department_id) {
-      // Notify principal (fire-and-forget) — they need to find principal by role server-side
       firePush({ userIds: ["__principal__"], title: "Leave Awaiting Your Approval", body: `${request.teacher?.full_name ?? "A teacher"}'s ${request.leave_type} leave has been approved by HOD`, targetUrl: "/requests" });
     }
     qc.invalidateQueries();
