@@ -145,6 +145,13 @@ function PayrollPage() {
     const PH = doc.internal.pageSize.getHeight();  // 297
     const month = effectiveMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 
+    // PDF-safe money formatter — jsPDF's built-in Helvetica cannot render ₹ (U+20B9)
+    // so we use "Rs." which renders perfectly
+    function pdfMoney(amount: number): string {
+      const formatted = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Math.round(amount));
+      return `Rs. ${formatted}`;
+    }
+
     // ── Fetch logo ──────────────────────────────────────────────────────────
     let logoB64: string | null = null;
     try {
@@ -237,7 +244,7 @@ function PayrollPage() {
     doc.setTextColor(20, 20, 20);
     const designation = role === "hod" ? "Head of Department" : "Teacher";
     doc.text(designation, col1X, BOX_Y + 24.5);
-    doc.text(money(salary), col2X, BOX_Y + 24.5);
+    doc.text(pdfMoney(salary), col2X, BOX_Y + 24.5);
     doc.text(new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }), col3X, BOX_Y + 24.5);
 
     // ── Earnings & Deductions table ─────────────────────────────────────────
@@ -246,11 +253,11 @@ function PayrollPage() {
     autoTable(doc, {
       startY: TABLE_Y,
       margin: { left: 12, right: 12 },
-      head: [["Earnings", "Amount (₹)", "Deductions", "Amount (₹)"]],
+      head: [["Earnings", "Amount (Rs.)", "Deductions", "Amount (Rs.)"]],
       body: [
         [
           "Gross Salary",
-          money(salary),
+          pdfMoney(salary),
           "Unpaid Leave Days",
           String(totals.unpaid),
         ],
@@ -258,7 +265,7 @@ function PayrollPage() {
           "Working Days (Paid)",
           String(totals.paid),
           "Leave Deduction",
-          totals.deduction > 0 ? `- ${money(totals.deduction)}` : "—",
+          totals.deduction > 0 ? `- ${pdfMoney(totals.deduction)}` : "—",
         ],
         ["", "", "", ""],
       ],
@@ -284,7 +291,7 @@ function PayrollPage() {
     doc.setTextColor(255, 255, 255);
     doc.text("NET PAY", 22, afterTable + NET_H / 2 + 1.5);
     doc.setFontSize(12);
-    doc.text(money(totals.net), PW - 20, afterTable + NET_H / 2 + 1.5, { align: "right" });
+    doc.text(pdfMoney(totals.net), PW - 20, afterTable + NET_H / 2 + 1.5, { align: "right" });
 
     // ── Leave breakdown ─────────────────────────────────────────────────────
     if (totals.fullyApproved.length > 0) {
@@ -303,7 +310,7 @@ function PayrollPage() {
           fmtDate(l.to_date),
           String(l.total_days),
           String(l.unpaid_days),
-          l.unpaid_days > 0 ? `- ${money(Math.round(Number(l.unpaid_days) * dayRate))}` : "—",
+          l.unpaid_days > 0 ? `- ${pdfMoney(Math.round(Number(l.unpaid_days) * dayRate))}` : "—",
         ]),
         styles: { fontSize: 7.5, cellPadding: 2.5 },
         headStyles: { fillColor: [70, 70, 70], textColor: 255, fontStyle: "bold", fontSize: 7 },
