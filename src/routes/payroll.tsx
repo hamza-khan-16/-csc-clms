@@ -42,6 +42,67 @@ const CURRENT_YEAR = new Date().getFullYear();
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const YEARS = Array.from({ length: 5 }, (_, i) => String(CURRENT_YEAR - i));
 
+// Donut chart with pop-out slice animation on hover/click — no border box
+function SalaryDonut({ chartData, moneyFmt }: { chartData: { name: string; value: number; color: string }[]; moneyFmt: (v: number) => string }) {
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+
+  const RADIAN = Math.PI / 180;
+  function makeArcPath(cx: number, cy: number, innerR: number, outerR: number, startAngle: number, endAngle: number) {
+    const x1 = cx + outerR * Math.cos(-startAngle * RADIAN);
+    const y1 = cy + outerR * Math.sin(-startAngle * RADIAN);
+    const x2 = cx + outerR * Math.cos(-endAngle * RADIAN);
+    const y2 = cy + outerR * Math.sin(-endAngle * RADIAN);
+    const x3 = cx + innerR * Math.cos(-endAngle * RADIAN);
+    const y3 = cy + innerR * Math.sin(-endAngle * RADIAN);
+    const x4 = cx + innerR * Math.cos(-startAngle * RADIAN);
+    const y4 = cy + innerR * Math.sin(-startAngle * RADIAN);
+    const large = endAngle - startAngle > 180 ? 1 : 0;
+    return `M ${x1} ${y1} A ${outerR} ${outerR} 0 ${large} 0 ${x2} ${y2} L ${x3} ${y3} A ${innerR} ${innerR} 0 ${large} 1 ${x4} ${y4} Z`;
+  }
+
+  const activeShape = (props: any) => {
+    const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
+    return (
+      <path
+        d={makeArcPath(cx, cy, innerRadius - 2, outerRadius + 8, startAngle, endAngle)}
+        fill={fill}
+        stroke="none"
+        style={{ filter: "drop-shadow(0 3px 8px rgba(0,0,0,0.28))", transition: "d 0.2s ease" }}
+      />
+    );
+  };
+
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <PieChart>
+        <Pie
+          data={chartData}
+          cx="50%"
+          cy="50%"
+          innerRadius={55}
+          outerRadius={80}
+          dataKey="value"
+          paddingAngle={3}
+          activeIndex={activeIdx ?? undefined}
+          activeShape={activeShape}
+          onMouseEnter={(_, idx) => setActiveIdx(idx)}
+          onMouseLeave={() => setActiveIdx(null)}
+          onClick={(_, idx) => setActiveIdx(activeIdx === idx ? null : idx)}
+          stroke="none"
+          isAnimationActive={true}
+        >
+          {chartData.map((entry, i) => <Cell key={i} fill={entry.color} stroke="none" />)}
+        </Pie>
+        <Tooltip
+          formatter={(v: number) => moneyFmt(v)}
+          contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)" }}
+        />
+        <Legend formatter={(value) => <span className="text-xs text-foreground">{value}</span>} />
+      </PieChart>
+    </ResponsiveContainer>
+  );
+}
+
 function PayrollPage() {
   const { profile, role } = useAuth();
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
@@ -530,18 +591,7 @@ function PayrollPage() {
         {/* Donut chart — only when there's a deduction */}
         {totals.deduction > 0 && chartData.length > 1 && (
           <SectionCard title="Salary split" subtitle="Net pay vs deduction">
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={chartData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} dataKey="value" paddingAngle={3}>
-                  {chartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                </Pie>
-                <Tooltip
-                  formatter={(v: number) => money(v)}
-                  contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--foreground)" }}
-                />
-                <Legend formatter={(value) => <span className="text-xs text-foreground">{value}</span>} />
-              </PieChart>
-            </ResponsiveContainer>
+            <SalaryDonut chartData={chartData} moneyFmt={money} />
           </SectionCard>
         )}
 
