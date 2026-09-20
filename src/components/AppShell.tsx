@@ -270,12 +270,22 @@ export function AppShell({
     queryKey: ["pending-hr-count"],
     enabled: role === "hr",
     queryFn: async () => {
-      const { count } = await supabase
+      const { data: pendingProfiles } = await supabase
         .from("profiles")
-        .select("id", { count: "exact", head: true })
+        .select("id")
         .eq("approved", true)
         .is("hr_approved", null);
-      return count ?? 0;
+      if (!pendingProfiles?.length) return 0;
+      const ids = pendingProfiles.map((p) => p.id);
+      const { data: roleRows } = await supabase
+        .from("user_roles")
+        .select("user_id, role")
+        .in("user_id", ids);
+      const excluded = new Set(["admin", "principal", "hr"]);
+      return ids.filter((id) => {
+        const r = roleRows?.find((rr) => rr.user_id === id)?.role ?? "teacher";
+        return !excluded.has(r);
+      }).length;
     },
   });
 
