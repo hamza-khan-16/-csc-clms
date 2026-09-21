@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   X, ChevronRight, ChevronLeft,
   Sparkles, CalendarPlus, ClipboardList,
@@ -88,10 +89,12 @@ interface Props {
 export function OnboardingTour({ role }: Props) {
   const [visible, setVisible] = useState(false);
   const [step, setStep] = useState(0);
+  const [mounted, setMounted] = useState(false);
 
   const steps = role === "hod" ? HOD_STEPS : TEACHER_STEPS;
 
   useEffect(() => {
+    setMounted(true);
     // TODO (testing): show tour every login — remove this and restore the
     // localStorage check below once testing is done.
     setTimeout(() => setVisible(true), 1200);
@@ -118,18 +121,30 @@ export function OnboardingTour({ role }: Props) {
     setStep((s) => Math.max(0, s - 1));
   }
 
-  if (!visible) return null;
+  if (!mounted || !visible) return null;
 
   const current = steps[step];
   const { Icon } = current;
   const isLast = step === steps.length - 1;
 
-  return (
+  // Use a portal to render directly into document.body, bypassing all
+  // parent stacking contexts (backdrop-blur, transforms, sticky headers, etc.)
+  // This guarantees the modal is truly centered in the viewport on all devices.
+  return createPortal(
     <>
-      {/* Backdrop — fixed to viewport */}
-      <div className="fixed inset-0 z-[300] bg-black/50 backdrop-blur-sm" style={{ position: "fixed" }} />
+      {/* Backdrop */}
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 9998,
+          backgroundColor: "rgba(0,0,0,0.5)",
+          backdropFilter: "blur(4px)",
+          WebkitBackdropFilter: "blur(4px)",
+        }}
+      />
 
-      {/* Card — centered in the viewport on all screen sizes, no scrolling needed */}
+      {/* Card — truly centered in the viewport */}
       <div
         className="animate-in zoom-in-95 fade-in duration-300"
         style={{
@@ -138,8 +153,8 @@ export function OnboardingTour({ role }: Props) {
           left: "50%",
           transform: "translateX(-50%) translateY(-50%)",
           width: "min(calc(100vw - 32px), 420px)",
-          zIndex: 301,
-          maxHeight: "calc(100vh - 32px)",
+          zIndex: 9999,
+          maxHeight: "calc(100vh - 48px)",
           overflowY: "auto",
         }}
       >
@@ -199,6 +214,7 @@ export function OnboardingTour({ role }: Props) {
           </div>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }
