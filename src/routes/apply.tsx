@@ -512,7 +512,7 @@ function ApplyPage() {
     } else {
       toast.success("Leave request sent to your HOD");
     }
-    setTimeout(() => navigate({ to: "/leaves", search: { filter: "all", highlight: undefined } }), 1800);
+    setTimeout(() => navigate({ to: "/leaves", search: { filter: "all", highlight: undefined } }), 3000);
   }
 
   return (

@@ -470,27 +470,22 @@ export function AppShell({
             <TooltipContent side="bottom">{dark ? "Switch to light mode" : "Switch to dark mode"}</TooltipContent>
           </Tooltip>
 
-          {/* Language toggle */}
+          {/* Language toggle — cycles EN → हि → म → EN */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="relative">
-                <select
-                  value={lang}
-                  onChange={(e) => setLang(e.target.value as Lang)}
-                  aria-label="Select language"
-                  className="h-9 w-14 rounded-md border-0 bg-transparent text-xs font-semibold text-foreground appearance-none cursor-pointer text-center hover:bg-muted transition-colors outline-none focus:ring-2 focus:ring-primary/30 pr-1"
-                >
-                  {(Object.entries(LANG_LABELS) as [Lang, string][]).map(([code, label]) => (
-                    <option key={code} value={code}>{label} — {LANG_NAMES[code]}</option>
-                  ))}
-                </select>
-                <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs font-bold">
-                  {LANG_LABELS[lang]}
-                </span>
-              </div>
+              <button
+                onClick={() => {
+                  const order: Lang[] = ["en", "hi", "mr"];
+                  setLang(order[(order.indexOf(lang) + 1) % order.length]);
+                }}
+                aria-label={`Language: ${LANG_NAMES[lang]}`}
+                className="flex items-center justify-center h-9 w-10 rounded-md text-xs font-bold text-foreground hover:bg-muted transition-colors"
+              >
+                {LANG_LABELS[lang]}
+              </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              Language: {LANG_NAMES[lang]}
+              Language: {LANG_NAMES[lang]} (click to change)
             </TooltipContent>
           </Tooltip>
           <Tooltip>
