@@ -129,18 +129,18 @@ export function OnboardingTour({ role }: Props) {
       {/* Backdrop — fixed to viewport */}
       <div className="fixed inset-0 z-[300] bg-black/50 backdrop-blur-sm" style={{ position: "fixed" }} />
 
-      {/* Card — anchored to viewport bottom, safe-area aware.
-           On mobile we add 72px to clear the bottom nav bar;
-           on desktop (no bottom nav) we just add 16px padding.          */}
+      {/* Card — centered in the viewport on all screen sizes, no scrolling needed */}
       <div
-        className="animate-in slide-in-from-bottom-4 fade-in duration-300"
+        className="animate-in zoom-in-95 fade-in duration-300"
         style={{
           position: "fixed",
-          bottom: "max(calc(env(safe-area-inset-bottom, 0px) + 16px), 16px)",
+          top: "50%",
           left: "50%",
-          transform: "translateX(-50%)",
+          transform: "translateX(-50%) translateY(-50%)",
           width: "min(calc(100vw - 32px), 420px)",
           zIndex: 301,
+          maxHeight: "calc(100vh - 32px)",
+          overflowY: "auto",
         }}
       >
         <div className="rounded-2xl bg-card border border-border shadow-2xl overflow-hidden">
