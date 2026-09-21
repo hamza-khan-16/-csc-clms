@@ -938,6 +938,7 @@ export function LeaveBot() {
       <Tooltip>
         <TooltipTrigger asChild>
           <button onClick={() => setOpen(o=>!o)}
+            data-tour="leavebot"
             className={cn(
               "fixed bottom-20 right-4 z-50 lg:bottom-6 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-200",
               open ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground hover:scale-105"
