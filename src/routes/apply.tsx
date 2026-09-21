@@ -289,6 +289,7 @@ function ApplyPage() {
     if (serverDraft.reason)    setReason(serverDraft.reason);
   }, [draftLoaded, serverDraft]);
   const [busy, setBusy] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [reasonError, setReasonError] = useState<string | null>(null);
   const reasonGuardRef = useRef<GuardHandle>(null);
   const hasDraft = draftLoaded && serverDraft && (() => {
@@ -340,10 +341,23 @@ function ApplyPage() {
     },
   });
 
-  const overlappingLeave = useMemo(() =>
-    (!fromDate || !toDate || toDate < fromDate) ? null :
-    activeLeaves.find((l) => l.from_date <= toDate && l.to_date >= fromDate) ?? null
-  , [fromDate, toDate, activeLeaves]);
+  const overlappingLeave = useMemo(() => {
+    if (!fromDate || !toDate || toDate < fromDate) return null;
+    return activeLeaves.find((l) => {
+      if (l.from_date > toDate || l.to_date < fromDate) return false;
+      // Allow complementary half-days on the same single date
+      // e.g. existing forenoon + new afternoon on same day = no overlap
+      if (
+        fromDate === toDate &&
+        l.from_date === l.to_date &&
+        fromDate === l.from_date &&
+        session !== "full_day" &&
+        (l as any).session !== "full_day" &&
+        session !== (l as any).session
+      ) return false;
+      return true;
+    }) ?? null;
+  }, [fromDate, toDate, session, activeLeaves]);
 
   const preview = useMemo(() => {
     if (!fromDate || !toDate || toDate < fromDate) return null;
@@ -438,6 +452,26 @@ function ApplyPage() {
       }
     }
 
+    // Server-side quota guard — re-check balance from DB (client state can lag)
+    if (leaveType === "casual" || leaveType === "medical") {
+      const year = new Date(fromDate).getFullYear();
+      const { data: existingLeaves } = await supabase
+        .from("leave_requests")
+        .select("total_days, unpaid_days")
+        .eq("teacher_id", profile!.id)
+        .eq("leave_type", leaveType)
+        .not("status", "in", "(rejected,cancelled)")
+        .gte("from_date", `${year}-01-01`)
+        .lte("from_date", `${year}-12-31`);
+      const usedDays = (existingLeaves ?? []).reduce((s, l) => s + Number(l.total_days ?? 0), 0);
+      const quota = leaveType === "casual" ? 12 : 60;
+      const requestedDays = preview?.total ?? 1;
+      if (usedDays + requestedDays > quota) {
+        setBusy(false);
+        return toast.error(`You have only ${Math.max(quota - usedDays, 0)} ${leaveType} leave day(s) remaining this year.`);
+      }
+    }
+
     const { error } = await supabase.from("leave_requests").insert({
       teacher_id: profile!.id,
       leave_type: leaveType,
@@ -467,6 +501,8 @@ function ApplyPage() {
       body:      pushBody,
       targetUrl: "/requests",
     });
+    setShowSuccess(true);
+    supabase.auth.updateUser({ data: { leave_draft: null } }).catch(() => {});
     if (isMedical) {
       toast.success(medFlow?.hodFinal
         ? "Medical leave sent to HOD — upload certificate after HOD approves"
@@ -476,12 +512,31 @@ function ApplyPage() {
     } else {
       toast.success("Leave request sent to your HOD");
     }
-    supabase.auth.updateUser({ data: { leave_draft: null } }).catch(() => {});
-    navigate({ to: "/leaves", search: { filter: "all", highlight: undefined } });
+    setTimeout(() => navigate({ to: "/leaves", search: { filter: "all", highlight: undefined } }), 1800);
   }
 
   return (
     <AppShell title="Apply Leave" subtitle="Your request goes to HOD first, then the principal">
+      {/* Success animation overlay */}
+      {showSuccess && (
+        <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="flex flex-col items-center gap-4 text-center px-6">
+            {/* Animated checkmark circle */}
+            <div className="relative flex items-center justify-center size-24">
+              <div className="absolute inset-0 rounded-full bg-success/20 animate-ping" />
+              <div className="relative flex items-center justify-center size-20 rounded-full bg-success shadow-lg shadow-success/30">
+                <svg className="size-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                  <path className="animate-in zoom-in duration-500" d="M20 6L9 17l-5-5" />
+                </svg>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-xl font-bold text-foreground">Leave Submitted!</h2>
+              <p className="text-sm text-muted-foreground">Your request has been sent to your HOD for review.</p>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Two-column layout: wizard left, info sidebar right */}
       <div className="grid gap-6 lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_360px]">
 

@@ -1505,7 +1505,9 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       const dow = new Date(slot.date + "T00:00:00").getDay();
       const slotClass = slot.class_name?.trim().toLowerCase() ?? "";
 
-      const options = (dept.people ?? []).map((p) => {
+      const options = (dept.people ?? [])
+        .filter((p) => p.id !== request.teacher_id) // never assign absentee to cover themselves
+        .map((p) => {
         const busyFixed = (dept.lectures ?? []).some(
           (l) => l.teacher_id === p.id && l.day_of_week === dow && l.start_time < slot.end_time && l.end_time > slot.start_time,
         );
@@ -1540,18 +1542,19 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   function candidates(date: string, start: string, end: string, slotClassName?: string) {
     const dow = new Date(date + "T00:00:00").getDay();
     const slotClass = slotClassName?.trim().toLowerCase() ?? "";
-    return (dept?.people ?? []).map((p) => {
-      const busyFixed = (dept?.lectures ?? []).some((l) => l.teacher_id === p.id && l.day_of_week === dow && l.start_time < end && l.end_time > start);
-      const busyProxy = (dept?.existingProxies ?? []).some((p2) => p2.proxy_teacher_id === p.id && p2.proxy_date === date && p2.start_time < end && p2.end_time > start);
-      const teachesClass = slotClass
-        ? (dept?.teacherClasses?.get(p.id) ?? new Set()).has(slotClass)
-        : true;
-      return { ...p, free: !busyFixed && !busyProxy, teachesClass };
-    // Sort: free+class first, then free, then busy+class, then busy
-    }).sort((a, b) => {
-      const score = (o: typeof a) => (o.free ? 2 : 0) + (o.teachesClass ? 1 : 0);
-      return score(b) - score(a);
-    });
+    return (dept?.people ?? [])
+      .filter((p) => p.id !== request.teacher_id) // #7 — never assign absentee to cover themselves
+      .map((p) => {
+        const busyFixed = (dept?.lectures ?? []).some((l) => l.teacher_id === p.id && l.day_of_week === dow && l.start_time < end && l.end_time > start);
+        const busyProxy = (dept?.existingProxies ?? []).some((p2) => p2.proxy_teacher_id === p.id && p2.proxy_date === date && p2.start_time < end && p2.end_time > start);
+        const teachesClass = slotClass
+          ? (dept?.teacherClasses?.get(p.id) ?? new Set()).has(slotClass)
+          : true;
+        return { ...p, free: !busyFixed && !busyProxy, teachesClass };
+      }).sort((a, b) => {
+        const score = (o: typeof a) => (o.free ? 2 : 0) + (o.teachesClass ? 1 : 0);
+        return score(b) - score(a);
+      });
   }
 
   async function saveProxies() {

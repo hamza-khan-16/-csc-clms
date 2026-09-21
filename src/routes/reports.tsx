@@ -1337,6 +1337,14 @@ function TeacherScheduleCard({
             );
           })}
 
+          {/* Fix #31 — empty state when no leaves in the selected period */}
+          {summary.myLeaves.length === 0 && summary.myProxies.length === 0 && (
+            <div className="flex items-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+              <span className="text-base">✓</span>
+              <span>No leaves or proxy duties for this teacher in the selected period — full attendance.</span>
+            </div>
+          )}
+
           {/* Leave list */}
           {summary.myLeaves.length > 0 && (
             <div>

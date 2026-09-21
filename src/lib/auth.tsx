@@ -101,6 +101,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
       setSession(next);
       if (!next || event === 'SIGNED_OUT') {
+        // Clear single-device token so next login on this device starts fresh
+        try {
+          const userId = session?.user?.id;
+          if (userId) localStorage.removeItem(`sdt:${userId}`);
+        } catch (_) {}
         setProfile(null);
         setRole(null);
         setLoading(false);

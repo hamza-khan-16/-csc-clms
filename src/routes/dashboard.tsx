@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { MonthCalendar, DeptMonthCalendar } from "@/components/MonthCalendar";
 import { AlertTriangle, BarChart3, BookOpen, Briefcase, Building2, CalendarDays, CalendarPlus, CheckCheck, CheckCircle2, ClipboardCheck, Clock, Flame, Megaphone, PartyPopper, PlusCircle, Repeat, Settings, ShieldCheck, TrendingUp, Users, X } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { OnboardingTour } from "@/components/OnboardingTour";
 
 const PW_EXPIRY_DAYS  = 90;
 const PW_REMINDER_DAYS = 7;
@@ -237,6 +238,8 @@ function DashboardPage() {
       {isPrincipal  ? <PrincipalDashboard /> :
        isAdmin || isHr ? <AdminHrDashboard /> :
        <TeacherDashboard />}
+      {/* Onboarding tour — only for teachers and HODs on first login */}
+      {(role === "teacher" || role === "hod") && <OnboardingTour role={role} />}
     </AppShell>
   );
 }

@@ -386,7 +386,7 @@ function ProfilePage() {
               <div className="relative">
                 <div className="size-16 rounded-full bg-accent flex items-center justify-center overflow-hidden text-lg font-bold text-accent-foreground border-2 border-border">
                   {avatarUrl
-                    ? <img src={avatarUrl} alt="avatar" className="size-full object-cover" onError={() => setAvatarUrl(null)} />
+                    ? <img src={avatarUrl} alt="avatar" loading="lazy" className="size-full object-cover" onError={() => setAvatarUrl(null)} />
                     : profile?.full_name?.slice(0, 2).toUpperCase()
                   }
                 </div>

@@ -6,7 +6,7 @@ import {
   CheckCircle2, XCircle, Clock, FileText, Eye,
   ChevronDown, ChevronRight, User, Briefcase, Calendar,
   Download, Archive, BarChart3, Wallet, Loader2,
-  Users, ClipboardList,
+  Users, ClipboardList, Edit3,
 } from "lucide-react";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
@@ -215,6 +215,11 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
   const [note,   setNote]   = useState(teacher.hr_rejection_reason ?? "");
   const noteGuardRef = useRef<GuardHandle>(null);
 
+  // Salary increment
+  const [salaryEdit,    setSalaryEdit]    = useState(false);
+  const [newSalary,     setNewSalary]     = useState(String(teacher.monthly_salary));
+  const [salaryBusy,    setSalaryBusy]    = useState(false);
+
   // Month / year filters (Leaves + Salary tabs)
   const [filterYear,  setFilterYear]  = useState(String(CURRENT_YEAR));
   const [filterMonth, setFilterMonth] = useState<number | "all">("all");
@@ -236,6 +241,18 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
 
   // Only fully approved leaves count for payroll / the Leaves tab
   const approvedLeaves = myLeaves.filter((l) => ["approved", "hod_approved"].includes(l.status));
+
+  async function updateSalary() {
+    const val = Number(newSalary);
+    if (!val || val < 1000 || val > 10_000_000) return toast.error("Enter a valid salary amount");
+    setSalaryBusy(true);
+    const { error } = await supabase.from("profiles").update({ monthly_salary: val }).eq("id", teacher.id);
+    setSalaryBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Salary updated successfully");
+    setSalaryEdit(false);
+    onRefresh();
+  }
 
   // Salary always uses approved leaves only (for deduction calc)
   const totalUnpaid     = approvedLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0);
@@ -620,6 +637,34 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground">Based on approved leaves in the selected period. Deduction = salary ÷ 30 × unpaid days.</p>
+
+                {/* Salary increment */}
+                {!salaryEdit ? (
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 w-fit" onClick={() => { setNewSalary(String(teacher.monthly_salary)); setSalaryEdit(true); }}>
+                    <Edit3 className="size-3.5" /> Update Salary
+                  </Button>
+                ) : (
+                  <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                    <p className="text-xs font-semibold">Update Monthly Salary</p>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="number"
+                        className="h-8 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                        value={newSalary}
+                        min={1000}
+                        onChange={(e) => setNewSalary(e.target.value)}
+                        placeholder="New monthly salary"
+                      />
+                      <Button size="sm" className="h-8 text-xs" onClick={updateSalary} disabled={salaryBusy}>
+                        {salaryBusy ? "Saving…" : "Save"}
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setSalaryEdit(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Current: {fmtINR(teacher.monthly_salary)}/mo</p>
+                  </div>
+                )}
               </>
             )}
 

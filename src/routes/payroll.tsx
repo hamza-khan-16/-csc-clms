@@ -188,7 +188,15 @@ function PayrollPage() {
       return !!(l as any).hod_acted_at && !!(l as any).principal_acted_at;
     });
     const unpaid = fullyApproved.reduce((s, l) => s + Number(l.unpaid_days), 0);
-    const paid = fullyApproved.reduce((s, l) => s + Number(l.paid_days), 0);
+    // Calculate actual working days in the month (excluding Sundays)
+    // paid = working days in month - unpaid leave days
+    const daysInMonth = new Date(effectiveMonth.getFullYear(), effectiveMonth.getMonth() + 1, 0).getDate();
+    let workingDaysInMonth = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const day = new Date(effectiveMonth.getFullYear(), effectiveMonth.getMonth(), d).getDay();
+      if (day !== 0) workingDaysInMonth++; // exclude Sundays
+    }
+    const paid = Math.max(workingDaysInMonth - Math.round(unpaid), 0);
     const deduction = Math.round(unpaid * dayRate);
     return { unpaid, paid, deduction, net: Math.max(salary - deduction, 0), fullyApproved };
   }, [leaves, dayRate, salary]);
@@ -416,6 +424,27 @@ function PayrollPage() {
     doc.setTextColor(170, 170, 170);
     doc.text("This is a computer-generated payslip. No signature required if issued electronically.", CX, PH - 6, { align: "center" });
     doc.text(`Page 1`, CX, PH - 3, { align: "center" });
+
+    // QR code — encodes a verification string with key payslip details
+    // Scannable by anyone to confirm authenticity without logging in
+    try {
+      const QRCode = await import("qrcode");
+      const verificationText = [
+        `CSC LMS Payslip`,
+        `Employee: ${profile?.full_name ?? ""}`,
+        `Period: ${month}`,
+        `Gross: Rs. ${salary}`,
+        `Net Pay: Rs. ${totals.net}`,
+        `Generated: ${new Date().toLocaleDateString("en-IN")}`,
+        `Verify at: ${window.location.origin}/verify-payslip`,
+      ].join("\n");
+      const qrDataUrl = await QRCode.toDataURL(verificationText, { width: 80, margin: 1 });
+      // Place QR at bottom-right corner
+      doc.addImage(qrDataUrl, "PNG", PW - 30, PH - 32, 18, 18);
+      doc.setFontSize(5);
+      doc.setTextColor(150, 150, 150);
+      doc.text("Scan to verify", PW - 21, PH - 13, { align: "center" });
+    } catch (_) { /* QR is non-critical — skip if it fails */ }
 
     const safeName = (profile?.full_name ?? "payslip").split(" ").join("_");
     const safePeriod = month.replace(" ", "_");

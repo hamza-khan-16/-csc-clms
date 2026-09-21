@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
+import { LangProvider } from "@/lib/i18n";
 import { Toaster } from "@/components/ui/sonner";
 
 // JSON-LD structured data — tells Google about the site and enables sitelinks
@@ -238,11 +239,13 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
+        <LangProvider>
         <AuthProvider>
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <Outlet />
           <Toaster richColors position="top-right" />
         </AuthProvider>
+        </LangProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

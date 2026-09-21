@@ -36,6 +36,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth, type AppRole } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
+import { useLang, LANG_LABELS, LANG_NAMES, type Lang } from "@/lib/i18n";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -224,6 +225,7 @@ export function AppShell({
 
   // Dark mode — use shared ThemeProvider so login page and app stay in sync
   const { theme, toggle: toggleTheme } = useTheme();
+  const { lang, setLang } = useLang();
   const dark = theme === "dark";
 
   // Mobile bottom nav pinned tabs — persisted to Supabase user_metadata
@@ -466,6 +468,30 @@ export function AppShell({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">{dark ? "Switch to light mode" : "Switch to dark mode"}</TooltipContent>
+          </Tooltip>
+
+          {/* Language toggle */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="relative">
+                <select
+                  value={lang}
+                  onChange={(e) => setLang(e.target.value as Lang)}
+                  aria-label="Select language"
+                  className="h-9 w-14 rounded-md border-0 bg-transparent text-xs font-semibold text-foreground appearance-none cursor-pointer text-center hover:bg-muted transition-colors outline-none focus:ring-2 focus:ring-primary/30 pr-1"
+                >
+                  {(Object.entries(LANG_LABELS) as [Lang, string][]).map(([code, label]) => (
+                    <option key={code} value={code}>{label} — {LANG_NAMES[code]}</option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs font-bold">
+                  {LANG_LABELS[lang]}
+                </span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              Language: {LANG_NAMES[lang]}
+            </TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>

@@ -1068,9 +1068,11 @@ function ExportsCard() {
   const year = new Date().getFullYear();
   const [activeModule, setActiveModule] = useState<string>("teacher");
   const [exporting, setExporting] = useState(false);
+  const [expanded, setExpanded] = useState(false); // lazy — only fetch when user opens the card
 
   const { data: reportData } = useQuery({
     queryKey: ["admin-report-data", year],
+    enabled: expanded, // only fetch when card is open
     queryFn: async () => {
       const [{ data: leaves, error }, { data: profiles }, { data: roles }, { data: depts }] = await Promise.all([
         supabase
@@ -1188,7 +1190,18 @@ function ExportsCard() {
     <SectionCard
       title="Analytics & Exports"
       subtitle={`Leave data for ${year}`}
+      action={
+        <button
+          className="text-xs text-primary font-medium hover:underline"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "Collapse" : "Load data"}
+        </button>
+      }
     >
+      {!expanded ? (
+        <p className="text-sm text-muted-foreground py-4 text-center">Click "Load data" to view analytics and export options.</p>
+      ) : null}
       {/* Leave type breakdown */}
       <div className="mb-6">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
