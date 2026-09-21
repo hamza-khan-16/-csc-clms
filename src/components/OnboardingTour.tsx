@@ -92,11 +92,16 @@ export function OnboardingTour({ role }: Props) {
   const steps = role === "hod" ? HOD_STEPS : TEACHER_STEPS;
 
   useEffect(() => {
-    try {
-      if (!localStorage.getItem(TOUR_KEY)) {
-        setTimeout(() => setVisible(true), 1200);
-      }
-    } catch (_) {}
+    // TODO (testing): show tour every login — remove this and restore the
+    // localStorage check below once testing is done.
+    setTimeout(() => setVisible(true), 1200);
+
+    // Restore when done testing:
+    // try {
+    //   if (!localStorage.getItem(TOUR_KEY)) {
+    //     setTimeout(() => setVisible(true), 1200);
+    //   }
+    // } catch (_) {}
   }, []);
 
   function dismiss() {
@@ -124,15 +129,17 @@ export function OnboardingTour({ role }: Props) {
       {/* Backdrop — fixed to viewport */}
       <div className="fixed inset-0 z-[300] bg-black/50 backdrop-blur-sm" style={{ position: "fixed" }} />
 
-      {/* Card — anchored to viewport bottom, safe-area aware */}
+      {/* Card — anchored to viewport bottom, safe-area aware.
+           On mobile we add 72px to clear the bottom nav bar;
+           on desktop (no bottom nav) we just add 16px padding.          */}
       <div
         className="animate-in slide-in-from-bottom-4 fade-in duration-300"
         style={{
           position: "fixed",
-          bottom: "calc(env(safe-area-inset-bottom, 0px) + 80px)",
+          bottom: "max(calc(env(safe-area-inset-bottom, 0px) + 16px), 16px)",
           left: "50%",
           transform: "translateX(-50%)",
-          width: "min(calc(100vw - 32px), 400px)",
+          width: "min(calc(100vw - 32px), 420px)",
           zIndex: 301,
         }}
       >

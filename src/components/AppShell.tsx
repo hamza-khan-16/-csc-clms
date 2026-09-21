@@ -225,7 +225,7 @@ export function AppShell({
 
   // Dark mode — use shared ThemeProvider so login page and app stay in sync
   const { theme, toggle: toggleTheme } = useTheme();
-  const { lang, setLang } = useLang();
+  const { lang, setLang, t } = useLang();
   const dark = theme === "dark";
 
   // Mobile bottom nav pinned tabs — persisted to Supabase user_metadata
@@ -292,22 +292,22 @@ export function AppShell({
   });
 
   const items: NavItem[] = [
-    { to: "/admin",         label: "Admin Panel",       icon: ShieldCheck,    roles: ["admin"] },
-    { to: "/hr",            label: "HR Panel",          icon: Briefcase,      roles: ["hr"], badge: pendingHR },
-    { to: "/admin-reports", label: "Reports",           mobileLabel: "Reports",  icon: BarChart3,      roles: ["admin", "principal"] },
-    { to: "/dashboard",     label: "Dashboard",         icon: LayoutDashboard,roles: ["teacher", "hod", "principal", "hr"] },
-    { to: "/apply",         label: "Apply Leave",       icon: CalendarPlus,   roles: ["teacher", "hod"] },
-    { to: "/leaves",        label: "My Leaves",         icon: FileText,       roles: ["teacher", "hod"], search: { filter: "all" } },
-    { to: "/schedule",      label: "My Schedule",       icon: CalendarDays,   roles: ["teacher", "hod"] },
-    { to: "/proxies",       label: "Proxy Assignments", mobileLabel: "Proxies",  icon: Repeat,         roles: ["teacher", "hod"], badge: pendingProxies },
-    { to: "/payroll",       label: "Payroll",           icon: Wallet,         roles: ["teacher", "hod"] },
-    { to: "/requests",      label: "Leave Requests",    mobileLabel: "Requests", icon: ClipboardCheck, roles: ["hod", "principal"] },
-    { to: "/notices",       label: "Notices",           icon: Megaphone,      roles: ["hod", "principal", "admin", "hr"] },
-    { to: "/teachers",      label: "Teachers",          icon: Users,          roles: ["hod", "principal", "admin", "hr"] },
-    { to: "/departments",   label: "Departments",       icon: Building2,      roles: ["principal", "admin"] },
-    { to: "/holidays",      label: "Holidays",          icon: PartyPopper,    roles: ["teacher", "hod", "principal", "admin", "hr"] },
-    { to: "/reports",       label: "Reports",           icon: BarChart3,      roles: ["hod"] },
-    { to: "/profile",       label: "Profile",           icon: UserRound,      roles: ["teacher", "hod", "principal", "admin", "hr"] },
+    { to: "/admin",         label: t("nav.admin_panel"),                                     icon: ShieldCheck,    roles: ["admin"] },
+    { to: "/hr",            label: t("nav.hr_panel"),                                        icon: Briefcase,      roles: ["hr"], badge: pendingHR },
+    { to: "/admin-reports", label: t("nav.reports"),    mobileLabel: t("nav.reports"),       icon: BarChart3,      roles: ["admin", "principal"] },
+    { to: "/dashboard",     label: t("nav.dashboard"),                                       icon: LayoutDashboard,roles: ["teacher", "hod", "principal", "hr"] },
+    { to: "/apply",         label: t("nav.apply_leave"),                                     icon: CalendarPlus,   roles: ["teacher", "hod"] },
+    { to: "/leaves",        label: t("nav.my_leaves"),                                       icon: FileText,       roles: ["teacher", "hod"], search: { filter: "all" } },
+    { to: "/schedule",      label: t("nav.schedule"),                                        icon: CalendarDays,   roles: ["teacher", "hod"] },
+    { to: "/proxies",       label: t("nav.proxies"),    mobileLabel: t("nav.proxies"),       icon: Repeat,         roles: ["teacher", "hod"], badge: pendingProxies },
+    { to: "/payroll",       label: t("nav.payroll"),                                         icon: Wallet,         roles: ["teacher", "hod"] },
+    { to: "/requests",      label: t("nav.requests"),   mobileLabel: t("nav.requests"),      icon: ClipboardCheck, roles: ["hod", "principal"] },
+    { to: "/notices",       label: t("nav.notices"),                                         icon: Megaphone,      roles: ["hod", "principal", "admin", "hr"] },
+    { to: "/teachers",      label: t("nav.teachers"),                                        icon: Users,          roles: ["hod", "principal", "admin", "hr"] },
+    { to: "/departments",   label: t("nav.departments"),                                     icon: Building2,      roles: ["principal", "admin"] },
+    { to: "/holidays",      label: t("nav.holidays"),                                        icon: PartyPopper,    roles: ["teacher", "hod", "principal", "admin", "hr"] },
+    { to: "/reports",       label: t("nav.reports"),                                         icon: BarChart3,      roles: ["hod"] },
+    { to: "/profile",       label: t("nav.profile"),                                         icon: UserRound,      roles: ["teacher", "hod", "principal", "admin", "hr"] },
   ];
 
   const visible = items.filter((i) => (role ? i.roles.includes(role) : false));
@@ -381,7 +381,7 @@ export function AppShell({
             className="mt-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-muted"
           >
             <LogOut className="size-4.5" />
-            Logout
+            {t("nav.logout")}
           </button>
         </TooltipTrigger>
         <TooltipContent side="right">Sign out of your account</TooltipContent>
