@@ -90,6 +90,7 @@ type StaffRow = {
 };
 
 function AdminPage() {
+  const t = useT();
   const qc = useQueryClient();
 
   const { data: departments = [] } = useQuery({
@@ -148,7 +149,6 @@ function AdminPage() {
   });
 
   // Delete confirmation state
-  const t = useT();
     const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const pending = staff.filter((s) => !s.approved);

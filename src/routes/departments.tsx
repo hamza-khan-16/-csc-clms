@@ -55,7 +55,9 @@ function serialiseCourses(arr: string[]): string {
   return arr.join(", ");
 }
 
-function CourseManager({ dept, isAdmin }: { dept: Department; isAdmin: boolean }) {
+function CourseManager({
+dept, isAdmin }: { dept: Department; isAdmin: boolean }) {
+  const t = useT();
   const qc = useQueryClient();
   const [newCourse, setNewCourse] = useState("");
   const [editIdx, setEditIdx] = useState<number | null>(null);

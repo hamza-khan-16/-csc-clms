@@ -207,9 +207,11 @@ function DocRow({ doc, onApprove, onReject, busy }: {
 // ── Teacher card with tabs ────────────────────────────────────────────────────
 type CardTab = "profile" | "leaves" | "salary";
 
-function TeacherCard({ teacher, leaves, onRefresh }: {
+function TeacherCard({
+teacher, leaves, onRefresh }: {
   teacher: TeacherProfile; leaves: LeaveRow[]; onRefresh: () => void;
 }) {
+  const t = useT();
   const [open,   setOpen]   = useState(false);
   const [tab,    setTab]    = useState<CardTab>("profile");
   const [busy,   setBusy]   = useState(false);

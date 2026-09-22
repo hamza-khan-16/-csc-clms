@@ -247,6 +247,7 @@ function DashboardPage() {
 // TEACHER DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
 function TeacherDashboard() {
+  const t = useT();
   const { profile, role } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -843,6 +844,7 @@ function TeacherDashboard() {
 // PRINCIPAL DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
 function PrincipalDashboard() {
+  const t = useT();
   const { profile, role } = useAuth();
   const navigate = useNavigate();
   const daysLeft = usePasswordExpiryDays(profile?.password_changed_at, role);
@@ -1028,6 +1030,7 @@ function PrincipalDashboard() {
 // ADMIN / HR DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
 function AdminHrDashboard() {
+  const t = useT();
   const { role } = useAuth();
   const isHr = role === "hr";
 

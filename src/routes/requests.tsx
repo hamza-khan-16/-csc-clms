@@ -702,6 +702,7 @@ function HodPasswordResetRequests({ deptId }: { deptId: string }) {
 }
 
 function RequestsPage() {
+  const t = useT();
   const { profile, role } = useAuth();
   const isHod = role === "hod";
   const qc = useQueryClient();
