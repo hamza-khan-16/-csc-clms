@@ -106,6 +106,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userId = session?.user?.id;
           if (userId) localStorage.removeItem(`sdt:${userId}`);
         } catch (_) {}
+        // Reset app download banner so it shows again on next login
+        try { sessionStorage.removeItem("app_banner_shown"); } catch (_) {}
         setProfile(null);
         setRole(null);
         setLoading(false);
