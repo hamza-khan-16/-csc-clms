@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { fmtDate, fmtTime, todayISO } from "@/lib/leave";
 import { BookOpen, CalendarClock, CheckCircle2, Clock3, Gift, Info, UserCheck, XCircle } from "lucide-react";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/proxies")({
   head: () => ({
@@ -45,7 +46,8 @@ export const Route = createFileRoute("/proxies")({
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function ProxiesPage() {
-  const { profile } = useAuth();
+  const t = useT();
+    const { profile } = useAuth();
   const qc = useQueryClient();
   const today = todayISO();
 
@@ -313,14 +315,14 @@ function ProxiesPage() {
 
   if (rowsLoading) {
     return (
-      <AppShell title="Proxy Duties" subtitle="Lectures your HOD has assigned you to cover">
+      <AppShell title={t("nav.proxies")} subtitle="Lectures your HOD has assigned you to cover">
         <ListSkeleton rows={4} />
       </AppShell>
     );
   }
 
   return (
-    <AppShell title="Proxy Duties" subtitle="Lectures your HOD has assigned you to cover">
+    <AppShell title={t("nav.proxies")} subtitle="Lectures your HOD has assigned you to cover">
       <div className="space-y-6">
 
         {/* Summary stats strip */}

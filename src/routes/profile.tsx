@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Camera, Check, CheckCircle2, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
+import { useT } from "@/lib/i18n";
 
 const GENDERS: { value: string; label: string }[] = [
   { value: "male",   label: "Male" },
@@ -174,7 +175,8 @@ function LeaveBalancePanel({ profileId }: { profileId?: string }) {
 }
 
 function ProfilePage() {
-  const { profile, role, session } = useAuth();
+  const t = useT();
+    const { profile, role, session } = useAuth();
   const qc = useQueryClient();
   const [name, setName] = useState(profile?.full_name ?? "");
   const [phone, setPhone] = useState(profile?.phone ?? "");
@@ -354,7 +356,7 @@ function ProfilePage() {
   })();
 
   return (
-    <AppShell title="My Profile" subtitle="Account details and settings">
+    <AppShell title={t("nav.profile")} subtitle="Account details and settings">
       <div className="space-y-6">
         {/* College info banner — full width */}
         <div className="flex items-center gap-4 rounded-xl border border-primary/20 bg-gradient-to-r from-primary/8 to-primary/4 px-5 py-4">

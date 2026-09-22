@@ -29,6 +29,7 @@ import {
 import { DAYS, fmtDate, fmtTime, todayISO } from "@/lib/leave";
 import { cn } from "@/lib/utils";
 import { savePDF, saveXLSX } from "../lib/download";
+import { useT } from "@/lib/i18n";
 
 // ── Common subjects list ──────────────────────────────────────────────────────
 const COMMON_SUBJECTS = [
@@ -586,7 +587,8 @@ function TimetableModal({
 }
 
 function SchedulePage() {
-  const { profile } = useAuth();
+  const t = useT();
+    const { profile } = useAuth();
   const qc = useQueryClient();
   const today = todayISO();
   const [showTimetable, setShowTimetable] = useState(false);
@@ -844,7 +846,7 @@ function SchedulePage() {
   const proxiesThisYear = proxies.filter((p: any) => p.status === "accepted").length;
 
   return (
-    <AppShell title="My Schedule" subtitle="Fixed timetable, added lectures and accepted proxy duties">
+    <AppShell title={t("nav.schedule")} subtitle="Fixed timetable, added lectures and accepted proxy duties">
       {showTimetable && createPortal(
         <TimetableModal
           lectures={lectures}

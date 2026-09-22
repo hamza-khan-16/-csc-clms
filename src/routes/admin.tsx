@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { GuardedInput, type GuardHandle } from "@/components/GuardedField";
 import { groqModerationCheck, localBlocklistCheck } from "@/lib/textGuard";
+import { useT } from "@/lib/i18n";
 import {
   Dialog,
   DialogContent,
@@ -147,7 +148,8 @@ function AdminPage() {
   });
 
   // Delete confirmation state
-  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const t = useT();
+    const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const pending = staff.filter((s) => !s.approved);
   const payroll = staff.filter((s) => s.role !== "admin").reduce((s, r) => s + r.monthly_salary, 0);

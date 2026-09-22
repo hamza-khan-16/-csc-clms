@@ -13,7 +13,8 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
-import { LangProvider } from "@/lib/i18n";
+import { LangProvider, LangUserSync } from "@/lib/i18n";
+import { useAuth } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 
 // JSON-LD structured data — tells Google about the site and enables sitelinks
@@ -226,6 +227,13 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+
+/** Reads the authed userId and tells LangProvider which per-user storage key to use. */
+function LangBridge() {
+  const { profile } = useAuth();
+  return <LangUserSync userId={profile?.id ?? null} />;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
@@ -241,6 +249,8 @@ function RootComponent() {
       <ThemeProvider>
         <LangProvider>
         <AuthProvider>
+          {/* Syncs per-user language preference — must be inside AuthProvider */}
+          <LangBridge />
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <Outlet />
           <Toaster richColors position="top-right" />

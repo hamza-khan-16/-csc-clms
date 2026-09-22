@@ -14,6 +14,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recha
 // jsPDF loaded dynamically inside export functions to keep initial bundle lean.
 import { savePDF, saveXLSX } from "../lib/download";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/payroll")({
   head: () => ({
@@ -104,7 +105,8 @@ function SalaryDonut({ chartData, moneyFmt }: { chartData: { name: string; value
 }
 
 function PayrollPage() {
-  const { profile, role } = useAuth();
+  const t = useT();
+    const { profile, role } = useAuth();
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [filterYear, setFilterYear] = useState(String(CURRENT_YEAR));
   const [ytdOpen, setYtdOpen] = useState(false); // collapsed by default
@@ -459,7 +461,7 @@ function PayrollPage() {
   };
 
   return (
-    <AppShell title="Payroll" subtitle="Salary and leave deductions">
+    <AppShell title={t("nav.payroll")} subtitle="Salary and leave deductions">
       <div className="space-y-6">
 
         {/* Year-to-date month-by-month breakdown — collapsible */}
@@ -619,7 +621,7 @@ function PayrollPage() {
 
         {/* Donut chart — only when there's a deduction */}
         {totals.deduction > 0 && chartData.length > 1 && (
-          <SectionCard title="Salary split" subtitle="Net pay vs deduction">
+          <SectionCard title={t("payroll.slip")} subtitle="Net pay vs deduction">
             <SalaryDonut chartData={chartData} moneyFmt={money} />
           </SectionCard>
         )}

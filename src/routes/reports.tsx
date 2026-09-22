@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fmtDate, leaveTypeLabel, LEAVE_TYPES, type LeaveType } from "@/lib/leave";
+import { useT } from "@/lib/i18n";
 import {
   FileSpreadsheet,
   FileText,
@@ -796,7 +797,8 @@ async function exportPDF(month: number, year: number, label: string, summaries: 
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 function ReportsPage() {
-  const { profile, role } = useAuth();
+  const t = useT();
+    const { profile, role } = useAuth();
   const year = new Date().getFullYear();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [downloading, setDownloading] = useState<"excel" | "pdf" | null>(null);
@@ -974,7 +976,7 @@ function ReportsPage() {
 
   return (
     <AppShell
-      title="Leave Reports"
+      title={t("nav.reports")}
       subtitle={isHod ? `${MONTH_NAMES[selectedMonth]} ${year} · ${deptName}` : `Approved leaves in ${year}`}
     >
       <div className="space-y-6">

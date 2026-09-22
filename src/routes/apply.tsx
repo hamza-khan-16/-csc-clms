@@ -18,6 +18,7 @@ import { GuardedTextarea, type GuardHandle } from "@/components/GuardedField";
 import { firePush } from "@/lib/push.functions";
 import { useRef } from "react";
 import { AlertTriangle, Baby, Briefcase, CalendarDays, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock, FileText, Flower2, Info, ShieldCheck, Stethoscope, XCircle } from "lucide-react";
+import { useT } from "@/lib/i18n";
 import {
   Select,
   SelectContent,
@@ -249,7 +250,8 @@ function ProxyAvailabilityHint({ departmentId, fromDate, toDate }: {
 }
 
 function ApplyPage() {
-  const { profile } = useAuth();
+  const t = useT();
+    const { profile } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: balances = [] } = useBalances(profile?.id);
@@ -516,7 +518,7 @@ function ApplyPage() {
   }
 
   return (
-    <AppShell title="Apply Leave" subtitle="Your request goes to HOD first, then the principal">
+    <AppShell title={t("leave.apply")} subtitle="Your request goes to HOD first, then the principal">
       {/* Success animation overlay */}
       {showSuccess && (
         <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm animate-in fade-in duration-300">

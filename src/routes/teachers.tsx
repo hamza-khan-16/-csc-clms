@@ -31,6 +31,7 @@ import {
 import { useServerFn } from "@tanstack/react-start";
 import { directPasswordReset } from "@/lib/admin.functions";
 import { fmtDate, leaveTypeLabel, type LeaveType } from "@/lib/leave";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/teachers")({
   head: () => ({
@@ -50,7 +51,8 @@ export const Route = createFileRoute("/teachers")({
 });
 
 function TeachersPage() {
-  const { profile, role } = useAuth();
+  const t = useT();
+    const { profile, role } = useAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [deptFilter, setDeptFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -129,7 +131,7 @@ function TeachersPage() {
 
   return (
     <AppShell
-      title="Teachers"
+      title={t("nav.teachers")}
       subtitle={role === "hod" ? "Staff in your department" : "All college staff"}
     >
       {/* Stats strip */}

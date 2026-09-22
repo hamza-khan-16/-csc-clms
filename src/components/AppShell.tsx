@@ -508,7 +508,7 @@ export function AppShell({
             <TooltipContent side="bottom">View your profile</TooltipContent>
           </Tooltip>
         </header>
-        <main className="flex-1 px-3 py-4 pb-20 sm:px-6 sm:py-6 lg:pb-6 page-enter"><div key={lang}>{children}</div></main>
+        <main className="flex-1 px-3 py-4 pb-20 sm:px-6 sm:py-6 lg:pb-6 page-enter">{children}</main>
 
         {/* Mobile FAB — Apply Leave shortcut for teachers/HODs only */}
         {(role === "teacher" || role === "hod") && pathname !== "/apply" && (

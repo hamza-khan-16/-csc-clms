@@ -48,6 +48,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { firePush } from "@/lib/push.functions";
 import { directPasswordReset, fetchHodPasswordResetRequests, completeHodPasswordResetRequest } from "@/lib/admin.functions";
 import { unlockAccount } from "@/lib/admin.functions";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/requests")({
   head: () => ({
@@ -69,7 +70,8 @@ export const Route = createFileRoute("/requests")({
 // ── HOD Mark-Leave form ───────────────────────────────────────────────────────
 // HOD can mark leave on behalf of a teacher who has NOT already applied
 function HodMarkLeavePanel({ deptId }: { deptId: string }) {
-  const { profile } = useAuth();
+  const t = useT();
+    const { profile } = useAuth();
   const qc = useQueryClient();
   const today = todayISO();
 
@@ -706,7 +708,7 @@ function RequestsPage() {
 
   // Admin has no leave approval authority — only HOD and Principal do
   if (role === "admin") return (
-    <AppShell title="Requests">
+    <AppShell title={t("nav.requests")}>
       <div className="flex flex-col items-center justify-center py-24 gap-3 text-center px-6">
         <p className="text-muted-foreground text-sm">Leave approvals are handled by the HOD and Principal. Admins do not have approval authority.</p>
       </div>
@@ -1077,7 +1079,7 @@ function RequestsPage() {
 
   return (
     <AppShell
-      title="Leave Requests"
+      title={t("nav.requests")}
       subtitle={isHod ? "Review and approve teacher leave requests" : "Final approval for HOD-recommended requests"}
     >
       <div className="space-y-6">

@@ -15,6 +15,7 @@ import { GuardedInput } from "@/components/GuardedField";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { fmtDate } from "@/lib/leave";
+import { useT } from "@/lib/i18n";
 import {
   CalendarDays, Plus, Trash2, Upload, Download, AlertCircle, CheckCircle2,
 } from "lucide-react";
@@ -213,7 +214,8 @@ async function downloadReferenceDoc() {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 function HolidaysPage() {
-  const { role } = useAuth();
+  const t = useT();
+    const { role } = useAuth();
   const qc = useQueryClient();
   const isAdmin = role === "admin";
   const isPrincipalOrAdmin = role === "principal" || role === "admin";
@@ -368,7 +370,7 @@ function HolidaysPage() {
 
   return (
     <AppShell
-      title="Holiday Calendar"
+      title={t("nav.holidays")}
       subtitle="Manage public and college holidays · affects leave calculations everywhere"
     >
       <div className="space-y-5">

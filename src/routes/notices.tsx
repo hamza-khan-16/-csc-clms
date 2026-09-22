@@ -80,6 +80,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fmtDate, fmtTime } from "@/lib/leave";
+import { useT } from "@/lib/i18n";
 
 
 export const Route = createFileRoute("/notices")({
@@ -104,7 +105,8 @@ export const Route = createFileRoute("/notices")({
 });
 
 function NoticesPage() {
-  const { profile, role } = useAuth();
+  const t = useT();
+    const { profile, role } = useAuth();
   const qc = useQueryClient();
   const isPrincipal = role === "principal";
   const isHr = role === "hr";
@@ -235,7 +237,7 @@ function NoticesPage() {
 
   return (
     <AppShell
-      title="Notices"
+      title={t("nav.notices")}
       subtitle={
         (isPrincipal || isHr)
           ? "Publish to all departments or a single department"

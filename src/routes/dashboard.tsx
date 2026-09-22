@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { MonthCalendar, DeptMonthCalendar } from "@/components/MonthCalendar";
 import { AlertTriangle, BarChart3, BookOpen, Briefcase, Building2, CalendarDays, CalendarPlus, CheckCheck, CheckCircle2, ClipboardCheck, Clock, Flame, Megaphone, PartyPopper, PlusCircle, Repeat, Settings, ShieldCheck, TrendingUp, Users, X } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { useT } from "@/lib/i18n";
 
 const PW_EXPIRY_DAYS  = 90;
 const PW_REMINDER_DAYS = 7;
@@ -219,7 +220,8 @@ export const Route = createFileRoute("/dashboard")({
 });
 
 function DashboardPage() {
-  const { profile, role } = useAuth();
+  const t = useT();
+    const { profile, role } = useAuth();
   const isPrincipal = role === "principal";
   const isAdmin     = role === "admin";
   const isHr        = role === "hr";
@@ -546,8 +548,8 @@ function TeacherDashboard() {
       {/* HOD: Who's absent today — proper card */}
       {role === "hod" && (
         <SectionCard
-          title="Who's Absent Today"
-          subtitle={deptAbsent.length === 0 ? "All teachers present" : `${deptAbsent.length} teacher(s) on leave today`}
+          title={t("dash.whos_absent")}
+          subtitle={deptAbsent.length === 0 ? t("dash.all_present") : `${deptAbsent.length} teacher(s) on leave today`}
         >
           {deptAbsent.length === 0 ? (
             <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
@@ -573,7 +575,7 @@ function TeacherDashboard() {
 
       {/* HOD: Department leave calendar */}
       {role === "hod" && profile?.department_id && (
-        <SectionCard title="Department Leave Calendar" subtitle="Who's absent each day this month">
+        <SectionCard title={t("dash.leave_calendar")} subtitle={t("dash.whos_absent_month")}>
           <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
             <DeptMonthCalendar deptId={profile.department_id} />
           </div>
@@ -656,7 +658,7 @@ function TeacherDashboard() {
           <MonthCalendar teacherId={profile?.id} />
         </div>
         <div className="space-y-4">
-          <SectionCard title="Leave summary" subtitle="Current month">
+          <SectionCard title={t("dash.leave_summary")} subtitle={t("dash.current_month")}>
             <ul className="space-y-2 text-sm">
               <li className="flex justify-between">
                 <span className="text-muted-foreground">Paid leave days</span>
@@ -697,7 +699,7 @@ function TeacherDashboard() {
       </div>
 
       {/* Leave trend chart — always shown, empty state handled inside */}
-      <SectionCard title="Leave Trend" subtitle={`${new Date().getFullYear()} — days taken per month`}>
+      <SectionCard title={t("dash.leave_trend")} subtitle={`${new Date().getFullYear()} — days taken per month`}>
         <LeaveTrendChart data={monthlyTrend} />
       </SectionCard>
 
@@ -756,7 +758,7 @@ function TeacherDashboard() {
           )}
         </SectionCard>
 
-        <SectionCard title="Quick Actions">
+        <SectionCard title={t("dash.quick_actions")}>
           <div className="space-y-2">
             <Button asChild size="lg" className="w-full justify-start gap-2 shadow-sm shadow-primary/20">
               <Link to="/apply"><CalendarPlus className="size-4 shrink-0" />Apply for Leave</Link>
@@ -772,7 +774,7 @@ function TeacherDashboard() {
 
       {/* Schedule + Proxies + Holidays */}
       <div className="grid gap-6 lg:grid-cols-3">
-        <SectionCard title="Today's Schedule" subtitle={fmtDate(new Date())}>
+        <SectionCard title={t("dash.today_schedule")} subtitle={fmtDate(new Date())}>
           {todayLectures.length === 0 ? <Empty>No lectures today.</Empty> : (
             <ul className="space-y-3">
               {todayLectures.map((l: any) => {
@@ -794,7 +796,7 @@ function TeacherDashboard() {
         </SectionCard>
 
         <SectionCard
-          title="Proxy Assignments (To Me)"
+          title={t("dash.proxy_assignments")}
           action={<Button asChild variant="ghost" size="sm"><Link to="/proxies">View all</Link></Button>}
         >
           {proxies.length === 0 ? <Empty>No pending proxy requests.</Empty> : (

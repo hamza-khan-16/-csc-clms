@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { MonthCalendar } from "@/components/MonthCalendar";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { useT } from "@/lib/i18n";
 import {
   Select,
   SelectContent,
@@ -62,20 +63,23 @@ export const Route = createFileRoute("/leaves")({
   ),
 });
 
-const FILTER_OPTIONS: { value: FilterTab; label: string }[] = [
-  { value: "all",       label: "All Leaves" },
-  { value: "pending",   label: "Pending" },
-  { value: "approved",  label: "Approved" },
-  { value: "rejected",  label: "Rejected" },
-  { value: "with_docs", label: "With Documents" },
-];
+// FILTER_OPTIONS is computed inside the component so t() is reactive
+// (module-level t() calls don't update when language changes)
 
 const PENDING_STATUSES: string[] = ["pending_hod", "hod_recommended", "pending_principal"];
 // Can only withdraw while still waiting for HOD — not after HOD has acted
 const WITHDRAWABLE_STATUSES: string[] = ["pending_hod"];
 
 function MyLeavesPage() {
-  const { profile } = useAuth();
+  const t = useT();
+  const FILTER_OPTIONS: { value: FilterTab; label: string }[] = [
+    { value: "all",       label: t("common.all") + " Leaves" },
+    { value: "pending",   label: t("leave.pending") },
+    { value: "approved",  label: t("leave.approved") },
+    { value: "rejected",  label: t("leave.rejected") },
+    { value: "with_docs", label: "With Documents" },
+  ];
+    const { profile } = useAuth();
   const qc = useQueryClient();
   const { filter, highlight } = Route.useSearch();
   const navigate = useNavigate({ from: "/leaves" });
@@ -217,7 +221,7 @@ function MyLeavesPage() {
     .reduce((s, l) => s + Number(l.unpaid_days), 0);
 
   return (
-    <AppShell title="My Leaves" subtitle="All leave requests you have submitted">
+    <AppShell title={t("nav.my_leaves")} subtitle="All leave requests you have submitted">
       <div className="space-y-4">
         {/* Summary stats strip */}
         {leaves.length > 0 && (

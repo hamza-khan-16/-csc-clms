@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { GuardedInput, type GuardHandle } from "@/components/GuardedField";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/departments")({
   head: () => ({
@@ -148,14 +149,14 @@ function CourseManager({ dept, isAdmin }: { dept: Department; isAdmin: boolean }
                     className="text-success hover:opacity-70 disabled:opacity-40"
                     disabled={busy}
                     onClick={() => confirmEdit(idx)}
-                    title="Save"
+                    title={t("action.save")}
                   >
                     <Check size={15} />
                   </button>
                   <button
                     className="text-muted-foreground hover:opacity-70"
                     onClick={() => setEditIdx(null)}
-                    title="Cancel"
+                    title={t("action.cancel")}
                   >
                     <X size={15} />
                   </button>
@@ -212,7 +213,8 @@ function CourseManager({ dept, isAdmin }: { dept: Department; isAdmin: boolean }
 }
 
 function DepartmentsPage() {
-  const { role } = useAuth();
+  const t = useT();
+    const { role } = useAuth();
   const isAdmin = role === "admin";
 
   const { data: rows = [] } = useQuery({

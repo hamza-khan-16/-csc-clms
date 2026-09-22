@@ -29,6 +29,7 @@ import {
 import { fmtDate, leaveTypeLabel, LEAVE_TYPES, type LeaveType } from "@/lib/leave";
 import { cn } from "@/lib/utils";
 import { firePush } from "@/lib/push.functions";
+import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/hr")({ component: HrPage });
 
@@ -675,7 +676,7 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
                         placeholder="New monthly salary"
                       />
                       <Button size="sm" className="h-8 text-xs" onClick={updateSalary} disabled={salaryBusy}>
-                        {salaryBusy ? "Saving…" : "Save"}
+                        {salaryBusy ? "Saving…" : t("action.save")}
                       </Button>
                       <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setSalaryEdit(false)}>
                         Cancel
@@ -696,7 +697,8 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 function HrPage() {
-  const { profile } = useAuth();
+  const t = useT();
+    const { profile } = useAuth();
   const qc = useQueryClient();
   const [hrFilter, setHrFilter] = useState<"all"|"pending"|"approved"|"rejected">("pending");
   const [search, setSearch] = useState("");
