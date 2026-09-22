@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const TOUR_KEY = "onboarding_tour_done_v1";
+const TOUR_KEY = "onboarding_tour_done_v3"; // bump version to reset for all users
 const SPOTLIGHT_PAD = 8;
 const CARD_W = 300;
 const CARD_H = 210; // used only for placement math
@@ -227,8 +227,12 @@ export function OnboardingTour({ role }: { role: string }) {
 
   useEffect(() => {
     setMounted(true);
+    // Clear any stale key so the tour always shows on fresh login
+    // (The key is only written when the user explicitly dismisses/completes the tour)
     try {
-      if (!localStorage.getItem(TOUR_KEY)) setTimeout(() => setVisible(true), 800);
+      if (!localStorage.getItem(TOUR_KEY)) {
+        setTimeout(() => setVisible(true), 800);
+      }
     } catch {
       setTimeout(() => setVisible(true), 800);
     }
@@ -248,11 +252,25 @@ export function OnboardingTour({ role }: { role: string }) {
   function next() { if (!isLast) goTo(step + 1); else dismiss(); }
   function prev() { if (step > 0) goTo(step - 1); }
 
-  if (!mounted || !visible || !layout) return null;
+  if (!mounted || !visible) return null;
+
+  // While the first measurement is pending (layout is null), use a centred
+  // placeholder so the card appears immediately without a flash of nothing.
+  const vw = typeof window !== "undefined" ? window.innerWidth : 375;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 812;
+  const cw = Math.min(CARD_W, vw - MARGIN * 2);
+  const fallbackLayout: Layout = {
+    spot:  { top: 0, left: 0, width: 0, height: 0 },
+    card:  { top: Math.round(vh / 2 - CARD_H / 2), left: Math.round(vw / 2 - cw / 2) },
+    cardW: cw,
+    arrow: null,
+    side:  null,
+  };
+  const activeLayout = layout ?? fallbackLayout;
 
   const { Icon } = current;
-  const { spot, card, cardW, arrow } = layout;
-  const hasSpot = !!current.target && spot.width > 0;
+  const { spot, card, cardW, arrow } = activeLayout;
+  const hasSpot = !!current.target && layout !== null && spot.width > 0;
 
   // ── render ───────────────────────────────────────────────────────────────
   return createPortal(
