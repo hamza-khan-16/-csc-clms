@@ -1,92 +1,79 @@
+/**
+ * OnboardingTour
+ *
+ * Desktop: spotlights the sidebar nav links one by one.
+ * Mobile:  spotlights every item in the bottom navbar (even ones not pinned —
+ *          during onboarding we show ALL role-visible items sequentially so the
+ *          user understands everything available to them).
+ *
+ * TESTING MODE: shows on every login. To switch to prod mode, replace the
+ * `setTimeout(() => setVisible(true), 800)` in the mount effect with:
+ *   if (!localStorage.getItem(TOUR_KEY)) setTimeout(() => setVisible(true), 800);
+ */
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
-  X, ChevronRight, ChevronLeft,
-  Sparkles, CalendarPlus, ClipboardList,
-  CalendarDays, Repeat, Wallet, PartyPopper,
-  CheckCircle2, Users, BarChart3,
+  X, ChevronRight, ChevronLeft, Sparkles, PartyPopper,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const TOUR_KEY = "onboarding_tour_done_v3"; // bump version to reset for all users
+const TOUR_KEY = "onboarding_tour_done_v3";
 const SPOTLIGHT_PAD = 8;
 const CARD_W = 300;
-const CARD_H = 210; // used only for placement math
-const MARGIN = 12;
-const ARROW_GAP = 36;
+const CARD_H = 200; // used only for placement math
+const MARGIN  = 12;
+const ARROW_GAP = 32;
 
-interface TourStep {
-  title: string;
-  body: string;
-  Icon: React.ElementType;
-  target: string | null; // data-tour attribute value; null = centred welcome/end card
+// ─── types ───────────────────────────────────────────────────────────────────
+
+interface NavItemMini { to: string; label: string }
+
+interface Props {
+  role: string;
+  /** Every nav item the user's role can see (for sidebar on desktop) */
+  allNavItems: NavItemMini[];
+  /** The 5 items currently shown in the mobile bottom nav */
+  mobileNavItems: NavItemMini[];
 }
-
-const TEACHER_STEPS: TourStep[] = [
-  { Icon: Sparkles,      title: "Welcome to CSC LMS!",   body: "This is your Leave Management System. Let's take a quick tour so you know where everything is.", target: null },
-  { Icon: CalendarPlus,  title: "Apply for Leave",        body: "Tap 'Apply Leave' to submit casual, medical, duty, maternity, or bereavement leave. Your HOD reviews it first, then the principal.", target: "apply" },
-  { Icon: ClipboardList, title: "Track Your Leaves",      body: "Go to 'My Leaves' to see all your leave requests, their approval status, and how many days you've used.", target: "leaves" },
-  { Icon: CalendarDays,  title: "Your Schedule",          body: "'My Schedule' shows your weekly timetable. You'll also see proxy duties assigned to you here.", target: "schedule" },
-  { Icon: Repeat,        title: "Proxy Duties",           body: "When a colleague is on leave you may be asked to cover their class. Accept or decline here.", target: "proxies" },
-  { Icon: Wallet,        title: "Payroll",                body: "Check your monthly salary slip in 'Payroll'. Any unpaid leave deductions are shown clearly.", target: "payroll" },
-  { Icon: PartyPopper,   title: "You're all set!",        body: "That's the tour! Tap the chat button any time to ask LeaveBot questions about your leaves or schedule.", target: "leavebot" },
-];
-
-const HOD_STEPS: TourStep[] = [
-  { Icon: Sparkles,      title: "Welcome, HOD!",    body: "As Head of Department, you manage leave approvals and proxy assignments for your department.", target: null },
-  { Icon: CheckCircle2,  title: "Approve Leaves",   body: "Go to 'Leave Requests' to review pending leave applications from your department. You can approve or reject with a note.", target: "requests" },
-  { Icon: Users,         title: "Assign Proxies",   body: "When approving a leave, assign proxy teachers for each lecture slot. The app shows you who is free.", target: "proxies" },
-  { Icon: BarChart3,     title: "Reports",          body: "'Reports' gives you a full monthly attendance and leave summary for every teacher in your department.", target: "reports" },
-  { Icon: PartyPopper,   title: "You're ready!",    body: "Use the LeaveBot any time to ask questions about your team's leaves or schedule.", target: "leavebot" },
-];
 
 // ─── geometry ────────────────────────────────────────────────────────────────
 
 interface Box { top: number; left: number; width: number; height: number }
-interface Pos  { top: number; left: number }
 interface Arrow { x1: number; y1: number; x2: number; y2: number; cpx: number; cpy: number }
+interface Layout { spot: Box; card: { top: number; left: number }; cardW: number; arrow: Arrow | null }
 
-/** Pick the DOM element that is actually visible for the given data-tour value */
-function findTarget(key: string): HTMLElement | null {
-  const all = Array.from(document.querySelectorAll<HTMLElement>(`[data-tour="${key}"]`));
-  if (!all.length) return null;
+function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
+
+/** Return the DOM element for `data-tour` that is actually painted on screen */
+function findVisible(tourKey: string): HTMLElement | null {
   const vw = window.innerWidth, vh = window.innerHeight;
+  const all = Array.from(document.querySelectorAll<HTMLElement>(`[data-tour="${tourKey}"]`));
   return (
     all.find((el) => {
       const r = el.getBoundingClientRect();
       return r.width > 0 && r.height > 0 && r.top < vh && r.bottom > 0 && r.left < vw && r.right > 0;
-    }) ?? all[0]
+    }) ?? all[0] ?? null
   );
 }
 
-interface Layout {
-  spot: Box;          // spotlight rect in viewport coords
-  card: Pos;          // card top-left
-  cardW: number;
-  arrow: Arrow | null;
-  side: "top" | "bottom" | "left" | "right" | null;
-}
-
-function computeLayout(target: string | null): Layout | null {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+function computeLayout(tourKey: string | null): Layout | null {
+  const vw = window.innerWidth, vh = window.innerHeight;
   const cw = Math.min(CARD_W, vw - MARGIN * 2);
 
-  if (!target) {
-    // Centred welcome / end card — no spotlight, no arrow
+  if (!tourKey) {
     return {
-      spot: { top: 0, left: 0, width: 0, height: 0 },
-      card: { top: Math.round(vh / 2 - CARD_H / 2), left: Math.round(vw / 2 - cw / 2) },
+      spot:  { top: 0, left: 0, width: 0, height: 0 },
+      card:  { top: Math.round(vh / 2 - CARD_H / 2), left: Math.round(vw / 2 - cw / 2) },
       cardW: cw,
       arrow: null,
-      side: null,
     };
   }
 
-  const el = findTarget(target);
+  const el = findVisible(tourKey);
   if (!el) return null;
 
-  const r = el.getBoundingClientRect();
+  const r  = el.getBoundingClientRect();
   const spot: Box = {
     top:    r.top    - SPOTLIGHT_PAD,
     left:   r.left   - SPOTLIGHT_PAD,
@@ -96,85 +83,73 @@ function computeLayout(target: string | null): Layout | null {
 
   const spCX = spot.left + spot.width  / 2;
   const spCY = spot.top  + spot.height / 2;
-  const inBottom = spot.top + spot.height > vh * 0.60;
+  // If the element is in the bottom 40% of the viewport, prefer placing card above
+  const nearBottom = spot.top + spot.height > vh * 0.60;
 
-  // ── try four sides in priority order ──────────────────────────────────────
   type Side = "above" | "below" | "right" | "left";
-  const order: Side[] = inBottom
+  const order: Side[] = nearBottom
     ? ["above", "left", "right", "below"]
-    : ["below", "above", "right", "left"];
+    : ["below", "above", "right",  "left"];
 
   for (const side of order) {
-    let cardTop: number, cardLeft: number;
-    let fits = false;
+    let cardTop: number, cardLeft: number, fits = false;
 
-    if (side === "below") {
-      cardTop  = spot.top + spot.height + ARROW_GAP;
-      cardLeft = clamp(spCX - cw / 2, MARGIN, vw - cw - MARGIN);
-      fits = cardTop + CARD_H + MARGIN < vh;
-    } else if (side === "above") {
+    if (side === "above") {
       cardTop  = spot.top - ARROW_GAP - CARD_H;
       cardLeft = clamp(spCX - cw / 2, MARGIN, vw - cw - MARGIN);
-      fits = cardTop > MARGIN;
-      if (!fits && inBottom) { cardTop = MARGIN; fits = true; } // force above on bottom nav
+      fits     = cardTop > MARGIN;
+      // Force above for bottom-nav items even if tight
+      if (!fits && nearBottom) { cardTop = MARGIN; fits = true; }
+    } else if (side === "below") {
+      cardTop  = spot.top + spot.height + ARROW_GAP;
+      cardLeft = clamp(spCX - cw / 2, MARGIN, vw - cw - MARGIN);
+      fits     = cardTop + CARD_H + MARGIN < vh;
     } else if (side === "right") {
       cardLeft = spot.left + spot.width + ARROW_GAP;
       cardTop  = clamp(spCY - CARD_H / 2, MARGIN, vh - CARD_H - MARGIN);
-      fits = cardLeft + cw + MARGIN < vw;
+      fits     = cardLeft + cw + MARGIN < vw;
     } else {
       cardLeft = spot.left - ARROW_GAP - cw;
       cardTop  = clamp(spCY - CARD_H / 2, MARGIN, vh - CARD_H - MARGIN);
-      fits = cardLeft > MARGIN;
+      fits     = cardLeft > MARGIN;
     }
 
     if (!fits) continue;
 
-    // clamp card into viewport
     cardTop  = clamp(cardTop,  MARGIN, vh - CARD_H - MARGIN);
     cardLeft = clamp(cardLeft, MARGIN, vw - cw    - MARGIN);
 
-    // arrow: from spotlight edge → card edge midpoint
-    const cardCX = cardLeft + cw      / 2;
-    const cardCY = cardTop  + CARD_H  / 2;
+    const cardCX = cardLeft + cw     / 2;
+    const cardCY = cardTop  + CARD_H / 2;
     let x1: number, y1: number, x2: number, y2: number;
 
-    if (side === "below")  { x1 = spCX; y1 = spot.top + spot.height; x2 = cardCX; y2 = cardTop; }
-    else if (side === "above") { x1 = spCX; y1 = spot.top;           x2 = cardCX; y2 = cardTop + CARD_H; }
-    else if (side === "right") { x1 = spot.left + spot.width; y1 = spCY; x2 = cardLeft;    y2 = cardCY; }
-    else                       { x1 = spot.left;              y1 = spCY; x2 = cardLeft + cw; y2 = cardCY; }
-
-    // quadratic bezier control point
-    const cpx = (x1 + x2) / 2;
-    const cpy = (y1 + y2) / 2;
+    if      (side === "above") { x1 = spCX; y1 = spot.top;               x2 = cardCX; y2 = cardTop + CARD_H; }
+    else if (side === "below") { x1 = spCX; y1 = spot.top + spot.height; x2 = cardCX; y2 = cardTop; }
+    else if (side === "right") { x1 = spot.left + spot.width; y1 = spCY; x2 = cardLeft;      y2 = cardCY; }
+    else                       { x1 = spot.left;              y1 = spCY; x2 = cardLeft + cw;  y2 = cardCY; }
 
     return {
       spot,
       card: { top: cardTop, left: cardLeft },
       cardW: cw,
-      arrow: { x1, y1, x2, y2, cpx, cpy },
-      side: side === "above" ? "bottom" : side === "below" ? "top" : side as "left" | "right",
+      arrow: { x1, y1, x2, y2, cpx: (x1 + x2) / 2, cpy: (y1 + y2) / 2 },
     };
   }
 
-  // absolute fallback — centre the card
+  // Fallback: centred card, no arrow
   return {
     spot,
     card: { top: MARGIN, left: Math.round(vw / 2 - cw / 2) },
     cardW: cw,
     arrow: null,
-    side: null,
   };
 }
 
-function clamp(v: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, v));
-}
-
-// ─── arrowhead helper ────────────────────────────────────────────────────────
+// ─── arrowhead ───────────────────────────────────────────────────────────────
 
 function Arrowhead({ x2, y2, cpx, cpy }: { x2: number; y2: number; cpx: number; cpy: number }) {
-  const angle = Math.atan2(y2 - cpy, x2 - cpx);
-  const L = 11, spread = 0.45;
+  const angle   = Math.atan2(y2 - cpy, x2 - cpx);
+  const L = 12, spread = 0.42;
   const ax1 = x2 - L * Math.cos(angle - spread);
   const ay1 = y2 - L * Math.sin(angle - spread);
   const ax2 = x2 - L * Math.cos(angle + spread);
@@ -182,64 +157,151 @@ function Arrowhead({ x2, y2, cpx, cpy }: { x2: number; y2: number; cpx: number; 
   return <polygon points={`${ax1},${ay1} ${x2},${y2} ${ax2},${ay2}`} fill="#f97316" />;
 }
 
+// ─── build step list from nav items ──────────────────────────────────────────
+
+interface TourStep {
+  tourKey: string | null; // data-tour value to spotlight
+  title: string;
+  body: string;
+}
+
+function buildSteps(
+  role: string,
+  allNavItems: NavItemMini[],
+  mobileNavItems: NavItemMini[],
+  isMobile: boolean,
+): TourStep[] {
+  const steps: TourStep[] = [
+    {
+      tourKey: null,
+      title: role === "hod" ? "Welcome, HOD!" : "Welcome to CSC LMS!",
+      body:  role === "hod"
+        ? "As Head of Department you manage leave approvals and proxy assignments. Let's walk through the app."
+        : "This is your Leave Management System. Let's take a quick tour so you know where everything is.",
+    },
+  ];
+
+  // On mobile: walk through ALL role-visible items so the user sees everything,
+  // even items not currently pinned to the bottom bar.
+  // On desktop: walk through the sidebar items.
+  const navToShow = isMobile ? allNavItems : allNavItems;
+
+  const descriptions: Record<string, string> = {
+    dashboard: "Your home screen — leave balance, attendance calendar, upcoming schedule and quick stats at a glance.",
+    apply:     "Submit casual, medical, duty, maternity, or bereavement leave. Your HOD reviews it first, then the principal.",
+    leaves:    "Track all your leave requests, their approval status, and how many days you've used this year.",
+    schedule:  "Your weekly timetable. Proxy duties assigned to you also appear here.",
+    proxies:   "When a colleague is on leave you may be asked to cover their class. Accept or decline here.",
+    payroll:   "Your monthly salary slip. Any unpaid leave deductions are clearly itemised.",
+    requests:  "Review and approve or reject leave applications from your department.",
+    reports:   "Monthly attendance and leave summary for every teacher in your department. Export as PDF or Excel.",
+    holidays:  "Official college holidays and the academic calendar for the year.",
+    profile:   "Update your personal details, change your password, and manage notification settings.",
+    notices:   "College-wide announcements and circulars from the principal's office.",
+    teachers:  "Directory of all teachers — contact info, department, and leave history.",
+    departments: "Manage department structure and assign heads of department.",
+    admin:     "Full system administration — user management, roles, and system settings.",
+    hr:        "HR panel — staff onboarding, payroll management, and employment records.",
+    "admin-reports": "System-wide reports and analytics across all departments.",
+  };
+
+  for (const item of navToShow) {
+    const key = item.to.replace("/", "") || "dashboard";
+    steps.push({
+      tourKey: key,
+      title:   item.label,
+      body:    descriptions[key] ?? `Navigate to ${item.label} using this menu item.`,
+    });
+  }
+
+  // On mobile, also highlight that they can customise the bottom bar
+  if (isMobile) {
+    steps.push({
+      tourKey: null,
+      title:   "Customise your bottom bar",
+      body:    "Tap the ⊕ button at the right end of the bottom nav to pin your favourite 5 items for quick access.",
+    });
+  }
+
+  steps.push({
+    tourKey: "leavebot",
+    title:   "Need help?",
+    body:    "Tap the chat button any time to ask LeaveBot questions about your leaves, schedule, or anything else.",
+  });
+
+  steps.push({
+    tourKey: null,
+    title:   "You're all set! 🎉",
+    body:    "That's everything. You can revisit any section using the menu. Have a great semester!",
+  });
+
+  return steps;
+}
+
 // ─── component ───────────────────────────────────────────────────────────────
 
-export function OnboardingTour({ role }: { role: string }) {
-  const [visible,  setVisible]  = useState(false);
-  const [mounted,  setMounted]  = useState(false);
-  const [step,     setStep]     = useState(0);
-  const [layout,   setLayout]   = useState<Layout | null>(null);
-  const [cardKey,  setCardKey]  = useState(0); // bumped each step to re-trigger animation
+export function OnboardingTour({ role, allNavItems, mobileNavItems }: Props) {
+  const [visible,   setVisible]   = useState(false);
+  const [mounted,   setMounted]   = useState(false);
+  const [step,      setStep]      = useState(0);
+  const [layout,    setLayout]    = useState<Layout | null>(null);
+  const [cardKey,   setCardKey]   = useState(0);
+  const [isMobile,  setIsMobile]  = useState(false);
+  const rafRef = useRef<number | null>(null);
 
-  const steps   = role === "hod" ? HOD_STEPS : TEACHER_STEPS;
+  // Detect mobile (< lg breakpoint = 1024px)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 1024);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  const steps = buildSteps(role, allNavItems, mobileNavItems, isMobile);
   const current = steps[step];
   const isLast  = step === steps.length - 1;
-  const rafRef  = useRef<number | null>(null);
 
-  // ── measure & position ───────────────────────────────────────────────────
+  // ── measure ──────────────────────────────────────────────────────────────
   const measure = useCallback(() => {
-    setLayout(computeLayout(current.target));
-  }, [current.target]);
+    setLayout(computeLayout(current.tourKey));
+  }, [current.tourKey]);
 
-  // Re-measure whenever the step changes or visibility turns on
   useEffect(() => {
     if (!visible) return;
-
-    // Small delay so the DOM has settled (sidebar links, bottom nav, etc.)
-    const t = setTimeout(() => {
-      measure();
-    }, 60);
-
+    const t = setTimeout(measure, 80);
     const onResize = () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(measure);
     };
     window.addEventListener("resize", onResize);
     window.addEventListener("orientationchange", onResize);
-
     return () => {
       clearTimeout(t);
       window.removeEventListener("resize", onResize);
       window.removeEventListener("orientationchange", onResize);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [visible, measure]); // ← measure is stable per step; re-runs on step change ✓
+  }, [visible, measure]);
 
+  // ── mount — TESTING MODE: always show ────────────────────────────────────
   useEffect(() => {
     setMounted(true);
-    // TESTING MODE: always show tour on every login regardless of localStorage
+    // TESTING MODE: shows every login.
+    // For production swap this line with:
+    //   if (!localStorage.getItem(TOUR_KEY)) setTimeout(() => setVisible(true), 800);
     setTimeout(() => setVisible(true), 800);
   }, []);
 
   // ── navigation ───────────────────────────────────────────────────────────
   function dismiss() {
-    try { localStorage.setItem(TOUR_KEY, "1"); } catch { /* */ }
+    try { localStorage.setItem(TOUR_KEY, "1"); } catch { /**/ }
     setVisible(false);
   }
 
   function goTo(s: number) {
     setStep(s);
-    setCardKey((k) => k + 1); // re-trigger fade animation
+    setLayout(null); // clear old layout instantly so card snaps to new position
+    setCardKey((k) => k + 1);
   }
 
   function next() { if (!isLast) goTo(step + 1); else dismiss(); }
@@ -247,53 +309,41 @@ export function OnboardingTour({ role }: { role: string }) {
 
   if (!mounted || !visible) return null;
 
-  // While the first measurement is pending (layout is null), use a centred
-  // placeholder so the card appears immediately without a flash of nothing.
-  const vw = typeof window !== "undefined" ? window.innerWidth : 375;
-  const vh = typeof window !== "undefined" ? window.innerHeight : 812;
+  // Fallback centred card while measuring
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
   const cw = Math.min(CARD_W, vw - MARGIN * 2);
-  const fallbackLayout: Layout = {
+  const activeLayout: Layout = layout ?? {
     spot:  { top: 0, left: 0, width: 0, height: 0 },
     card:  { top: Math.round(vh / 2 - CARD_H / 2), left: Math.round(vw / 2 - cw / 2) },
     cardW: cw,
     arrow: null,
-    side:  null,
   };
-  const activeLayout = layout ?? fallbackLayout;
 
-  const { Icon } = current;
   const { spot, card, cardW, arrow } = activeLayout;
-  const hasSpot = !!current.target && layout !== null && spot.width > 0;
+  const hasSpot = !!current.tourKey && layout !== null && spot.width > 0;
 
-  // ── render ───────────────────────────────────────────────────────────────
   return createPortal(
     <>
-      {/* ── SVG layer: backdrop + spotlight cutout + arrow ── */}
-      <svg
-        style={{ position: "fixed", inset: 0, width: "100%", height: "100%", zIndex: 9990, pointerEvents: "none", overflow: "visible" }}
-      >
+      {/* SVG: dark overlay + spotlight cutout + dashed arrow */}
+      <svg style={{ position: "fixed", inset: 0, width: "100%", height: "100%", zIndex: 9990, pointerEvents: "none", overflow: "visible" }}>
         <defs>
           <mask id="csc-tour-mask">
             <rect width="100%" height="100%" fill="white" />
-            {hasSpot && (
-              <rect x={spot.left} y={spot.top} width={spot.width} height={spot.height} rx={8} fill="black" />
-            )}
+            {hasSpot && <rect x={spot.left} y={spot.top} width={spot.width} height={spot.height} rx={8} fill="black" />}
           </mask>
         </defs>
 
-        {/* dark overlay */}
-        <rect width="100%" height="100%" fill="rgba(0,0,0,0.55)" mask="url(#csc-tour-mask)" />
+        <rect width="100%" height="100%" fill="rgba(0,0,0,0.58)" mask="url(#csc-tour-mask)" />
 
-        {/* orange spotlight border */}
         {hasSpot && (
           <rect
             x={spot.left} y={spot.top} width={spot.width} height={spot.height} rx={8}
             fill="none" stroke="#f97316" strokeWidth={2.5}
-            style={{ filter: "drop-shadow(0 0 7px rgba(249,115,22,0.85))" }}
+            style={{ filter: "drop-shadow(0 0 8px rgba(249,115,22,0.9))" }}
           />
         )}
 
-        {/* dashed arrow */}
         {arrow && (
           <g>
             <path
@@ -305,29 +355,25 @@ export function OnboardingTour({ role }: { role: string }) {
         )}
       </svg>
 
-      {/* click-outside to dismiss */}
+      {/* click-outside dismisses */}
       <div style={{ position: "fixed", inset: 0, zIndex: 9991, cursor: "default" }} onClick={dismiss} />
 
-      {/* ── Tour card ── */}
+      {/* Tour card */}
       <div
         key={cardKey}
         className="animate-in zoom-in-95 fade-in duration-200"
-        style={{
-          position: "fixed",
-          top:  card.top,
-          left: card.left,
-          width: cardW,
-          zIndex: 9999,
-          pointerEvents: "auto",
-        }}
+        style={{ position: "fixed", top: card.top, left: card.left, width: cardW, zIndex: 9999, pointerEvents: "auto" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="rounded-2xl bg-card border border-border shadow-2xl overflow-hidden">
           {/* header */}
           <div className="bg-primary px-5 pt-4 pb-3">
             <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center justify-center size-10 rounded-xl bg-white/20">
-                <Icon className="size-5 text-white" />
+              <div className="flex items-center justify-center size-9 rounded-xl bg-white/20">
+                {isLast
+                  ? <PartyPopper className="size-4 text-white" />
+                  : <Sparkles    className="size-4 text-white" />
+                }
               </div>
               <button
                 onClick={dismiss}
@@ -337,27 +383,32 @@ export function OnboardingTour({ role }: { role: string }) {
                 <X className="size-3" />
               </button>
             </div>
-            <h2 className="mt-2.5 text-base font-bold text-white leading-snug">{current.title}</h2>
+            <h2 className="mt-2.5 text-sm font-bold text-white leading-snug">{current.title}</h2>
           </div>
 
           {/* body */}
           <div className="px-5 pt-3 pb-4 space-y-3">
             <p className="text-xs text-muted-foreground leading-relaxed">{current.body}</p>
 
-            {/* progress dots */}
-            <div className="flex items-center gap-1.5">
+            {/* progress: step N of total */}
+            <div className="flex items-center gap-1">
               {steps.map((_, i) => (
                 <div
                   key={i}
-                  className={`h-1.5 rounded-full transition-all duration-300 ${
-                    i === step ? "w-5 bg-primary" : "w-1.5 bg-muted-foreground/25"
+                  className={`h-1 rounded-full transition-all duration-300 ${
+                    i === step
+                      ? "bg-primary flex-[2]"
+                      : i < step
+                      ? "bg-primary/40 flex-1"
+                      : "bg-muted-foreground/20 flex-1"
                   }`}
                 />
               ))}
             </div>
+            <p className="text-[10px] text-muted-foreground/60">{step + 1} of {steps.length}</p>
 
-            {/* nav */}
-            <div className="flex items-center justify-between gap-3 pt-0.5">
+            {/* nav buttons */}
+            <div className="flex items-center justify-between gap-3">
               <button onClick={dismiss} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
                 Skip tour
               </button>
@@ -368,7 +419,7 @@ export function OnboardingTour({ role }: { role: string }) {
                   </Button>
                 )}
                 <Button size="sm" className="h-7 text-xs gap-1 px-2.5" onClick={next}>
-                  {isLast ? "Get started!" : "Next"} {!isLast && <ChevronRight className="size-3" />}
+                  {isLast ? "Done!" : "Next"}{!isLast && <ChevronRight className="size-3" />}
                 </Button>
               </div>
             </div>

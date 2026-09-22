@@ -51,6 +51,7 @@ const IS_NATIVE_APP = typeof navigator !== "undefined" &&
 const TooltipContent = (IS_NATIVE_APP ? () => null : _TooltipContent) as typeof _TooltipContent;
 import { NoticeBell } from "@/components/NoticeBell";
 import { LeaveBot } from "@/components/LeaveBot";
+import { OnboardingTour } from "@/components/OnboardingTour";
 
 type NavItem = {
   to: string;
@@ -621,6 +622,13 @@ export function AppShell({
         </nav>
       </div>
       <LeaveBot />
+      {(role === "teacher" || role === "hod") && (
+        <OnboardingTour
+          role={role}
+          allNavItems={visible.map((i) => ({ to: i.to, label: i.label }))}
+          mobileNavItems={mobileNavItems.map((i) => ({ to: i.to, label: i.label }))}
+        />
+      )}
     </div>
     </TooltipProvider>
   );
