@@ -426,24 +426,65 @@ const LangContext = createContext<LangCtx | null>(null);
 
 // ─── provider ─────────────────────────────────────────────────────────────────
 
-// ─── Google Translate integration (cookie-based — no DOM mutation) ────────────
-// Google Translate reads the `googtrans` cookie on page load and translates
-// the page server-side through its proxy. This avoids all DOM mutation and
-// React reconciliation conflicts.
+// ─── Google Translate integration ─────────────────────────────────────────────
 const GT_LANG: Record<Lang, string> = { en: "en", hi: "hi", mr: "mr" };
 
-function setGoogTransCookie(lang: Lang) {
-  if (typeof document === "undefined") return;
+function injectGoogleTranslate() {
+  if (typeof window === "undefined") return;
+  if ((window as any).__gtInjected) return;
+  (window as any).__gtInjected = true;
+
+  // Inject CSS to hide ALL Google Translate UI elements
+  const style = document.createElement("style");
+  style.id = "gt-hide-style";
+  style.textContent = `
+    #gt-anchor, #gt-anchor *,
+    .skiptranslate, .skiptranslate *,
+    .goog-te-banner-frame, .goog-te-menu-frame,
+    .goog-te-balloon-frame, .goog-tooltip, .goog-tooltip *,
+    .goog-te-gadget, .goog-te-gadget *,
+    iframe[name="votingFrame"] { display: none !important; }
+    body { top: 0 !important; }
+    .VIpgJd-ZVi9od-aZ2wEe-wOHMyf { display: none !important; }
+  `;
+  document.head.appendChild(style);
+
+  // Create anchor DIV directly on body — OUTSIDE React's root so React
+  // never touches it and removeChild errors cannot happen
+  const anchor = document.createElement("div");
+  anchor.id = "gt-anchor";
+  anchor.style.cssText = "display:none!important;position:absolute;width:0;height:0;overflow:hidden;";
+  document.body.appendChild(anchor);
+
+  (window as any).googleTranslateElementInit = function () {
+    new (window as any).google.translate.TranslateElement(
+      { pageLanguage: "en", autoDisplay: false, gaTrack: false },
+      "gt-anchor"
+    );
+  };
+
+  const script = document.createElement("script");
+  script.src = "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
+  script.async = true;
+  document.head.appendChild(script);
+}
+
+function applyGoogleTranslate(lang: Lang) {
+  if (typeof window === "undefined") return;
   const code = GT_LANG[lang];
-  if (lang === "en") {
-    // Clear the cookie to restore original language
-    document.cookie = "googtrans=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    document.cookie = "googtrans=; path=/; domain=" + location.hostname + "; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-  } else {
-    const value = `/en/${code}`;
-    document.cookie = `googtrans=${value}; path=/`;
-    document.cookie = `googtrans=${value}; path=/; domain=${location.hostname}`;
+
+  function attempt(tries: number) {
+    const select = document.querySelector<HTMLSelectElement>(".goog-te-combo");
+    if (!select) {
+      if (tries > 0) setTimeout(() => attempt(tries - 1), 400);
+      return;
+    }
+    if (select.value === code) return;
+    select.value = code;
+    select.dispatchEvent(new Event("change"));
   }
+
+  attempt(10);
 }
 
 export function LangProvider({ children }: { children: ReactNode }) {
@@ -466,9 +507,7 @@ export function LangProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(LEGACY_KEY, l);
       }
     } catch { /**/ }
-    // Set Google Translate cookie and reload so it translates the whole page
-    setGoogTransCookie(l);
-    window.location.reload();
+    applyGoogleTranslate(l);
   }, []);
 
   // Called by LangUserSync with the authed user's id
@@ -499,6 +538,14 @@ export function LangProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => { document.documentElement.lang = lang; }, [lang]);
+
+  // Inject Google Translate once on mount; re-apply saved non-English lang
+  useEffect(() => {
+    injectGoogleTranslate();
+    if (lang !== "en") {
+      setTimeout(() => applyGoogleTranslate(lang), 1800);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <LangContext.Provider value={value}>
