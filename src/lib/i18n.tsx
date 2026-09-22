@@ -426,6 +426,63 @@ const LangContext = createContext<LangCtx | null>(null);
 
 // ─── provider ─────────────────────────────────────────────────────────────────
 
+// ─── Google Translate integration ─────────────────────────────────────────────
+// Maps our Lang codes to Google Translate language codes
+const GT_LANG: Record<Lang, string> = { en: "en", hi: "hi", mr: "mr" };
+
+// Inject the Google Translate script once and initialise it silently
+// (gadget hidden via CSS — we drive it programmatically)
+function injectGoogleTranslate() {
+  if (typeof window === "undefined") return;
+  if ((window as any).__gtInjected) return;
+  (window as any).__gtInjected = true;
+
+  // Hide the Google Translate toolbar/banner globally
+  const style = document.createElement("style");
+  style.textContent = `
+    .skiptranslate, #google_translate_element { display: none !important; }
+    body { top: 0 !important; }
+    .goog-te-banner-frame { display: none !important; }
+  `;
+  document.head.appendChild(style);
+
+  // Callback Google Translate calls once loaded
+  (window as any).googleTranslateElementInit = function () {
+    new (window as any).google.translate.TranslateElement(
+      { pageLanguage: "en", autoDisplay: false },
+      "google_translate_element"
+    );
+  };
+
+  const script = document.createElement("script");
+  script.src =
+    "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
+  script.async = true;
+  document.head.appendChild(script);
+}
+
+/** Trigger Google Translate to switch to the given language */
+function applyGoogleTranslate(lang: Lang) {
+  if (typeof window === "undefined") return;
+
+  function doTranslate() {
+    const select = document.querySelector<HTMLSelectElement>(
+      ".goog-te-combo"
+    );
+    if (!select) {
+      // Widget not ready yet — retry shortly
+      setTimeout(doTranslate, 300);
+      return;
+    }
+    const code = GT_LANG[lang];
+    if (select.value === code) return; // already set
+    select.value = code;
+    select.dispatchEvent(new Event("change"));
+  }
+
+  doTranslate();
+}
+
 export function LangProvider({ children }: { children: ReactNode }) {
   // We don't know userId yet (AuthProvider is nested inside us).
   // Start with legacy shared key as fallback, then LangUserSync updates us.
@@ -446,6 +503,8 @@ export function LangProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(LEGACY_KEY, l);
       }
     } catch { /**/ }
+    // Drive Google Translate for full-page translation
+    applyGoogleTranslate(l);
   }, []);
 
   // Called by LangUserSync with the authed user's id
@@ -477,7 +536,22 @@ export function LangProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { document.documentElement.lang = lang; }, [lang]);
 
-  return <LangContext.Provider value={value}>{children}</LangContext.Provider>;
+  // Inject Google Translate script once on mount
+  useEffect(() => {
+    injectGoogleTranslate();
+    // Re-apply the saved language after the widget loads
+    if (lang !== "en") {
+      setTimeout(() => applyGoogleTranslate(lang), 1500);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <LangContext.Provider value={value}>
+      {/* Hidden Google Translate widget — driven programmatically */}
+      <div id="google_translate_element" style={{ display: "none" }} />
+      {children}
+    </LangContext.Provider>
+  );
 }
 
 // ─── LangUserSync — mount this inside AuthProvider ────────────────────────────
