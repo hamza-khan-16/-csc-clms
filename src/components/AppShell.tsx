@@ -357,6 +357,7 @@ export function AppShell({
             search={item.search as any}
             onClick={() => setOpen(false)}
             aria-current={active ? "page" : undefined}
+            data-tour={item.to.replace("/", "") || "dashboard"}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors relative",
               active
@@ -536,6 +537,7 @@ export function AppShell({
                     to={item.to}
                     search={item.search as any}
                     aria-current={active ? "page" : undefined}
+                    data-tour={item.to.replace("/", "") || "dashboard"}
                     className={cn(
                       "flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium transition-colors",
                       active ? "text-primary" : "text-muted-foreground hover:text-foreground"

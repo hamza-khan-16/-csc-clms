@@ -227,15 +227,8 @@ export function OnboardingTour({ role }: { role: string }) {
 
   useEffect(() => {
     setMounted(true);
-    // Clear any stale key so the tour always shows on fresh login
-    // (The key is only written when the user explicitly dismisses/completes the tour)
-    try {
-      if (!localStorage.getItem(TOUR_KEY)) {
-        setTimeout(() => setVisible(true), 800);
-      }
-    } catch {
-      setTimeout(() => setVisible(true), 800);
-    }
+    // TESTING MODE: always show tour on every login regardless of localStorage
+    setTimeout(() => setVisible(true), 800);
   }, []);
 
   // ── navigation ───────────────────────────────────────────────────────────
