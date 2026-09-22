@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
   X, ChevronRight, ChevronLeft,
@@ -9,412 +9,302 @@ import {
 import { Button } from "@/components/ui/button";
 
 const TOUR_KEY = "onboarding_tour_done_v1";
-
-// Padding around the highlighted element (px)
 const SPOTLIGHT_PAD = 8;
+const CARD_W = 300;
+const CARD_H = 210; // used only for placement math
+const MARGIN = 12;
+const ARROW_GAP = 36;
 
 interface TourStep {
   title: string;
   body: string;
   Icon: React.ElementType;
-  /** data-tour value of the element to spotlight. null = no spotlight (welcome/end) */
-  target: string | null;
+  target: string | null; // data-tour attribute value; null = centred welcome/end card
 }
 
 const TEACHER_STEPS: TourStep[] = [
-  {
-    Icon: Sparkles,
-    title: "Welcome to CSC LMS!",
-    body: "This is your Leave Management System. Let's take a quick tour so you know where everything is.",
-    target: null,
-  },
-  {
-    Icon: CalendarPlus,
-    title: "Apply for Leave",
-    body: "Tap 'Apply Leave' to submit casual, medical, duty, maternity, or bereavement leave. Your HOD reviews it first, then the principal.",
-    target: "apply",
-  },
-  {
-    Icon: ClipboardList,
-    title: "Track Your Leaves",
-    body: "Go to 'My Leaves' to see all your leave requests, their approval status, and how many days you've used.",
-    target: "leaves",
-  },
-  {
-    Icon: CalendarDays,
-    title: "Your Schedule",
-    body: "'My Schedule' shows your weekly timetable. You'll also see proxy duties assigned to you here.",
-    target: "schedule",
-  },
-  {
-    Icon: Repeat,
-    title: "Proxy Duties",
-    body: "When a colleague is on leave, you may be asked to cover their class. Accept or decline here. You can also offer compensation.",
-    target: "proxies",
-  },
-  {
-    Icon: Wallet,
-    title: "Payroll",
-    body: "Check your monthly salary slip in 'Payroll'. Any unpaid leave deductions are shown clearly.",
-    target: "payroll",
-  },
-  {
-    Icon: PartyPopper,
-    title: "You're all set!",
-    body: "That's the tour! Tap the chat button any time to ask LeaveBot questions about your leaves or schedule.",
-    target: "leavebot",
-  },
+  { Icon: Sparkles,      title: "Welcome to CSC LMS!",   body: "This is your Leave Management System. Let's take a quick tour so you know where everything is.", target: null },
+  { Icon: CalendarPlus,  title: "Apply for Leave",        body: "Tap 'Apply Leave' to submit casual, medical, duty, maternity, or bereavement leave. Your HOD reviews it first, then the principal.", target: "apply" },
+  { Icon: ClipboardList, title: "Track Your Leaves",      body: "Go to 'My Leaves' to see all your leave requests, their approval status, and how many days you've used.", target: "leaves" },
+  { Icon: CalendarDays,  title: "Your Schedule",          body: "'My Schedule' shows your weekly timetable. You'll also see proxy duties assigned to you here.", target: "schedule" },
+  { Icon: Repeat,        title: "Proxy Duties",           body: "When a colleague is on leave you may be asked to cover their class. Accept or decline here.", target: "proxies" },
+  { Icon: Wallet,        title: "Payroll",                body: "Check your monthly salary slip in 'Payroll'. Any unpaid leave deductions are shown clearly.", target: "payroll" },
+  { Icon: PartyPopper,   title: "You're all set!",        body: "That's the tour! Tap the chat button any time to ask LeaveBot questions about your leaves or schedule.", target: "leavebot" },
 ];
 
 const HOD_STEPS: TourStep[] = [
-  {
-    Icon: Sparkles,
-    title: "Welcome, HOD!",
-    body: "As Head of Department, you manage leave approvals and proxy assignments for your department.",
-    target: null,
-  },
-  {
-    Icon: CheckCircle2,
-    title: "Approve Leaves",
-    body: "Go to 'Leave Requests' to review pending leave applications from your department. You can approve or reject with a note.",
-    target: "requests",
-  },
-  {
-    Icon: Users,
-    title: "Assign Proxies",
-    body: "When approving a leave, assign proxy teachers for each lecture slot. The app shows you who is free.",
-    target: "proxies",
-  },
-  {
-    Icon: BarChart3,
-    title: "Reports",
-    body: "'Reports' gives you a full monthly attendance and leave summary for every teacher in your department.",
-    target: "reports",
-  },
-  {
-    Icon: PartyPopper,
-    title: "You're ready!",
-    body: "Use the LeaveBot any time to ask questions about your team's leaves or schedule.",
-    target: "leavebot",
-  },
+  { Icon: Sparkles,      title: "Welcome, HOD!",    body: "As Head of Department, you manage leave approvals and proxy assignments for your department.", target: null },
+  { Icon: CheckCircle2,  title: "Approve Leaves",   body: "Go to 'Leave Requests' to review pending leave applications from your department. You can approve or reject with a note.", target: "requests" },
+  { Icon: Users,         title: "Assign Proxies",   body: "When approving a leave, assign proxy teachers for each lecture slot. The app shows you who is free.", target: "proxies" },
+  { Icon: BarChart3,     title: "Reports",          body: "'Reports' gives you a full monthly attendance and leave summary for every teacher in your department.", target: "reports" },
+  { Icon: PartyPopper,   title: "You're ready!",    body: "Use the LeaveBot any time to ask questions about your team's leaves or schedule.", target: "leavebot" },
 ];
 
-interface SpotlightRect {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
+// ─── geometry ────────────────────────────────────────────────────────────────
+
+interface Box { top: number; left: number; width: number; height: number }
+interface Pos  { top: number; left: number }
+interface Arrow { x1: number; y1: number; x2: number; y2: number; cpx: number; cpy: number }
+
+/** Pick the DOM element that is actually visible for the given data-tour value */
+function findTarget(key: string): HTMLElement | null {
+  const all = Array.from(document.querySelectorAll<HTMLElement>(`[data-tour="${key}"]`));
+  if (!all.length) return null;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  return (
+    all.find((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && r.top < vh && r.bottom > 0 && r.left < vw && r.right > 0;
+    }) ?? all[0]
+  );
 }
 
-interface CardPlacement {
-  top: number;
-  left: number;
-  arrowFrom: { x: number; y: number };
-  arrowTo: { x: number; y: number };
-  arrowSide: "top" | "bottom" | "left" | "right" | null;
+interface Layout {
+  spot: Box;          // spotlight rect in viewport coords
+  card: Pos;          // card top-left
+  cardW: number;
+  arrow: Arrow | null;
+  side: "top" | "bottom" | "left" | "right" | null;
 }
 
-// Card width: full-bleed on narrow phones, fixed on larger screens
-const CARD_W = 320;
-const CARD_H = 220; // approximate height used for placement math
+function computeLayout(target: string | null): Layout | null {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const cw = Math.min(CARD_W, vw - MARGIN * 2);
 
-function getCardW(vw: number) {
-  return Math.min(CARD_W, vw - 32);
-}
-
-function computePlacement(
-  spot: SpotlightRect,
-  vw: number,
-  vh: number,
-): CardPlacement {
-  const margin = 12;
-  const arrowLen = 44;
-  const cardW = getCardW(vw);
-
-  const spCX = spot.left + spot.width / 2;
-  const spCY = spot.top + spot.height / 2;
-
-  // If the spotlight is in the bottom third of the screen (e.g. mobile bottom nav),
-  // always place the card ABOVE — never try below first.
-  const inBottomThird = spot.top + spot.height > vh * 0.65;
-
-  // above
-  const aboveFits = spot.top - arrowLen - CARD_H - margin > 0;
-  if (inBottomThird || aboveFits) {
-    const cardTop = Math.max(margin, spot.top - arrowLen - CARD_H);
-    const cardLeft = Math.min(Math.max(spCX - cardW / 2, margin), vw - cardW - margin);
-    const cardCX = cardLeft + cardW / 2;
+  if (!target) {
+    // Centred welcome / end card — no spotlight, no arrow
     return {
-      top: cardTop, left: cardLeft,
-      arrowFrom: { x: spCX, y: spot.top - SPOTLIGHT_PAD },
-      arrowTo: { x: cardCX, y: cardTop + CARD_H + 4 },
-      arrowSide: "bottom",
+      spot: { top: 0, left: 0, width: 0, height: 0 },
+      card: { top: Math.round(vh / 2 - CARD_H / 2), left: Math.round(vw / 2 - cw / 2) },
+      cardW: cw,
+      arrow: null,
+      side: null,
     };
   }
-  // below
-  if (spot.top + spot.height + arrowLen + CARD_H + margin < vh) {
-    const cardTop = spot.top + spot.height + arrowLen;
-    const cardLeft = Math.min(Math.max(spCX - cardW / 2, margin), vw - cardW - margin);
-    const cardCX = cardLeft + cardW / 2;
+
+  const el = findTarget(target);
+  if (!el) return null;
+
+  const r = el.getBoundingClientRect();
+  const spot: Box = {
+    top:    r.top    - SPOTLIGHT_PAD,
+    left:   r.left   - SPOTLIGHT_PAD,
+    width:  r.width  + SPOTLIGHT_PAD * 2,
+    height: r.height + SPOTLIGHT_PAD * 2,
+  };
+
+  const spCX = spot.left + spot.width  / 2;
+  const spCY = spot.top  + spot.height / 2;
+  const inBottom = spot.top + spot.height > vh * 0.60;
+
+  // ── try four sides in priority order ──────────────────────────────────────
+  type Side = "above" | "below" | "right" | "left";
+  const order: Side[] = inBottom
+    ? ["above", "left", "right", "below"]
+    : ["below", "above", "right", "left"];
+
+  for (const side of order) {
+    let cardTop: number, cardLeft: number;
+    let fits = false;
+
+    if (side === "below") {
+      cardTop  = spot.top + spot.height + ARROW_GAP;
+      cardLeft = clamp(spCX - cw / 2, MARGIN, vw - cw - MARGIN);
+      fits = cardTop + CARD_H + MARGIN < vh;
+    } else if (side === "above") {
+      cardTop  = spot.top - ARROW_GAP - CARD_H;
+      cardLeft = clamp(spCX - cw / 2, MARGIN, vw - cw - MARGIN);
+      fits = cardTop > MARGIN;
+      if (!fits && inBottom) { cardTop = MARGIN; fits = true; } // force above on bottom nav
+    } else if (side === "right") {
+      cardLeft = spot.left + spot.width + ARROW_GAP;
+      cardTop  = clamp(spCY - CARD_H / 2, MARGIN, vh - CARD_H - MARGIN);
+      fits = cardLeft + cw + MARGIN < vw;
+    } else {
+      cardLeft = spot.left - ARROW_GAP - cw;
+      cardTop  = clamp(spCY - CARD_H / 2, MARGIN, vh - CARD_H - MARGIN);
+      fits = cardLeft > MARGIN;
+    }
+
+    if (!fits) continue;
+
+    // clamp card into viewport
+    cardTop  = clamp(cardTop,  MARGIN, vh - CARD_H - MARGIN);
+    cardLeft = clamp(cardLeft, MARGIN, vw - cw    - MARGIN);
+
+    // arrow: from spotlight edge → card edge midpoint
+    const cardCX = cardLeft + cw      / 2;
+    const cardCY = cardTop  + CARD_H  / 2;
+    let x1: number, y1: number, x2: number, y2: number;
+
+    if (side === "below")  { x1 = spCX; y1 = spot.top + spot.height; x2 = cardCX; y2 = cardTop; }
+    else if (side === "above") { x1 = spCX; y1 = spot.top;           x2 = cardCX; y2 = cardTop + CARD_H; }
+    else if (side === "right") { x1 = spot.left + spot.width; y1 = spCY; x2 = cardLeft;    y2 = cardCY; }
+    else                       { x1 = spot.left;              y1 = spCY; x2 = cardLeft + cw; y2 = cardCY; }
+
+    // quadratic bezier control point
+    const cpx = (x1 + x2) / 2;
+    const cpy = (y1 + y2) / 2;
+
     return {
-      top: cardTop, left: cardLeft,
-      arrowFrom: { x: spCX, y: spot.top + spot.height + SPOTLIGHT_PAD },
-      arrowTo: { x: cardCX, y: cardTop - 4 },
-      arrowSide: "top",
+      spot,
+      card: { top: cardTop, left: cardLeft },
+      cardW: cw,
+      arrow: { x1, y1, x2, y2, cpx, cpy },
+      side: side === "above" ? "bottom" : side === "below" ? "top" : side as "left" | "right",
     };
   }
-  // right
-  if (spot.left + spot.width + arrowLen + cardW + margin < vw) {
-    const cardLeft = spot.left + spot.width + arrowLen;
-    const cardTop = Math.min(Math.max(spCY - CARD_H / 2, margin), vh - CARD_H - margin);
-    const cardCY = cardTop + CARD_H / 2;
-    return {
-      top: cardTop, left: cardLeft,
-      arrowFrom: { x: spot.left + spot.width + SPOTLIGHT_PAD, y: spCY },
-      arrowTo: { x: cardLeft - 4, y: cardCY },
-      arrowSide: "left",
-    };
-  }
-  // left (fallback)
-  {
-    const cardLeft = Math.max(margin, spot.left - arrowLen - cardW);
-    const cardTop = Math.min(Math.max(spCY - CARD_H / 2, margin), vh - CARD_H - margin);
-    const cardCY = cardTop + CARD_H / 2;
-    return {
-      top: cardTop, left: cardLeft,
-      arrowFrom: { x: spot.left - SPOTLIGHT_PAD, y: spCY },
-      arrowTo: { x: cardLeft + cardW + 4, y: cardCY },
-      arrowSide: "right",
-    };
-  }
+
+  // absolute fallback — centre the card
+  return {
+    spot,
+    card: { top: MARGIN, left: Math.round(vw / 2 - cw / 2) },
+    cardW: cw,
+    arrow: null,
+    side: null,
+  };
 }
 
-interface Props {
-  role: "teacher" | "hod" | string;
+function clamp(v: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, v));
 }
 
-export function OnboardingTour({ role }: Props) {
-  const [visible, setVisible] = useState(false);
-  const [step, setStep] = useState(0);
-  const [mounted, setMounted] = useState(false);
-  const [spotlight, setSpotlight] = useState<SpotlightRect | null>(null);
-  const [placement, setPlacement] = useState<CardPlacement | null>(null);
-  const rafRef = useRef<number | null>(null);
+// ─── arrowhead helper ────────────────────────────────────────────────────────
 
-  const steps = role === "hod" ? HOD_STEPS : TEACHER_STEPS;
+function Arrowhead({ x2, y2, cpx, cpy }: { x2: number; y2: number; cpx: number; cpy: number }) {
+  const angle = Math.atan2(y2 - cpy, x2 - cpx);
+  const L = 11, spread = 0.45;
+  const ax1 = x2 - L * Math.cos(angle - spread);
+  const ay1 = y2 - L * Math.sin(angle - spread);
+  const ax2 = x2 - L * Math.cos(angle + spread);
+  const ay2 = y2 - L * Math.sin(angle + spread);
+  return <polygon points={`${ax1},${ay1} ${x2},${y2} ${ax2},${ay2}`} fill="#f97316" />;
+}
+
+// ─── component ───────────────────────────────────────────────────────────────
+
+export function OnboardingTour({ role }: { role: string }) {
+  const [visible,  setVisible]  = useState(false);
+  const [mounted,  setMounted]  = useState(false);
+  const [step,     setStep]     = useState(0);
+  const [layout,   setLayout]   = useState<Layout | null>(null);
+  const [cardKey,  setCardKey]  = useState(0); // bumped each step to re-trigger animation
+
+  const steps   = role === "hod" ? HOD_STEPS : TEACHER_STEPS;
   const current = steps[step];
-  const isLast = step === steps.length - 1;
+  const isLast  = step === steps.length - 1;
+  const rafRef  = useRef<number | null>(null);
 
-  // Measure target element and compute card placement.
-  // There may be TWO elements with the same data-tour (sidebar nav + mobile bottom nav).
-  // We pick whichever one is actually visible on screen (non-zero size & inside viewport).
+  // ── measure & position ───────────────────────────────────────────────────
   const measure = useCallback(() => {
-    if (!current.target) {
-      setSpotlight(null);
-      setPlacement(null);
-      return;
-    }
-
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    const candidates = Array.from(
-      document.querySelectorAll<HTMLElement>(`[data-tour="${current.target}"]`)
-    );
-
-    // Pick the candidate that has a non-zero rect fully within the visible viewport
-    const el =
-      candidates.find((c) => {
-        const r = c.getBoundingClientRect();
-        return (
-          r.width > 0 &&
-          r.height > 0 &&
-          r.top < vh &&
-          r.bottom > 0 &&
-          r.left < vw &&
-          r.right > 0
-        );
-      }) ?? candidates[0];
-
-    if (!el) {
-      setSpotlight(null);
-      setPlacement(null);
-      return;
-    }
-
-    const r = el.getBoundingClientRect();
-    const pad = SPOTLIGHT_PAD;
-    const spot: SpotlightRect = {
-      top: r.top - pad,
-      left: r.left - pad,
-      width: r.width + pad * 2,
-      height: r.height + pad * 2,
-    };
-    setSpotlight(spot);
-    setPlacement(computePlacement(spot, vw, vh));
+    setLayout(computeLayout(current.target));
   }, [current.target]);
 
+  // Re-measure whenever the step changes or visibility turns on
   useEffect(() => {
-    setMounted(true);
-    setTimeout(() => setVisible(true), 1200);
-    // Restore localStorage check for production:
-    // try {
-    //   if (!localStorage.getItem(TOUR_KEY)) setTimeout(() => setVisible(true), 1200);
-    // } catch (_) {}
-  }, []);
-
-  useLayoutEffect(() => {
     if (!visible) return;
-    measure();
+
+    // Small delay so the DOM has settled (sidebar links, bottom nav, etc.)
+    const t = setTimeout(() => {
+      measure();
+    }, 60);
+
     const onResize = () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = requestAnimationFrame(measure);
     };
     window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+
     return () => {
+      clearTimeout(t);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [visible, measure]);
+  }, [visible, measure]); // ← measure is stable per step; re-runs on step change ✓
 
+  useEffect(() => {
+    setMounted(true);
+    try {
+      if (!localStorage.getItem(TOUR_KEY)) setTimeout(() => setVisible(true), 800);
+    } catch {
+      setTimeout(() => setVisible(true), 800);
+    }
+  }, []);
+
+  // ── navigation ───────────────────────────────────────────────────────────
   function dismiss() {
-    try { localStorage.setItem(TOUR_KEY, "1"); } catch (_) {}
+    try { localStorage.setItem(TOUR_KEY, "1"); } catch { /* */ }
     setVisible(false);
   }
 
-  function next() {
-    if (step < steps.length - 1) setStep((s) => s + 1);
-    else dismiss();
+  function goTo(s: number) {
+    setStep(s);
+    setCardKey((k) => k + 1); // re-trigger fade animation
   }
 
-  function prev() {
-    setStep((s) => Math.max(0, s - 1));
-  }
+  function next() { if (!isLast) goTo(step + 1); else dismiss(); }
+  function prev() { if (step > 0) goTo(step - 1); }
 
-  if (!mounted || !visible) return null;
+  if (!mounted || !visible || !layout) return null;
 
   const { Icon } = current;
-  const vw = typeof window !== "undefined" ? window.innerWidth : 375;
-  const vh = typeof window !== "undefined" ? window.innerHeight : 812;
-  const cardW = getCardW(vw);
+  const { spot, card, cardW, arrow } = layout;
+  const hasSpot = !!current.target && spot.width > 0;
 
-  // Where to put card when there's no spotlight (welcome/end steps)
-  const centeredCard: CardPlacement = {
-    top: vh / 2 - CARD_H / 2,
-    left: Math.max(16, vw / 2 - cardW / 2),
-    arrowFrom: { x: 0, y: 0 },
-    arrowTo: { x: 0, y: 0 },
-    arrowSide: null,
-  };
-
-  const cardPos = spotlight && placement ? placement : centeredCard;
-
+  // ── render ───────────────────────────────────────────────────────────────
   return createPortal(
     <>
-      {/* ── Overlay with spotlight cutout ── */}
+      {/* ── SVG layer: backdrop + spotlight cutout + arrow ── */}
       <svg
-        style={{
-          position: "fixed", inset: 0,
-          width: "100vw", height: "100vh",
-          zIndex: 9990, pointerEvents: "none",
-        }}
+        style={{ position: "fixed", inset: 0, width: "100%", height: "100%", zIndex: 9990, pointerEvents: "none", overflow: "visible" }}
       >
         <defs>
-          <mask id="tour-spotlight-mask">
-            {/* White = visible overlay */}
+          <mask id="csc-tour-mask">
             <rect width="100%" height="100%" fill="white" />
-            {/* Black = cutout (the spotlight) */}
-            {spotlight && (
-              <rect
-                x={spotlight.left}
-                y={spotlight.top}
-                width={spotlight.width}
-                height={spotlight.height}
-                rx={10}
-                fill="black"
-              />
+            {hasSpot && (
+              <rect x={spot.left} y={spot.top} width={spot.width} height={spot.height} rx={8} fill="black" />
             )}
           </mask>
         </defs>
 
-        {/* Dark backdrop with cutout */}
-        <rect
-          width="100%"
-          height="100%"
-          fill="rgba(0,0,0,0.6)"
-          mask="url(#tour-spotlight-mask)"
-        />
+        {/* dark overlay */}
+        <rect width="100%" height="100%" fill="rgba(0,0,0,0.55)" mask="url(#csc-tour-mask)" />
 
-        {/* Orange spotlight border */}
-        {spotlight && (
+        {/* orange spotlight border */}
+        {hasSpot && (
           <rect
-            x={spotlight.left}
-            y={spotlight.top}
-            width={spotlight.width}
-            height={spotlight.height}
-            rx={10}
-            fill="none"
-            stroke="#f97316"
-            strokeWidth={2.5}
-            strokeDasharray="0"
-            style={{
-              filter: "drop-shadow(0 0 6px rgba(249,115,22,0.8))",
-            }}
+            x={spot.left} y={spot.top} width={spot.width} height={spot.height} rx={8}
+            fill="none" stroke="#f97316" strokeWidth={2.5}
+            style={{ filter: "drop-shadow(0 0 7px rgba(249,115,22,0.85))" }}
           />
         )}
 
-        {/* Arrow from spotlight to card */}
-        {spotlight && placement && placement.arrowSide && (() => {
-          const { arrowFrom, arrowTo } = placement;
-          const dx = arrowTo.x - arrowFrom.x;
-          const dy = arrowTo.y - arrowFrom.y;
-          // Control point: bend midway
-          const cpx = arrowFrom.x + dx * 0.5;
-          const cpy = arrowFrom.y + dy * 0.5;
-
-          // Arrowhead at the "to" end
-          const angle = Math.atan2(arrowTo.y - cpy, arrowTo.x - cpx);
-          const ahLen = 10;
-          const ahSpread = 0.4;
-          const ax1 = arrowTo.x - ahLen * Math.cos(angle - ahSpread);
-          const ay1 = arrowTo.y - ahLen * Math.sin(angle - ahSpread);
-          const ax2 = arrowTo.x - ahLen * Math.cos(angle + ahSpread);
-          const ay2 = arrowTo.y - ahLen * Math.sin(angle + ahSpread);
-
-          return (
-            <g stroke="#f97316" strokeWidth={2} fill="none">
-              <path
-                d={`M ${arrowFrom.x} ${arrowFrom.y} Q ${cpx} ${cpy} ${arrowTo.x} ${arrowTo.y}`}
-                strokeDasharray="6 4"
-              />
-              <path
-                d={`M ${ax1} ${ay1} L ${arrowTo.x} ${arrowTo.y} L ${ax2} ${ay2}`}
-                fill="#f97316"
-                stroke="none"
-              />
-            </g>
-          );
-        })()}
+        {/* dashed arrow */}
+        {arrow && (
+          <g>
+            <path
+              d={`M ${arrow.x1} ${arrow.y1} Q ${arrow.cpx} ${arrow.cpy} ${arrow.x2} ${arrow.y2}`}
+              stroke="#f97316" strokeWidth={2} fill="none" strokeDasharray="6 4"
+            />
+            <Arrowhead x2={arrow.x2} y2={arrow.y2} cpx={arrow.cpx} cpy={arrow.cpy} />
+          </g>
+        )}
       </svg>
 
-      {/* Overlay is pointer-events:none above; we need a click-blocker behind the card */}
-      <div
-        style={{
-          position: "fixed", inset: 0,
-          zIndex: 9991,
-          pointerEvents: "auto",
-          cursor: "default",
-        }}
-        onClick={dismiss}
-      />
+      {/* click-outside to dismiss */}
+      <div style={{ position: "fixed", inset: 0, zIndex: 9991, cursor: "default" }} onClick={dismiss} />
 
-      {/* ── Tour Card ── */}
+      {/* ── Tour card ── */}
       <div
-        className="animate-in zoom-in-95 fade-in duration-300"
+        key={cardKey}
+        className="animate-in zoom-in-95 fade-in duration-200"
         style={{
           position: "fixed",
-          top: Math.max(8, Math.min(cardPos.top, vh - CARD_H - 8)),
-          left: Math.max(8, Math.min(cardPos.left, vw - cardW - 8)),
+          top:  card.top,
+          left: card.left,
           width: cardW,
           zIndex: 9999,
           pointerEvents: "auto",
@@ -422,7 +312,7 @@ export function OnboardingTour({ role }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="rounded-2xl bg-card border border-border shadow-2xl overflow-hidden">
-          {/* Header */}
+          {/* header */}
           <div className="bg-primary px-5 pt-4 pb-3">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center justify-center size-10 rounded-xl bg-white/20">
@@ -431,7 +321,7 @@ export function OnboardingTour({ role }: Props) {
               <button
                 onClick={dismiss}
                 className="flex items-center justify-center size-6 rounded-full border-2 border-white/60 text-white hover:bg-white/20 transition-colors shrink-0 mt-0.5"
-                aria-label="Skip tour"
+                aria-label="Close tour"
               >
                 <X className="size-3" />
               </button>
@@ -439,28 +329,25 @@ export function OnboardingTour({ role }: Props) {
             <h2 className="mt-2.5 text-base font-bold text-white leading-snug">{current.title}</h2>
           </div>
 
-          {/* Body */}
+          {/* body */}
           <div className="px-5 pt-3 pb-4 space-y-3">
             <p className="text-xs text-muted-foreground leading-relaxed">{current.body}</p>
 
-            {/* Progress dots */}
+            {/* progress dots */}
             <div className="flex items-center gap-1.5">
               {steps.map((_, i) => (
                 <div
                   key={i}
                   className={`h-1.5 rounded-full transition-all duration-300 ${
-                    i === step ? "w-5 bg-primary" : "w-1.5 bg-muted-foreground/30"
+                    i === step ? "w-5 bg-primary" : "w-1.5 bg-muted-foreground/25"
                   }`}
                 />
               ))}
             </div>
 
-            {/* Navigation */}
+            {/* nav */}
             <div className="flex items-center justify-between gap-3 pt-0.5">
-              <button
-                onClick={dismiss}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
+              <button onClick={dismiss} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
                 Skip tour
               </button>
               <div className="flex gap-2">
@@ -478,6 +365,6 @@ export function OnboardingTour({ role }: Props) {
         </div>
       </div>
     </>,
-    document.body
+    document.body,
   );
 }
