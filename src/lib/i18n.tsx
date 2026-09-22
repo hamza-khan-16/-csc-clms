@@ -437,12 +437,21 @@ function injectGoogleTranslate() {
   if ((window as any).__gtInjected) return;
   (window as any).__gtInjected = true;
 
-  // Hide the Google Translate toolbar/banner globally
+  // Hide ALL Google Translate UI — logo, banner, toolbar, iframes
   const style = document.createElement("style");
   style.textContent = `
-    .skiptranslate, #google_translate_element { display: none !important; }
-    body { top: 0 !important; }
-    .goog-te-banner-frame { display: none !important; }
+    #google_translate_element,
+    #google_translate_element *,
+    .skiptranslate,
+    .skiptranslate *,
+    .goog-te-banner-frame,
+    .goog-te-menu-frame,
+    .goog-tooltip,
+    .goog-tooltip *,
+    iframe.goog-te-banner-frame,
+    iframe.skiptranslate { display: none !important; visibility: hidden !important; }
+    body { top: 0 !important; position: static !important; }
+    .goog-te-gadget { display: none !important; }
   `;
   document.head.appendChild(style);
 
@@ -548,7 +557,7 @@ export function LangProvider({ children }: { children: ReactNode }) {
   return (
     <LangContext.Provider value={value}>
       {/* Hidden Google Translate widget — driven programmatically */}
-      <div id="google_translate_element" style={{ display: "none" }} />
+      <div id="google_translate_element" style={{ display: "none", visibility: "hidden", width: 0, height: 0, overflow: "hidden", position: "absolute", pointerEvents: "none" }} />
       {children}
     </LangContext.Provider>
   );
