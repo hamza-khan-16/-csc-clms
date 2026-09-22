@@ -393,7 +393,7 @@ export function AppShell({
 
   return (
     <TooltipProvider delayDuration={300}>
-    <div className="flex min-h-screen bg-background" style={{ paddingTop: "var(--app-banner-h, 0px)" }}>
+    <div className="flex min-h-screen bg-background" style={{ paddingTop: "var(--app-banner-h, 0px)", transition: "padding-top 0.2s ease" }}>
       {/* Android double-back-to-exit toast */}
       {showExitToast && (
         <div className="fixed bottom-20 inset-x-0 z-[100] flex justify-center pointer-events-none">
@@ -442,7 +442,7 @@ export function AppShell({
       <div className="flex min-w-0 flex-1 flex-col lg:pl-64">
         <header
           className="sticky z-20 flex items-center gap-2 border-b border-border bg-background/90 px-3 py-3 backdrop-blur-md shadow-sm sm:gap-3 sm:px-6 sm:py-4"
-          style={{ top: offline ? BANNER_H : 0 }}
+          style={{ top: offline ? `calc(var(--app-banner-h, 0px) + ${BANNER_H}px)` : "var(--app-banner-h, 0px)", transition: "top 0.2s ease" }}
         >
           <Tooltip>
             <TooltipTrigger asChild>
