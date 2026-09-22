@@ -426,70 +426,24 @@ const LangContext = createContext<LangCtx | null>(null);
 
 // ─── provider ─────────────────────────────────────────────────────────────────
 
-// ─── Google Translate integration ─────────────────────────────────────────────
-// Maps our Lang codes to Google Translate language codes
+// ─── Google Translate integration (cookie-based — no DOM mutation) ────────────
+// Google Translate reads the `googtrans` cookie on page load and translates
+// the page server-side through its proxy. This avoids all DOM mutation and
+// React reconciliation conflicts.
 const GT_LANG: Record<Lang, string> = { en: "en", hi: "hi", mr: "mr" };
 
-// Inject the Google Translate script once and initialise it silently
-// (gadget hidden via CSS — we drive it programmatically)
-function injectGoogleTranslate() {
-  if (typeof window === "undefined") return;
-  if ((window as any).__gtInjected) return;
-  (window as any).__gtInjected = true;
-
-  // Hide ALL Google Translate UI — logo, banner, toolbar, iframes
-  const style = document.createElement("style");
-  style.textContent = `
-    #google_translate_element,
-    #google_translate_element *,
-    .skiptranslate,
-    .skiptranslate *,
-    .goog-te-banner-frame,
-    .goog-te-menu-frame,
-    .goog-tooltip,
-    .goog-tooltip *,
-    iframe.goog-te-banner-frame,
-    iframe.skiptranslate { display: none !important; visibility: hidden !important; }
-    body { top: 0 !important; position: static !important; }
-    .goog-te-gadget { display: none !important; }
-  `;
-  document.head.appendChild(style);
-
-  // Callback Google Translate calls once loaded
-  (window as any).googleTranslateElementInit = function () {
-    new (window as any).google.translate.TranslateElement(
-      { pageLanguage: "en", autoDisplay: false },
-      "google_translate_element"
-    );
-  };
-
-  const script = document.createElement("script");
-  script.src =
-    "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
-  script.async = true;
-  document.head.appendChild(script);
-}
-
-/** Trigger Google Translate to switch to the given language */
-function applyGoogleTranslate(lang: Lang) {
-  if (typeof window === "undefined") return;
-
-  function doTranslate() {
-    const select = document.querySelector<HTMLSelectElement>(
-      ".goog-te-combo"
-    );
-    if (!select) {
-      // Widget not ready yet — retry shortly
-      setTimeout(doTranslate, 300);
-      return;
-    }
-    const code = GT_LANG[lang];
-    if (select.value === code) return; // already set
-    select.value = code;
-    select.dispatchEvent(new Event("change"));
+function setGoogTransCookie(lang: Lang) {
+  if (typeof document === "undefined") return;
+  const code = GT_LANG[lang];
+  if (lang === "en") {
+    // Clear the cookie to restore original language
+    document.cookie = "googtrans=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    document.cookie = "googtrans=; path=/; domain=" + location.hostname + "; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  } else {
+    const value = `/en/${code}`;
+    document.cookie = `googtrans=${value}; path=/`;
+    document.cookie = `googtrans=${value}; path=/; domain=${location.hostname}`;
   }
-
-  doTranslate();
 }
 
 export function LangProvider({ children }: { children: ReactNode }) {
@@ -512,8 +466,9 @@ export function LangProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(LEGACY_KEY, l);
       }
     } catch { /**/ }
-    // Drive Google Translate for full-page translation
-    applyGoogleTranslate(l);
+    // Set Google Translate cookie and reload so it translates the whole page
+    setGoogTransCookie(l);
+    window.location.reload();
   }, []);
 
   // Called by LangUserSync with the authed user's id
@@ -545,19 +500,8 @@ export function LangProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { document.documentElement.lang = lang; }, [lang]);
 
-  // Inject Google Translate script once on mount
-  useEffect(() => {
-    injectGoogleTranslate();
-    // Re-apply the saved language after the widget loads
-    if (lang !== "en") {
-      setTimeout(() => applyGoogleTranslate(lang), 1500);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   return (
     <LangContext.Provider value={value}>
-      {/* Hidden Google Translate widget — driven programmatically */}
-      <div id="google_translate_element" style={{ display: "none", visibility: "hidden", width: 0, height: 0, overflow: "hidden", position: "absolute", pointerEvents: "none" }} />
       {children}
     </LangContext.Provider>
   );
