@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 export type Lang = "en" | "hi" | "mr";
 
@@ -207,22 +207,32 @@ export function LangProvider({ children }: { children: ReactNode }) {
     return (localStorage.getItem(STORAGE_KEY) as Lang | null) ?? "en";
   });
 
-  function setLang(l: Lang) {
+  // setLang is stable across renders — won't cause extra re-renders in consumers
+  const setLang = useCallback((l: Lang) => {
     setLangState(l);
-    localStorage.setItem(STORAGE_KEY, l);
+    try { localStorage.setItem(STORAGE_KEY, l); } catch (_) {}
     document.documentElement.lang = l;
-  }
+  }, []);
 
-  function t(key: string): string {
-    return TRANSLATIONS[lang][key] ?? TRANSLATIONS.en[key] ?? key;
-  }
+  // t() is memoized per lang — only a new reference when lang changes,
+  // never on unrelated provider re-renders. TRANSLATIONS is module-level
+  // so the lookup is O(1) with no allocations.
+  const t = useCallback(
+    (key: string): string =>
+      TRANSLATIONS[lang][key] ?? TRANSLATIONS.en[key] ?? key,
+    [lang],
+  );
+
+  // Stable context value — new object only when lang actually changes,
+  // so every useLang() consumer re-renders only on real language switches.
+  const value = useMemo(() => ({ lang, setLang, t }), [lang, setLang, t]);
 
   useEffect(() => {
     document.documentElement.lang = lang;
   }, [lang]);
 
   return (
-    <LangContext.Provider value={{ lang, setLang, t }}>
+    <LangContext.Provider value={value}>
       {children}
     </LangContext.Provider>
   );
@@ -245,3 +255,13 @@ export const LANG_NAMES: Record<Lang, string> = {
   hi: "हिन्दी",
   mr: "मराठी",
 };
+
+/**
+ * useT — lightweight hook for components that only need the translate function.
+ * Calling this subscribes the component to lang changes (it will re-render when
+ * the user switches language) without pulling in setLang or the lang string.
+ * Zero overhead: just reads the already-memoized t() from context.
+ */
+export function useT(): (key: string) => string {
+  return useLang().t;
+}

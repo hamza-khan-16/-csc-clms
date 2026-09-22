@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { fmtDate, leaveTypeLabel, LEAVE_TYPES, type LeaveType } from "@/lib/leave";
 import { cn } from "@/lib/utils";
+import { firePush } from "@/lib/push.functions";
 
 export const Route = createFileRoute("/hr")({ component: HrPage });
 
@@ -249,7 +250,25 @@ function TeacherCard({ teacher, leaves, onRefresh }: {
     const { error } = await supabase.from("profiles").update({ monthly_salary: val }).eq("id", teacher.id);
     setSalaryBusy(false);
     if (error) return toast.error(error.message);
-    toast.success("Salary updated successfully");
+
+    // Push notification to the teacher about their salary update
+    const formatted = new Intl.NumberFormat("en-IN", {
+      style: "currency", currency: "INR", maximumFractionDigits: 0,
+    }).format(val);
+    const prevFormatted = new Intl.NumberFormat("en-IN", {
+      style: "currency", currency: "INR", maximumFractionDigits: 0,
+    }).format(teacher.monthly_salary);
+    const isIncrement = val > teacher.monthly_salary;
+    firePush({
+      userIds: [teacher.id],
+      title: isIncrement ? "Salary Increment 🎉" : "Salary Updated",
+      body: isIncrement
+        ? `Your monthly salary has been revised from ${prevFormatted} to ${formatted}. Check Payroll for details.`
+        : `Your monthly salary has been updated to ${formatted}. Check Payroll for details.`,
+      targetUrl: "/payroll",
+    });
+
+    toast.success("Salary updated — teacher notified via push notification");
     setSalaryEdit(false);
     onRefresh();
   }

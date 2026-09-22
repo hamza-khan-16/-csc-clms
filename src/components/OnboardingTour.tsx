@@ -114,38 +114,36 @@ interface CardPlacement {
   arrowSide: "top" | "bottom" | "left" | "right" | null;
 }
 
+// Card width: full-bleed on narrow phones, fixed on larger screens
 const CARD_W = 320;
-const CARD_H = 220; // approximate; we'll use this for placement math
+const CARD_H = 220; // approximate height used for placement math
+
+function getCardW(vw: number) {
+  return Math.min(CARD_W, vw - 32);
+}
 
 function computePlacement(
   spot: SpotlightRect,
   vw: number,
   vh: number,
 ): CardPlacement {
-  const margin = 16;
-  const arrowLen = 48;
+  const margin = 12;
+  const arrowLen = 44;
+  const cardW = getCardW(vw);
 
-  // Try: below, above, right, left of spotlight
   const spCX = spot.left + spot.width / 2;
   const spCY = spot.top + spot.height / 2;
 
-  // below
-  if (spot.top + spot.height + arrowLen + CARD_H + margin < vh) {
-    const cardTop = spot.top + spot.height + arrowLen;
-    const cardLeft = Math.min(Math.max(spCX - CARD_W / 2, margin), vw - CARD_W - margin);
-    const cardCX = cardLeft + CARD_W / 2;
-    return {
-      top: cardTop, left: cardLeft,
-      arrowFrom: { x: spCX, y: spot.top + spot.height + SPOTLIGHT_PAD },
-      arrowTo: { x: cardCX, y: cardTop - 4 },
-      arrowSide: "top",
-    };
-  }
+  // If the spotlight is in the bottom third of the screen (e.g. mobile bottom nav),
+  // always place the card ABOVE — never try below first.
+  const inBottomThird = spot.top + spot.height > vh * 0.65;
+
   // above
-  if (spot.top - arrowLen - CARD_H - margin > 0) {
-    const cardTop = spot.top - arrowLen - CARD_H;
-    const cardLeft = Math.min(Math.max(spCX - CARD_W / 2, margin), vw - CARD_W - margin);
-    const cardCX = cardLeft + CARD_W / 2;
+  const aboveFits = spot.top - arrowLen - CARD_H - margin > 0;
+  if (inBottomThird || aboveFits) {
+    const cardTop = Math.max(margin, spot.top - arrowLen - CARD_H);
+    const cardLeft = Math.min(Math.max(spCX - cardW / 2, margin), vw - cardW - margin);
+    const cardCX = cardLeft + cardW / 2;
     return {
       top: cardTop, left: cardLeft,
       arrowFrom: { x: spCX, y: spot.top - SPOTLIGHT_PAD },
@@ -153,8 +151,20 @@ function computePlacement(
       arrowSide: "bottom",
     };
   }
+  // below
+  if (spot.top + spot.height + arrowLen + CARD_H + margin < vh) {
+    const cardTop = spot.top + spot.height + arrowLen;
+    const cardLeft = Math.min(Math.max(spCX - cardW / 2, margin), vw - cardW - margin);
+    const cardCX = cardLeft + cardW / 2;
+    return {
+      top: cardTop, left: cardLeft,
+      arrowFrom: { x: spCX, y: spot.top + spot.height + SPOTLIGHT_PAD },
+      arrowTo: { x: cardCX, y: cardTop - 4 },
+      arrowSide: "top",
+    };
+  }
   // right
-  if (spot.left + spot.width + arrowLen + CARD_W + margin < vw) {
+  if (spot.left + spot.width + arrowLen + cardW + margin < vw) {
     const cardLeft = spot.left + spot.width + arrowLen;
     const cardTop = Math.min(Math.max(spCY - CARD_H / 2, margin), vh - CARD_H - margin);
     const cardCY = cardTop + CARD_H / 2;
@@ -165,16 +175,15 @@ function computePlacement(
       arrowSide: "left",
     };
   }
-  // left
+  // left (fallback)
   {
-    const cardLeft = spot.left - arrowLen - CARD_W;
-    const safeLeft = Math.max(cardLeft, margin);
+    const cardLeft = Math.max(margin, spot.left - arrowLen - cardW);
     const cardTop = Math.min(Math.max(spCY - CARD_H / 2, margin), vh - CARD_H - margin);
     const cardCY = cardTop + CARD_H / 2;
     return {
-      top: cardTop, left: safeLeft,
+      top: cardTop, left: cardLeft,
       arrowFrom: { x: spot.left - SPOTLIGHT_PAD, y: spCY },
-      arrowTo: { x: safeLeft + CARD_W + 4, y: cardCY },
+      arrowTo: { x: cardLeft + cardW + 4, y: cardCY },
       arrowSide: "right",
     };
   }
@@ -196,22 +205,44 @@ export function OnboardingTour({ role }: Props) {
   const current = steps[step];
   const isLast = step === steps.length - 1;
 
-  // Measure target element and compute card placement
+  // Measure target element and compute card placement.
+  // There may be TWO elements with the same data-tour (sidebar nav + mobile bottom nav).
+  // We pick whichever one is actually visible on screen (non-zero size & inside viewport).
   const measure = useCallback(() => {
     if (!current.target) {
       setSpotlight(null);
       setPlacement(null);
       return;
     }
-    const el = document.querySelector<HTMLElement>(`[data-tour="${current.target}"]`);
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    const candidates = Array.from(
+      document.querySelectorAll<HTMLElement>(`[data-tour="${current.target}"]`)
+    );
+
+    // Pick the candidate that has a non-zero rect fully within the visible viewport
+    const el =
+      candidates.find((c) => {
+        const r = c.getBoundingClientRect();
+        return (
+          r.width > 0 &&
+          r.height > 0 &&
+          r.top < vh &&
+          r.bottom > 0 &&
+          r.left < vw &&
+          r.right > 0
+        );
+      }) ?? candidates[0];
+
     if (!el) {
       setSpotlight(null);
       setPlacement(null);
       return;
     }
+
     const r = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
     const pad = SPOTLIGHT_PAD;
     const spot: SpotlightRect = {
       top: r.top - pad,
@@ -265,11 +296,12 @@ export function OnboardingTour({ role }: Props) {
   const { Icon } = current;
   const vw = typeof window !== "undefined" ? window.innerWidth : 375;
   const vh = typeof window !== "undefined" ? window.innerHeight : 812;
+  const cardW = getCardW(vw);
 
   // Where to put card when there's no spotlight (welcome/end steps)
   const centeredCard: CardPlacement = {
     top: vh / 2 - CARD_H / 2,
-    left: Math.max(16, vw / 2 - CARD_W / 2),
+    left: Math.max(16, vw / 2 - cardW / 2),
     arrowFrom: { x: 0, y: 0 },
     arrowTo: { x: 0, y: 0 },
     arrowSide: null,
@@ -382,8 +414,8 @@ export function OnboardingTour({ role }: Props) {
         style={{
           position: "fixed",
           top: Math.max(8, Math.min(cardPos.top, vh - CARD_H - 8)),
-          left: Math.max(8, Math.min(cardPos.left, vw - CARD_W - 8)),
-          width: CARD_W,
+          left: Math.max(8, Math.min(cardPos.left, vw - cardW - 8)),
+          width: cardW,
           zIndex: 9999,
           pointerEvents: "auto",
         }}

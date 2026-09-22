@@ -357,7 +357,6 @@ export function AppShell({
             search={item.search as any}
             onClick={() => setOpen(false)}
             aria-current={active ? "page" : undefined}
-            data-tour={item.to.replace("/", "")}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors relative",
               active
@@ -507,7 +506,7 @@ export function AppShell({
             <TooltipContent side="bottom">View your profile</TooltipContent>
           </Tooltip>
         </header>
-        <main className="flex-1 px-3 py-4 pb-20 sm:px-6 sm:py-6 lg:pb-6 page-enter">{children}</main>
+        <main className="flex-1 px-3 py-4 pb-20 sm:px-6 sm:py-6 lg:pb-6 page-enter"><div key={lang}>{children}</div></main>
 
         {/* Mobile FAB — Apply Leave shortcut for teachers/HODs only */}
         {(role === "teacher" || role === "hod") && pathname !== "/apply" && (
@@ -537,7 +536,6 @@ export function AppShell({
                     to={item.to}
                     search={item.search as any}
                     aria-current={active ? "page" : undefined}
-                    data-tour={item.to.replace("/", "")}
                     className={cn(
                       "flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium transition-colors",
                       active ? "text-primary" : "text-muted-foreground hover:text-foreground"
