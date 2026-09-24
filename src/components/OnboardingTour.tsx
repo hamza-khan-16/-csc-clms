@@ -279,12 +279,10 @@ export function OnboardingTour({ role, allNavItems, mobileNavItems }: Props) {
     };
   }, []);
 
-  // ── mount — TESTING MODE ─────────────────────────────────────────────────
+  // ── mount — show only once for new users ─────────────────────────────────
   useEffect(() => {
     setMounted(true);
-    // TESTING MODE: always show. For production replace with:
-    //   if (!localStorage.getItem(TOUR_KEY)) setTimeout(() => setVisible(true), 800);
-    setTimeout(() => setVisible(true), 800);
+    if (!localStorage.getItem(TOUR_KEY)) setTimeout(() => setVisible(true), 800);
   }, []);
 
   // ── navigation ───────────────────────────────────────────────────────────

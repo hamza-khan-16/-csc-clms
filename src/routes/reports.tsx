@@ -4,8 +4,17 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { savePDF, saveXLSX } from "../lib/download";
-// jsPDF and autoTable are loaded dynamically inside export functions to avoid
-// adding ~500 KB to the initial bundle for users who never export a PDF.
+// jsPDF and autoTable are loaded lazily to keep the initial bundle small (~500 KB saved).
+// The module-level promise caches the import so concurrent or repeated clicks never
+// trigger a second network fetch.
+let _pdfLibs: Promise<{ jsPDF: typeof import("jspdf")["jsPDF"]; autoTable: typeof import("jspdf-autotable")["default"] }> | null = null;
+function loadPdfLibs() {
+  if (!_pdfLibs) {
+    _pdfLibs = Promise.all([import("jspdf"), import("jspdf-autotable")])
+      .then(([{ jsPDF }, { default: autoTable }]) => ({ jsPDF, autoTable }));
+  }
+  return _pdfLibs;
+}
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { fetchPeople } from "@/lib/people";
@@ -525,8 +534,7 @@ async function exportPrincipalPDF(
   leaves: any[],
   people: Record<string, any>,
 ) {
-  const { jsPDF } = await import("jspdf");
-  const { autoTable } = await import("jspdf-autotable");
+  const { jsPDF, autoTable } = await loadPdfLibs();
   const doc    = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
   const pageW  = doc.internal.pageSize.getWidth();
   const generatedOn = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" });
@@ -620,8 +628,7 @@ async function exportPrincipalPDF(
   await savePDF(doc, `Principal_Leave_Report_${deptTabLabel.replace(/[^a-zA-Z0-9]/g, "_")}_${year}.pdf`);
 }
 async function exportPDF(month: number, year: number, label: string, summaries: ReturnType<typeof buildTeacherSummary>[], workingDays: Date[]) {
-  const { jsPDF } = await import("jspdf");
-  const { autoTable } = await import("jspdf-autotable");
+  const { jsPDF, autoTable } = await loadPdfLibs();
   const weeks   = getWeeksInMonth(workingDays);
   const doc     = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
   const pageW   = doc.internal.pageSize.getWidth();

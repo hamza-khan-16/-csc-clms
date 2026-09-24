@@ -55,7 +55,7 @@ function renderNoticeBody(text: string): React.ReactNode {
   );
 }
 
-import { CalendarClock, CalendarDays, CheckCheck, ChevronDown, ChevronUp, ClipboardList, Trash2 } from "lucide-react";
+import { CalendarClock, CalendarDays, CheckCheck, ChevronDown, ChevronUp, ClipboardList, Trash2, Users } from "lucide-react";
 import { validateMeaningfulText, liveTextHint } from "@/lib/validateText";
 import { GuardedInput, GuardedTextarea } from "@/components/GuardedField";
 import { supabase } from "@/integrations/supabase/client";
@@ -143,17 +143,63 @@ function NoticesPage() {
     },
   });
 
+  // Read-receipt counts — fetched for principal/HR/admin/HOD so they can see "X of Y read".
+  // HODs only published to their own department, so their denominator is dept teacher count.
+  // Principal/HR/admin publish college-wide, so their denominator is all approved teachers.
+  const isHod = role === "hod";
+  const canSeeReceipts = !!(isPrincipal || isHr || role === "admin" || isHod) && !!profile?.id;
+  const { data: readReceiptData } = useQuery({
+    queryKey: ["notice-read-counts", profile?.id, profile?.department_id],
+    enabled: canSeeReceipts,
+    staleTime: 30_000,
+    queryFn: async () => {
+      // HOD: total teachers = only their department; others: all approved teachers
+      const teacherQuery = isHod && profile?.department_id
+        ? supabase
+            .from("profiles")
+            .select("id", { count: "exact", head: true })
+            .eq("approved", true)
+            .eq("department_id", profile.department_id)
+        : supabase
+            .from("profiles")
+            .select("id", { count: "exact", head: true })
+            .eq("approved", true);
+
+      const [countsRes, teacherRes] = await Promise.all([
+        (supabase as any)
+          .from("notice_reads")
+          .select("notice_id")
+          .then(({ data, error }: any) => {
+            if (error) throw error;
+            const counts: Record<string, number> = {};
+            for (const r of data ?? []) counts[r.notice_id] = (counts[r.notice_id] ?? 0) + 1;
+            return counts;
+          }),
+        teacherQuery,
+      ]);
+      return {
+        readCounts: countsRes as Record<string, number>,
+        totalTeachers: teacherRes.count ?? 0,
+      };
+    },
+  });
+  const readCounts    = readReceiptData?.readCounts    ?? {};
+  const totalTeachers = readReceiptData?.totalTeachers ?? 0;
+
   const { data: notices = [] } = useQuery({
     queryKey: ["notices"],
     queryFn: async () => {
       const today = new Date().toISOString().slice(0, 10);
 
-      // Auto-delete notices whose event_date has passed
-      await supabase
-        .from("notices")
-        .delete()
-        .not("event_date", "is", null)
-        .lt("event_date", today);
+      // Auto-delete notices whose event_date has passed — only principal/admin
+      // should mutate data; firing this for every role that opens the page is wrong.
+      if (isPrincipal || role === "admin") {
+        await supabase
+          .from("notices")
+          .delete()
+          .not("event_date", "is", null)
+          .lt("event_date", today);
+      }
 
       const { data, error } = await supabase
         .from("notices")
@@ -270,17 +316,20 @@ function NoticesPage() {
               {notices.map((n) => {
                 const hasEvent = n.event_date;
                 const isLong = (n.body?.length ?? 0) > 120;
+                const isOwner = n.created_by === profile?.id;
                 return (
                   <NoticeCard
                     key={n.id}
                     notice={n}
                     hasEvent={!!hasEvent}
                     isLong={isLong}
-                    canDelete={n.created_by === profile?.id || role === "admin"}
+                    canDelete={isOwner || role === "admin"}
                     onDelete={() => remove(n.id)}
                     userId={profile?.id}
                     isRead={readIds.has(n.id)}
                     onAck={(id) => setReadIds(prev => new Set([...prev, id]))}
+                    readCount={isOwner ? (readCounts[n.id] ?? 0) : undefined}
+                    totalTeachers={isOwner ? totalTeachers : undefined}
                   />
                 );
               })}
@@ -381,9 +430,10 @@ function NoticesPage() {
 
 type NoticeRow = { id: string; title: string; body: string | null; event_date: string | null; event_time: string | null; created_at: string; created_by: string | null; departments: { name: string } | null };
 
-function NoticeCard({ notice: n, hasEvent, isLong, canDelete, onDelete, userId, isRead, onAck }: {
+function NoticeCard({ notice: n, hasEvent, isLong, canDelete, onDelete, userId, isRead, onAck, readCount, totalTeachers }: {
   notice: NoticeRow; hasEvent: boolean; isLong: boolean; canDelete: boolean; onDelete: () => void;
   userId: string | undefined; isRead: boolean; onAck: (id: string) => void;
+  readCount?: number; totalTeachers?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [acked, setAcked] = useState(isRead);
@@ -456,7 +506,20 @@ function NoticeCard({ notice: n, hasEvent, isLong, canDelete, onDelete, userId, 
             </span>
           </>
         )}
-        {acked && <span className="ml-auto text-success flex items-center gap-1"><CheckCheck className="size-3" /> Read</span>}
+        {acked && <span className="text-success flex items-center gap-1"><CheckCheck className="size-3" /> Read</span>}
+        {readCount !== undefined && totalTeachers !== undefined && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="ml-auto flex items-center gap-1 cursor-default text-muted-foreground hover:text-foreground transition-colors">
+                <Users className="size-3" />
+                {readCount}/{totalTeachers} read
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {readCount} of {totalTeachers} teacher{totalTeachers !== 1 ? "s" : ""} acknowledged this notice
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
     </li>
   );

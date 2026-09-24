@@ -26,8 +26,13 @@ import {
 } from "@/components/ui/select";
 import {
   GraduationCap, Calendar, BookOpen, TrendingUp,
-  X, ChevronRight, Clock, UserCircle2, Edit3, Check, MessageCircle, KeyRound,
+  X, ChevronRight, Clock, UserCircle2, Edit3, Check, MessageCircle, KeyRound, AlertTriangle,
 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useServerFn } from "@tanstack/react-start";
 import { directPasswordReset } from "@/lib/admin.functions";
 import { fmtDate, leaveTypeLabel, type LeaveType } from "@/lib/leave";
@@ -290,6 +295,7 @@ function TeacherDetailPanel({
   const resetFn = useServerFn(directPasswordReset);
   const [tempPw, setTempPw] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
+  const [whatsappConfirm, setWhatsappConfirm] = useState(false);
 
   async function handleHodReset() {
     if (tempPw.length < 12) return toast.error("Password must be at least 12 characters");
@@ -307,13 +313,19 @@ function TeacherDetailPanel({
   function openWhatsApp() {
     const phone = (teacher as any).phone ?? "";
     if (!phone) { toast.error("No mobile number on file for this teacher"); return; }
-    // Strip non-digits, add India country code if not present
+    // Show confirm dialog before sending — lets HOD verify the number
+    setWhatsappConfirm(true);
+  }
+
+  function sendWhatsApp() {
+    const phone = (teacher as any).phone ?? "";
     const digits = phone.replace(/\D/g, "");
     const intl = digits.startsWith("91") ? digits : `91${digits}`;
     const msg = encodeURIComponent(
       `Dear ${teacher.full_name},\n\nYour CSC LMS password has been reset by your HOD.\n\nTemporary password: ${tempPw}\n\nPlease log in and change your password immediately from your Profile page.\n\nRegards,\nChandrabhan Sharma College`
     );
     window.open(`https://wa.me/${intl}?text=${msg}`, "_blank");
+    setWhatsappConfirm(false);
   }
 
   // DOB: stored as "DD-MM" or "DD-MM-YYYY"; split into 3 fields
@@ -652,14 +664,38 @@ function TeacherDetailPanel({
               </Button>
             </div>
             {tempPw.length >= 12 && (
-              <Button
-                size="sm"
-                className="w-full gap-2 bg-[#25D366] hover:bg-[#20bc5a] text-white"
-                onClick={openWhatsApp}
-              >
-                <MessageCircle className="size-4" />
-                Send via WhatsApp
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  className="w-full gap-2 bg-[#25D366] hover:bg-[#20bc5a] text-white"
+                  onClick={openWhatsApp}
+                >
+                  <MessageCircle className="size-4" />
+                  Send via WhatsApp
+                </Button>
+                <AlertDialog open={whatsappConfirm} onOpenChange={setWhatsappConfirm}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="flex items-center gap-2">
+                        <AlertTriangle className="size-4 text-warning-foreground" />
+                        Confirm WhatsApp send
+                      </AlertDialogTitle>
+                      <AlertDialogDescription className="space-y-1">
+                        <span className="block">This will send the temporary password to:</span>
+                        <span className="block font-semibold text-foreground">{teacher.full_name}</span>
+                        <span className="block text-sm">+{((teacher as any).phone ?? "").replace(/\D/g, "").replace(/^(?!91)/, "91")}</span>
+                        <span className="block pt-1 text-xs text-destructive font-medium">Make sure this number is correct before sending.</span>
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction className="bg-[#25D366] hover:bg-[#20bc5a] text-white" onClick={sendWhatsApp}>
+                        Yes, send it
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
             )}
             {!(teacher as any).phone && (
               <p className="text-xs text-warning">⚠ No mobile number on file — WhatsApp unavailable. Ask teacher to add their number in Profile.</p>

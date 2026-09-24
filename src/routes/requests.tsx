@@ -1611,6 +1611,15 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     return !guardErr;
   }
 
+  async function writeAudit(action: string, note?: string) {
+    await supabase.from("leave_audit_log").insert({
+      leave_request_id: request.id,
+      action,
+      actor_id: profile?.id ?? null,
+      note: note?.trim() || null,
+    }).then(({ error }) => { if (error) console.warn("Audit log write failed:", error.message); });
+  }
+
   async function hodRecommend() {
     if (!checkNote()) return;
     setBusy(true);
@@ -1619,6 +1628,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     const { error } = await supabase.from("leave_requests").update({ status: "pending_principal", hod_note: note.trim() || null, hod_acted_at: new Date().toISOString() }).eq("id", request.id);
     setBusy(false);
     if (error) return toast.error(error.message);
+    void writeAudit("hod_recommended", note);
     haptic("success");
     toast.success("Recommended to the principal");
     // Notify teacher their leave was approved by HOD (awaiting principal)
@@ -1642,6 +1652,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     const { error } = await supabase.from("leave_requests").update({ status: "hod_approved", doc_status: "required", hod_note: note.trim() || null, hod_acted_at: new Date().toISOString() }).eq("id", request.id);
     setBusy(false);
     if (error) { qc.invalidateQueries({ queryKey: ["review-requests"] }); return toast.error(error.message); }
+    void writeAudit("hod_approved", note);
     haptic("success");
     toast.success(`Leave approved — teacher must upload ${requiredDoc}`);
     firePush({ userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: `/leaves?highlight=${request.id}` });
@@ -1720,6 +1731,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     }
 
     setBusy(false);
+    void writeAudit(isHod ? "hod_rejected" : "principal_rejected", note);
     haptic("warning");
     toast.success("Leave rejected");
     // Notify teacher their leave was rejected
@@ -1755,6 +1767,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     }).eq("id", request.id);
     setBusy(false);
     if (error) { qc.invalidateQueries({ queryKey: ["review-requests"] }); return toast.error(error.message); }
+    void writeAudit("principal_approved", note);
     haptic("success");
     toast.success("Leave approved");
     firePush({ userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: `/leaves?highlight=${request.id}` });

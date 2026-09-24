@@ -274,7 +274,7 @@ function TeacherDashboard() {
         event: "*", schema: "public", table: "proxy_assignments",
         filter: `proxy_teacher_id=eq.${profile.id}`,
       }, () => {
-        qc.invalidateQueries({ queryKey: ["dash-proxies"] });
+        qc.invalidateQueries({ queryKey: ["dash-proxies-holidays"] });
       })
       // Lectures changed (schedule upload, HOD edits)
       .on("postgres_changes", {
@@ -421,39 +421,37 @@ function TeacherDashboard() {
     },
   });
 
-  const { data: proxies = [] } = useQuery({
-    queryKey: ["dash-proxies", profile?.id],
+  // ── Batch: pending proxies + upcoming holidays (two fast queries, single cache entry) ─
+  const { data: proxiesAndHolidays } = useQuery({
+    queryKey: ["dash-proxies-holidays", profile?.id],
     enabled: !!profile,
+    staleTime: 60_000,
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("proxy_assignments")
-        .select("id, proxy_date, start_time, end_time, subject, class_name, status")
-        .eq("proxy_teacher_id", profile!.id)
-        .eq("status", "pending")
-        .order("proxy_date")
-        .limit(4);
-      if (error) throw error;
-      return data;
+      const [proxiesRes, holidaysRes] = await Promise.all([
+        supabase
+          .from("proxy_assignments")
+          .select("id, proxy_date, start_time, end_time, subject, class_name, status")
+          .eq("proxy_teacher_id", profile!.id)
+          .eq("status", "pending")
+          .order("proxy_date")
+          .limit(4),
+        supabase
+          .from("holidays")
+          .select("id, holiday_date, occasion, kind")
+          .gte("holiday_date", todayISO())
+          .order("holiday_date")
+          .limit(5),
+      ]);
+      if (proxiesRes.error) throw proxiesRes.error;
+      if (holidaysRes.error) throw holidaysRes.error;
+      return { proxies: proxiesRes.data ?? [], holidays: holidaysRes.data ?? [] };
     },
   });
-
-  const { data: holidays = [] } = useQuery({
-    queryKey: ["upcoming-holidays"],
-    staleTime: 60 * 60_000,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("holidays")
-        .select("id, holiday_date, occasion, kind")
-        .gte("holiday_date", todayISO())
-        .order("holiday_date")
-        .limit(5);
-      if (error) throw error;
-      return data;
-    },
-  });
+  const proxies  = proxiesAndHolidays?.proxies  ?? [];
+  const holidays = proxiesAndHolidays?.holidays ?? [];
 
   // ── Batch: notices preview + HOD pending count (parallel, single cache entry) ─
   const { data: sideData } = useQuery({
@@ -478,7 +476,7 @@ function TeacherDashboard() {
   const noticePreview = sideData?.noticePreview ?? [];
   const pendingForHod = sideData?.pendingForHod ?? 0;
 
-  // HOD: who's absent today in dept
+  // HOD: who's absent today in dept — join profiles directly to avoid a second round trip
   const { data: deptAbsent = [] } = useQuery({
     queryKey: ["dept-absent-today", profile?.department_id],
     enabled: role === "hod" && !!profile?.department_id,
@@ -487,15 +485,16 @@ function TeacherDashboard() {
       const today = todayISO();
       const { data } = await supabase
         .from("leave_requests")
-        .select("id, teacher_id, leave_type, status, from_date, to_date")
+        .select("id, teacher_id, leave_type, status, from_date, to_date, profiles(full_name)")
         .in("status", ["approved","hod_approved","pending_hod"])
         .eq("department_id", profile!.department_id ?? "")
         .lte("from_date", today)
         .gte("to_date", today);
       if (!data?.length) return [];
-      const { fetchPeople: fp } = await import("@/lib/people");
-      const people = await fp(data.map(r => r.teacher_id));
-      return data.map(r => ({ ...r, name: people[r.teacher_id]?.full_name ?? r.teacher_id }));
+      return data.map(r => ({
+        ...r,
+        name: (r.profiles as { full_name: string } | null)?.full_name ?? r.teacher_id,
+      }));
     },
   });
 

@@ -147,6 +147,8 @@ export function AppShell({
   const [open, setOpen] = useState(false);
   const [offline, setOffline] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
+  // Staging state — changes here only apply to pinnedTabs when user confirms
+  const [pendingPins, setPendingPins] = useState<string[]>([]);
 
   // ── Android double-back-to-exit (Median app, dashboard screen only) ─────────
   const [showExitToast, setShowExitToast] = useState(false);
@@ -561,7 +563,19 @@ export function AppShell({
           })}
 
           {/* Customise button */}
-          <Sheet open={customizeOpen} onOpenChange={setCustomizeOpen}>
+          <Sheet
+            open={customizeOpen}
+            onOpenChange={(o) => {
+              if (o) {
+                // Seed pending selection from the current effective pins when opening
+                const effective = pinnedTabs.length === 0
+                  ? mobileNavItems.map((i) => i.to)
+                  : pinnedTabs;
+                setPendingPins(effective);
+              }
+              setCustomizeOpen(o);
+            }}
+          >
             <Tooltip>
               <TooltipTrigger asChild>
                 <SheetTrigger asChild>
@@ -585,16 +599,23 @@ export function AppShell({
                   Pick up to {MAX_MOBILE_TABS} tabs to pin in your bottom bar.
                 </p>
               </SheetHeader>
-              <ul className="mt-1 flex flex-col gap-1 pb-4">
+              <ul className="mt-1 flex flex-col gap-1 pb-2">
                 {visible.map((item) => {
                   const Icon = item.icon;
-                  const effectivePins = pinnedTabs.length === 0 ? mobileNavItems.map((i) => i.to) : pinnedTabs;
-                  const isPinned = effectivePins.includes(item.to);
-                  const canAdd = effectivePins.length < MAX_MOBILE_TABS || isPinned;
+                  const isPinned = pendingPins.includes(item.to);
+                  const canAdd = pendingPins.length < MAX_MOBILE_TABS || isPinned;
                   return (
                     <li key={item.to}>
                       <button
-                        onClick={() => togglePinned(item.to)}
+                        onClick={() => {
+                          setPendingPins((prev) =>
+                            prev.includes(item.to)
+                              ? prev.filter((t) => t !== item.to)
+                              : prev.length < MAX_MOBILE_TABS
+                                ? [...prev, item.to]
+                                : [...prev.slice(0, MAX_MOBILE_TABS - 1), item.to]
+                          );
+                        }}
                         disabled={!isPinned && !canAdd}
                         className={cn(
                           "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors",
@@ -617,6 +638,17 @@ export function AppShell({
                   );
                 })}
               </ul>
+              <div className="sticky bottom-0 bg-background pt-2 pb-4">
+                <button
+                  onClick={() => {
+                    updatePinnedTabs(pendingPins);
+                    setCustomizeOpen(false);
+                  }}
+                  className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 active:scale-[0.98]"
+                >
+                  Confirm ({pendingPins.length}/{MAX_MOBILE_TABS} selected)
+                </button>
+              </div>
             </SheetContent>
           </Sheet>
         </nav>

@@ -434,7 +434,6 @@ function injectGoogleTranslate() {
   if ((window as any).__gtInjected) return;
   (window as any).__gtInjected = true;
 
-  // Inject CSS to hide ALL Google Translate UI elements
   const style = document.createElement("style");
   style.id = "gt-hide-style";
   style.textContent = `
@@ -443,22 +442,26 @@ function injectGoogleTranslate() {
     .goog-te-banner-frame, .goog-te-menu-frame,
     .goog-te-balloon-frame, .goog-tooltip, .goog-tooltip *,
     .goog-te-gadget, .goog-te-gadget *,
+    .VIpgJd-ZVi9od-aZ2wEe-wOHMyf,
     iframe[name="votingFrame"] { display: none !important; }
     body { top: 0 !important; }
-    .VIpgJd-ZVi9od-aZ2wEe-wOHMyf { display: none !important; }
   `;
   document.head.appendChild(style);
 
-  // Create anchor DIV directly on body — OUTSIDE React's root so React
-  // never touches it and removeChild errors cannot happen
   const anchor = document.createElement("div");
   anchor.id = "gt-anchor";
-  anchor.style.cssText = "display:none!important;position:absolute;width:0;height:0;overflow:hidden;";
+  // Position off-screen but NOT display:none — GT won't populate the select if hidden at init
+  anchor.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;";
   document.body.appendChild(anchor);
 
   (window as any).googleTranslateElementInit = function () {
     new (window as any).google.translate.TranslateElement(
-      { pageLanguage: "en", autoDisplay: false, gaTrack: false },
+      {
+        pageLanguage: "en",
+        includedLanguages: "en,hi,mr",
+        autoDisplay: false,
+        gaTrack: false,
+      },
       "gt-anchor"
     );
   };
@@ -473,18 +476,49 @@ function applyGoogleTranslate(lang: Lang) {
   if (typeof window === "undefined") return;
   const code = GT_LANG[lang];
 
+  // Set the googtrans cookie first — GT reads this as the authoritative
+  // language source and uses it even if the select event is missed.
+  const cookieVal = lang === "en" ? "" : `/en/${code}`;
+  document.cookie = `googtrans=${cookieVal}; path=/`;
+  document.cookie = `googtrans=${cookieVal}; path=/; domain=${window.location.hostname}`;
+
+  function fireSelect(select: HTMLSelectElement, value: string) {
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    select.dispatchEvent(new Event("input",  { bubbles: true }));
+  }
+
   function attempt(tries: number) {
     const select = document.querySelector<HTMLSelectElement>(".goog-te-combo");
     if (!select) {
       if (tries > 0) setTimeout(() => attempt(tries - 1), 400);
       return;
     }
-    if (select.value === code) return;
-    select.value = code;
-    select.dispatchEvent(new Event("change"));
+
+    if (lang === "en") {
+      document.cookie = "googtrans=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      document.cookie = `googtrans=; path=/; domain=${window.location.hostname}; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+      fireSelect(select, "en");
+      return;
+    }
+
+    const currentVal = select.value;
+    // Switching directly between two non-English languages is unreliable in GT.
+    // Always bounce through English first, then apply the target language.
+    if (currentVal && currentVal !== "en" && currentVal !== code) {
+      fireSelect(select, "en");
+      setTimeout(() => {
+        const s2 = document.querySelector<HTMLSelectElement>(".goog-te-combo");
+        if (s2) fireSelect(s2, code);
+      }, 800);
+      return;
+    }
+
+    fireSelect(select, code);
   }
 
-  attempt(10);
+  // Double rAF ensures React finishes painting before GT touches text nodes
+  requestAnimationFrame(() => requestAnimationFrame(() => attempt(20)));
 }
 
 export function LangProvider({ children }: { children: ReactNode }) {
@@ -507,7 +541,18 @@ export function LangProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(LEGACY_KEY, l);
       }
     } catch { /**/ }
+
+    // For non-English languages, a page reload is the most reliable way to
+    // apply Google Translate cleanly (GT reads the googtrans cookie on load).
+    // applyGoogleTranslate already sets the cookie synchronously before we
+    // reload, so the new lang is applied instantly on the reloaded page.
+    // The reload is near-instant from the browser/WebView cache and feels
+    // seamless to the user.
     applyGoogleTranslate(l);
+    if (l !== "en") {
+      // Small delay so the cookie write has flushed before reload
+      setTimeout(() => window.location.reload(), 50);
+    }
   }, []);
 
   // Called by LangUserSync with the authed user's id
@@ -522,6 +567,9 @@ export function LangProvider({ children }: { children: ReactNode }) {
         "en";
       setLangState(saved);
       document.documentElement.lang = saved;
+      // GT is applied via the googtrans cookie set during setLang — no need
+      // to call applyGoogleTranslate here since the page reloaded with the
+      // correct cookie already in place.
     } catch { /**/ }
   }, []);
 
@@ -539,12 +587,12 @@ export function LangProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { document.documentElement.lang = lang; }, [lang]);
 
-  // Inject Google Translate once on mount; re-apply saved non-English lang
+  // Inject Google Translate once on mount.
+  // NOTE: do NOT call applyGoogleTranslate here — lang is captured at mount
+  // time and _setUserId (which runs after auth) may change it. GT is applied
+  // inside _setUserId after the correct lang is known.
   useEffect(() => {
     injectGoogleTranslate();
-    if (lang !== "en") {
-      setTimeout(() => applyGoogleTranslate(lang), 1800);
-    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

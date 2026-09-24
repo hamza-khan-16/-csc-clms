@@ -195,7 +195,16 @@ function RootShell({ children }: { children: ReactNode }) {
     <html lang="en">
       <head>
         <HeadContent />
-        {/* Blocking script — applies dark class before paint to prevent flash */}
+        {/* Preconnect to Google Translate domains — ensures DNS resolves before GT loads,
+            fixes ERR_NAME_NOT_RESOLVED for gstatic.com in restricted webview environments */}
+        <link rel="preconnect" href="https://translate.googleapis.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://translate.google.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://www.gstatic.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://translate.googleapis.com" />
+        <link rel="dns-prefetch" href="https://translate.google.com" />
+        <link rel="dns-prefetch" href="https://www.gstatic.com" />
+        <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+        <script dangerouslySetInnerHTML={{ __html: `(function(){if(Node.prototype.__gtPatched)return;Node.prototype.__gtPatched=true;var _rc=Node.prototype.removeChild;Node.prototype.removeChild=function(c){if(c.parentNode!==this)return c;return _rc.call(this,c);};var _ib=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){try{return _ib.call(this,n,r);}catch(e){return n;}};})();` }} />
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})();` }} />
         {/* Lock orientation to portrait — prevents layout breaking on phone rotation */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{if(screen.orientation&&screen.orientation.lock){screen.orientation.lock('portrait').catch(function(){});}}catch(e){}})();` }} />

@@ -4,7 +4,15 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { savePDF, saveXLSX } from "../lib/download";
-// jsPDF loaded dynamically inside export functions to keep initial bundle lean.
+// jsPDF loaded lazily; module-level cache prevents duplicate network fetches on rapid clicks.
+let _pdfLibs: Promise<{ jsPDF: typeof import("jspdf")["jsPDF"]; autoTable: typeof import("jspdf-autotable")["default"] }> | null = null;
+function loadPdfLibs() {
+  if (!_pdfLibs) {
+    _pdfLibs = Promise.all([import("jspdf"), import("jspdf-autotable")])
+      .then(([{ jsPDF }, { default: autoTable }]) => ({ jsPDF, autoTable }));
+  }
+  return _pdfLibs;
+}
 import { supabase } from "@/integrations/supabase/client";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Tooltip as UITooltip, TooltipContent as _UITooltipContent, TooltipTrigger as UITooltipTrigger } from "@/components/ui/tooltip";
@@ -455,8 +463,7 @@ function AdminReportsPage() {
       const headers  = Object.keys(rows[0]);
       const body     = rows.map((r) => headers.map((h) => String(r[h] ?? "—")));
       const isWide   = headers.length > 6;
-      const { jsPDF } = await import("jspdf");
-      const { autoTable } = await import("jspdf-autotable");
+      const { jsPDF, autoTable } = await loadPdfLibs();
       const doc      = new jsPDF({ orientation: isWide ? "landscape" : "portrait", unit: "mm", format: "a4" });
       const pageW    = doc.internal.pageSize.getWidth();
 
