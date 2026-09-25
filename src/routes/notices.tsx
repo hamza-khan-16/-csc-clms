@@ -165,20 +165,32 @@ function NoticesPage() {
             .select("id", { count: "exact", head: true })
             .eq("approved", true);
 
-      const [countsRes, teacherRes] = await Promise.all([
-        (supabase as any)
-          .from("notice_reads")
-          .select("notice_id")
-          .then(({ data, error }: any) => {
-            if (error) throw error;
-            const counts: Record<string, number> = {};
-            for (const r of data ?? []) counts[r.notice_id] = (counts[r.notice_id] ?? 0) + 1;
-            return counts;
-          }),
-        teacherQuery,
-      ]);
+      // For HOD: only count reads from teachers in the same department.
+      // We join notice_reads → profiles on user_id so we can filter by department_id.
+      // For principal/admin/HR: count all reads unconditionally.
+      const readsQuery = isHod && profile?.department_id
+        ? (supabase as any)
+            .from("notice_reads")
+            .select("notice_id, profiles!notice_reads_user_id_fkey(department_id)")
+            .eq("profiles.department_id", profile.department_id)
+        : (supabase as any)
+            .from("notice_reads")
+            .select("notice_id");
+
+      const [readsRes, teacherRes] = await Promise.all([readsQuery, teacherQuery]);
+
+      if (readsRes.error) throw readsRes.error;
+
+      // Build a per-notice_id count map, filtering out rows where the join
+      // returned no matching profile (i.e. reader was from a different dept — HOD case).
+      const countsRes: Record<string, number> = {};
+      for (const r of readsRes.data ?? []) {
+        // When joined, a non-matching dept_id row comes back with profiles = null
+        if (isHod && r.profiles === null) continue;
+        countsRes[r.notice_id] = (countsRes[r.notice_id] ?? 0) + 1;
+      }
       return {
-        readCounts: countsRes as Record<string, number>,
+        readCounts: countsRes,
         totalTeachers: teacherRes.count ?? 0,
       };
     },
@@ -327,7 +339,11 @@ function NoticesPage() {
                     onDelete={() => remove(n.id)}
                     userId={profile?.id}
                     isRead={readIds.has(n.id)}
-                    onAck={(id) => setReadIds(prev => new Set([...prev, id]))}
+                    onAck={(id) => {
+                      setReadIds(prev => new Set([...prev, id]));
+                      // Refresh receipt counts so the poster sees the updated number
+                      qc.invalidateQueries({ queryKey: ["notice-read-counts"] });
+                    }}
                     readCount={isOwner ? (readCounts[n.id] ?? 0) : undefined}
                     totalTeachers={isOwner ? totalTeachers : undefined}
                   />

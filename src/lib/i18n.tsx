@@ -522,18 +522,24 @@ function applyGoogleTranslate(lang: Lang) {
 }
 
 export function LangProvider({ children }: { children: ReactNode }) {
-  // We don't know userId yet (AuthProvider is nested inside us).
-  // Start with legacy shared key as fallback, then LangUserSync updates us.
+  // userId is unknown until AuthProvider resolves — LangUserSync calls _setUserId.
+  // We never read from the shared LEGACY_KEY on mount to avoid one user's
+  // language preference bleeding into another user's session.
   const userIdRef = useRef<string | null>(null);
 
   const [lang, setLangState] = useState<Lang>(() => {
     if (typeof window === "undefined") return "en";
-    return (localStorage.getItem(LEGACY_KEY) as Lang | null) ?? "en";
+    // On mount we don't have a userId yet, so we can't read the per-user key.
+    // Default to English; _setUserId will restore the correct language once
+    // auth resolves (before the user sees any content).
+    return "en";
   });
 
   const setLang = useCallback((l: Lang) => {
     setLangState(l);
     document.documentElement.lang = l;
+    // Always save to the per-user key when we have a userId.
+    // Fall back to LEGACY_KEY only when called before auth (e.g. login page).
     try {
       if (userIdRef.current) {
         localStorage.setItem(userKey(userIdRef.current), l);
@@ -542,34 +548,32 @@ export function LangProvider({ children }: { children: ReactNode }) {
       }
     } catch { /**/ }
 
-    // For non-English languages, a page reload is the most reliable way to
-    // apply Google Translate cleanly (GT reads the googtrans cookie on load).
-    // applyGoogleTranslate already sets the cookie synchronously before we
-    // reload, so the new lang is applied instantly on the reloaded page.
-    // The reload is near-instant from the browser/WebView cache and feels
-    // seamless to the user.
+    // Set the googtrans cookie and reload for ALL language changes so GT is
+    // applied cleanly from the cookie on the fresh page load.
+    // English clears the cookie; non-English sets /en/<code>.
     applyGoogleTranslate(l);
-    if (l !== "en") {
-      // Small delay so the cookie write has flushed before reload
-      setTimeout(() => window.location.reload(), 50);
-    }
+    setTimeout(() => window.location.reload(), 50);
   }, []);
 
-  // Called by LangUserSync with the authed user's id
+  // Called by LangUserSync with the authed user's id (or null on logout).
   const _setUserId = useCallback((id: string | null) => {
     userIdRef.current = id;
-    if (!id) return;
+    if (!id) {
+      // Logged out — reset to English so the next user starts clean.
+      setLangState("en");
+      document.documentElement.lang = "en";
+      // Clear the GT cookie so the page shows English.
+      document.cookie = "googtrans=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      document.cookie = `googtrans=; path=/; domain=${window.location.hostname}; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+      return;
+    }
     try {
-      // Load this user's preference; fall back to legacy key
-      const saved =
-        (localStorage.getItem(userKey(id)) as Lang | null) ??
-        (localStorage.getItem(LEGACY_KEY) as Lang | null) ??
-        "en";
+      // Read only the per-user key — never LEGACY_KEY, to avoid inheriting
+      // a previous user's preference on a shared device.
+      const saved = (localStorage.getItem(userKey(id)) as Lang | null) ?? "en";
       setLangState(saved);
       document.documentElement.lang = saved;
-      // GT is applied via the googtrans cookie set during setLang — no need
-      // to call applyGoogleTranslate here since the page reloaded with the
-      // correct cookie already in place.
+      // GT cookie is already set from the previous reload; nothing to do here.
     } catch { /**/ }
   }, []);
 

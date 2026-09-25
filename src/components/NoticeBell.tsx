@@ -212,16 +212,47 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
       saveSeenIds(next, userId);
       return next;
     });
+    // For notice items, also write to notice_reads so the poster's
+    // read-receipt count increments correctly.
+    if (id.startsWith("notice-") && userId) {
+      const noticeId = id.replace(/^notice-/, "");
+      (supabase as any)
+        .from("notice_reads")
+        .upsert({ user_id: userId, notice_id: noticeId }, { onConflict: "user_id,notice_id" })
+        .then(({ error }: any) => {
+          if (error && process.env.NODE_ENV === "development") {
+            console.warn("[NoticeBell] notice_reads upsert failed:", error.message);
+          }
+        });
+    }
   }
 
   // Mark all as read
   function markAllRead() {
+    const newlyReadNoticeIds: string[] = [];
     setSeenIds((prev) => {
       const next = new Set(prev);
-      allItems.forEach((i) => next.add(i.id));
+      allItems.forEach((i) => {
+        if (!prev.has(i.id)) {
+          next.add(i.id);
+          if (i.kind === "notice") newlyReadNoticeIds.push(i.id.replace(/^notice-/, ""));
+        }
+      });
       saveSeenIds(next, userId);
       return next;
     });
+    // Batch-upsert all newly read notices to notice_reads
+    if (newlyReadNoticeIds.length > 0 && userId) {
+      const rows = newlyReadNoticeIds.map((noticeId) => ({ user_id: userId, notice_id: noticeId }));
+      (supabase as any)
+        .from("notice_reads")
+        .upsert(rows, { onConflict: "user_id,notice_id" })
+        .then(({ error }: any) => {
+          if (error && process.env.NODE_ENV === "development") {
+            console.warn("[NoticeBell] bulk notice_reads upsert failed:", error.message);
+          }
+        });
+    }
   }
 
   function handleOpen(v: boolean) {
