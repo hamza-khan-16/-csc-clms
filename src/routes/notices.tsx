@@ -159,20 +159,22 @@ function NoticesPage() {
     enabled: canSeeReceipts,
     staleTime: 30_000,
     queryFn: async () => {
-      // Denominator = approved teachers only (role = 'teacher').
-      // HOD: scoped to their department. Principal/HR/Admin: all teachers college-wide.
+      // Denominator = approved profiles in scope.
+      // profiles table has no role column — roles live in user_roles.
+      // HOD: scoped to their department (naturally excludes principal/admin who have no dept).
+      // Principal/HR/Admin: all approved profiles that have a department_id (teachers + HODs),
+      // which excludes college-wide roles (principal, admin, hr) who have department_id = null.
       const teacherQuery = isHod && profile?.department_id
         ? supabase
             .from("profiles")
             .select("id", { count: "exact", head: true })
             .eq("approved", true)
-            .eq("role", "teacher")
             .eq("department_id", profile.department_id)
         : supabase
             .from("profiles")
             .select("id", { count: "exact", head: true })
             .eq("approved", true)
-            .eq("role", "teacher");
+            .not("department_id", "is", null);
 
       // For HOD: fetch all reader user_ids then cross-reference with the dept
       // teacher list to count only reads from their own department teachers.
@@ -189,7 +191,6 @@ function NoticesPage() {
             .from("profiles")
             .select("id")
             .eq("approved", true)
-            .eq("role", "teacher")
             .eq("department_id", profile.department_id),
         ]);
         if (readsRes.error) throw readsRes.error;
