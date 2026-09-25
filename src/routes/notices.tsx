@@ -165,30 +165,41 @@ function NoticesPage() {
             .select("id", { count: "exact", head: true })
             .eq("approved", true);
 
-      // For HOD: only count reads from teachers in the same department.
-      // We join notice_reads → profiles on user_id so we can filter by department_id.
-      // For principal/admin/HR: count all reads unconditionally.
-      const readsQuery = isHod && profile?.department_id
-        ? (supabase as any)
-            .from("notice_reads")
-            .select("notice_id, profiles!notice_reads_user_id_fkey(department_id)")
-            .eq("profiles.department_id", profile.department_id)
-        : (supabase as any)
-            .from("notice_reads")
-            .select("notice_id");
+      // For HOD: fetch all reader user_ids then cross-reference with the dept
+      // teacher list to count only reads from their own department teachers.
+      // Supabase JS does not support .eq() on embedded foreign-table columns —
+      // that generates a 400. Instead we fetch both sets and intersect in JS.
+      // For principal/admin/HR: count all notice_reads rows unconditionally.
+      let countsRes: Record<string, number> = {};
 
-      const [readsRes, teacherRes] = await Promise.all([readsQuery, teacherQuery]);
+      if (isHod && profile?.department_id) {
+        // Fetch reads (notice_id + reader user_id) and dept teacher ids in parallel
+        const [readsRes, deptTeachersRes] = await Promise.all([
+          (supabase as any).from("notice_reads").select("notice_id, user_id"),
+          supabase
+            .from("profiles")
+            .select("id")
+            .eq("approved", true)
+            .eq("department_id", profile.department_id),
+        ]);
+        if (readsRes.error) throw readsRes.error;
+        if (deptTeachersRes.error) throw deptTeachersRes.error;
 
-      if (readsRes.error) throw readsRes.error;
-
-      // Build a per-notice_id count map, filtering out rows where the join
-      // returned no matching profile (i.e. reader was from a different dept — HOD case).
-      const countsRes: Record<string, number> = {};
-      for (const r of readsRes.data ?? []) {
-        // When joined, a non-matching dept_id row comes back with profiles = null
-        if (isHod && r.profiles === null) continue;
-        countsRes[r.notice_id] = (countsRes[r.notice_id] ?? 0) + 1;
+        const deptTeacherIds = new Set((deptTeachersRes.data ?? []).map((p: any) => p.id));
+        for (const r of readsRes.data ?? []) {
+          if (!deptTeacherIds.has(r.user_id)) continue;
+          countsRes[r.notice_id] = (countsRes[r.notice_id] ?? 0) + 1;
+        }
+      } else {
+        // Principal / HR / Admin — all reads
+        const readsRes = await (supabase as any).from("notice_reads").select("notice_id");
+        if (readsRes.error) throw readsRes.error;
+        for (const r of readsRes.data ?? []) {
+          countsRes[r.notice_id] = (countsRes[r.notice_id] ?? 0) + 1;
+        }
       }
+
+      const teacherRes = await teacherQuery;
       return {
         readCounts: countsRes,
         totalTeachers: teacherRes.count ?? 0,
