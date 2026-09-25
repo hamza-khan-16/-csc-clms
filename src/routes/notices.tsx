@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -116,22 +116,28 @@ function NoticesPage() {
   const [eventDate, setEventDate] = useState("");
   const [eventTime, setEventTime] = useState("");
   const [busy, setBusy] = useState(false);
-  const [readIds, setReadIds] = useState<Set<string>>(new Set());
-
-  // Fetch which notices this user has already read from Supabase
-  useQuery({
+  // Fetch which notices this user has already read from Supabase.
+  // Derive readIds from the query result directly — avoids the side-effect-in-queryFn
+  // antipattern which causes readIds to stay empty when the query is served from cache.
+  const { data: noticeReadsData } = useQuery({
     queryKey: ["notice-reads", profile?.id],
     enabled: !!profile?.id,
+    staleTime: 0, // always refetch on mount so navigating back shows latest reads
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("notice_reads")
         .select("notice_id")
         .eq("user_id", profile!.id);
       if (error) throw error;
-      setReadIds(new Set((data ?? []).map((r: any) => r.notice_id)));
-      return data;
+      return (data ?? []).map((r: any) => r.notice_id) as string[];
     },
   });
+  // Merge DB reads with any ids the user just marked during this page visit
+  const [localReadIds, setLocalReadIds] = useState<Set<string>>(new Set());
+  const readIds = useMemo(
+    () => new Set([...(noticeReadsData ?? []), ...localReadIds]),
+    [noticeReadsData, localReadIds],
+  );
 
   const { data: departments = [] } = useQuery({
     queryKey: ["departments-list"],
@@ -153,17 +159,20 @@ function NoticesPage() {
     enabled: canSeeReceipts,
     staleTime: 30_000,
     queryFn: async () => {
-      // HOD: total teachers = only their department; others: all approved teachers
+      // Denominator = approved teachers only (role = 'teacher').
+      // HOD: scoped to their department. Principal/HR/Admin: all teachers college-wide.
       const teacherQuery = isHod && profile?.department_id
         ? supabase
             .from("profiles")
             .select("id", { count: "exact", head: true })
             .eq("approved", true)
+            .eq("role", "teacher")
             .eq("department_id", profile.department_id)
         : supabase
             .from("profiles")
             .select("id", { count: "exact", head: true })
-            .eq("approved", true);
+            .eq("approved", true)
+            .eq("role", "teacher");
 
       // For HOD: fetch all reader user_ids then cross-reference with the dept
       // teacher list to count only reads from their own department teachers.
@@ -180,6 +189,7 @@ function NoticesPage() {
             .from("profiles")
             .select("id")
             .eq("approved", true)
+            .eq("role", "teacher")
             .eq("department_id", profile.department_id),
         ]);
         if (readsRes.error) throw readsRes.error;
@@ -351,9 +361,11 @@ function NoticesPage() {
                     userId={profile?.id}
                     isRead={readIds.has(n.id)}
                     onAck={(id) => {
-                      setReadIds(prev => new Set([...prev, id]));
+                      setLocalReadIds(prev => new Set([...prev, id]));
                       // Refresh receipt counts so the poster sees the updated number
                       qc.invalidateQueries({ queryKey: ["notice-read-counts"] });
+                      // Invalidate the reads query so navigating back reflects the new read
+                      qc.invalidateQueries({ queryKey: ["notice-reads", profile?.id] });
                     }}
                     readCount={isOwner ? (readCounts[n.id] ?? 0) : undefined}
                     totalTeachers={isOwner ? totalTeachers : undefined}
@@ -464,6 +476,9 @@ function NoticeCard({ notice: n, hasEvent, isLong, canDelete, onDelete, userId, 
 }) {
   const [expanded, setExpanded] = useState(false);
   const [acked, setAcked] = useState(isRead);
+  // Sync with parent's isRead prop — on navigation back, the DB query
+  // may return an updated read state that differs from the initial render.
+  useEffect(() => { setAcked(isRead); }, [isRead]);
 
   async function acknowledge() {
     if (!userId) return;

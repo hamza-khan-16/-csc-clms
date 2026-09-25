@@ -70,21 +70,28 @@ const APK_URL = "https://drive.google.com/file/d/1-5cO6CxaVQdjf7c8Tp8XACE1VT3GIq
 const SESSION_BANNER_KEY = "app_banner_shown";
 
 function AppDownloadBanner() {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (IS_NATIVE_APP) return;
-    // Show once per browser session — sessionStorage clears when tab/browser closes
-    // so it reappears on every fresh login/visit, but not on in-session page navigation
-    if (sessionStorage.getItem(SESSION_BANNER_KEY)) return;
+  // Read sessionStorage synchronously in the initialiser so the correct
+  // visible state is known on every mount, including after route changes.
+  const [visible, setVisible] = useState<boolean>(() => {
+    if (IS_NATIVE_APP || typeof window === "undefined") return false;
+    const flag = sessionStorage.getItem(SESSION_BANNER_KEY);
+    if (flag) return false; // already shown or dismissed this session
     sessionStorage.setItem(SESSION_BANNER_KEY, "1");
-    setVisible(true);
-    document.documentElement.style.setProperty("--app-banner-h", `${APP_BANNER_H}px`);
-  }, []);
+    return true;
+  });
+
+  // Keep the CSS custom property in sync so the header offset is correct
+  // after every remount (route changes remount this component).
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--app-banner-h",
+      visible ? `${APP_BANNER_H}px` : "0px",
+    );
+  }, [visible]);
 
   function dismiss() {
     setVisible(false);
-    document.documentElement.style.setProperty("--app-banner-h", "0px");
+    sessionStorage.setItem(SESSION_BANNER_KEY, "dismissed");
   }
 
   if (!visible) return null;
