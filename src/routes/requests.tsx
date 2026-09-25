@@ -1387,7 +1387,9 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   // Casual leave: fetch how many casual days the teacher has taken this month
   // (excluding current request). If total > 2, principal can decide paid/unpaid.
   const casualMonthStart = request.from_date.slice(0, 7) + "-01"; // YYYY-MM-01
-  const casualMonthEnd   = request.from_date.slice(0, 7) + "-31"; // YYYY-MM-31 (DB clips to month end)
+  // Compute the real last day of the month — "-31" is invalid for months with fewer days (e.g. Sep, Apr)
+  const _casualYM = request.from_date.slice(0, 7).split("-").map(Number);
+  const casualMonthEnd = new Date(_casualYM[0], _casualYM[1], 0).toISOString().slice(0, 10); // last day of month
   const { data: casualDaysThisMonth = 0 } = useQuery({
     queryKey: ["casual-days-month", request.teacher_id, request.from_date.slice(0, 7)],
     enabled: !isHod && isCasual,
