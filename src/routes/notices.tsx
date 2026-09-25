@@ -159,22 +159,24 @@ function NoticesPage() {
     enabled: canSeeReceipts,
     staleTime: 30_000,
     queryFn: async () => {
-      // Denominator = approved profiles in scope.
-      // profiles table has no role column — roles live in user_roles.
-      // HOD: scoped to their department (naturally excludes principal/admin who have no dept).
-      // Principal/HR/Admin: all approved profiles that have a department_id (teachers + HODs),
-      // which excludes college-wide roles (principal, admin, hr) who have department_id = null.
+      // Denominator = approved profiles who could receive the notice,
+      // excluding the poster themselves (they can't read their own notice).
+      // HOD: their department only (6 people if dept has 7 including HOD).
+      // Principal/HR/Admin: everyone with a department_id (teachers + HODs),
+      // which naturally excludes college-wide roles who have department_id = null.
       const teacherQuery = isHod && profile?.department_id
         ? supabase
             .from("profiles")
             .select("id", { count: "exact", head: true })
             .eq("approved", true)
             .eq("department_id", profile.department_id)
+            .neq("id", profile.id)          // exclude the HOD poster
         : supabase
             .from("profiles")
             .select("id", { count: "exact", head: true })
             .eq("approved", true)
-            .not("department_id", "is", null);
+            .not("department_id", "is", null)
+            .neq("id", profile?.id ?? ""); // exclude the principal/admin poster
 
       // For HOD: fetch all reader user_ids then cross-reference with the dept
       // teacher list to count only reads from their own department teachers.
@@ -191,7 +193,8 @@ function NoticesPage() {
             .from("profiles")
             .select("id")
             .eq("approved", true)
-            .eq("department_id", profile.department_id),
+            .eq("department_id", profile.department_id)
+            .neq("id", profile.id),   // exclude HOD poster
         ]);
         if (readsRes.error) throw readsRes.error;
         if (deptTeachersRes.error) throw deptTeachersRes.error;

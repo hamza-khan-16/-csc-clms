@@ -157,8 +157,21 @@ export const todayISO = () => {
 /** Leave types a teacher tracks a monthly quota for (shown on the dashboard). */
 export const QUOTA_LEAVE_TYPES: LeaveType[] = ["casual"];
 
-/** Types where the HOD must choose paid or unpaid before any salary effect. */
+/** Leave types always requiring a principal paid/unpaid decision. */
 export const needsPaymentDecision = (t: LeaveType) => t !== "casual";
+
+/**
+ * For casual leave: the principal can decide paid/unpaid only when the teacher
+ * has taken MORE than 2 casual leave days in that calendar month (including the
+ * current request). Pass the already-approved casual days this month (excluding
+ * the current request) and the current request's days.
+ */
+export function casualNeedsDecision(
+  casualDaysThisMonth: number,
+  requestDays: number,
+): boolean {
+  return casualDaysThisMonth + requestDays > 2;
+}
 
 /**
  * Number of medical leave days a teacher gets fully paid per year without

@@ -213,15 +213,21 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
       return next;
     });
     // For notice items, also write to notice_reads so the poster's
-    // read-receipt count increments correctly.
+    // read-receipt count increments correctly, then invalidate the
+    // notices-page queries so they reflect the new read immediately.
     if (id.startsWith("notice-") && userId) {
       const noticeId = id.replace(/^notice-/, "");
       (supabase as any)
         .from("notice_reads")
         .upsert({ user_id: userId, notice_id: noticeId }, { onConflict: "user_id,notice_id" })
         .then(({ error }: any) => {
-          if (error && process.env.NODE_ENV === "development") {
-            console.warn("[NoticeBell] notice_reads upsert failed:", error.message);
+          if (error) {
+            if (process.env.NODE_ENV === "development")
+              console.warn("[NoticeBell] notice_reads upsert failed:", error.message);
+          } else {
+            // Invalidate so notices page and receipt counts pick up the new read
+            qc.invalidateQueries({ queryKey: ["notice-reads", userId] });
+            qc.invalidateQueries({ queryKey: ["notice-read-counts"] });
           }
         });
     }
@@ -248,8 +254,12 @@ export function NoticeBell({ role, userId }: { role: AppRole | null; userId?: st
         .from("notice_reads")
         .upsert(rows, { onConflict: "user_id,notice_id" })
         .then(({ error }: any) => {
-          if (error && process.env.NODE_ENV === "development") {
-            console.warn("[NoticeBell] bulk notice_reads upsert failed:", error.message);
+          if (error) {
+            if (process.env.NODE_ENV === "development")
+              console.warn("[NoticeBell] bulk notice_reads upsert failed:", error.message);
+          } else {
+            qc.invalidateQueries({ queryKey: ["notice-reads", userId] });
+            qc.invalidateQueries({ queryKey: ["notice-read-counts"] });
           }
         });
     }

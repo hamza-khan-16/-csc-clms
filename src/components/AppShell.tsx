@@ -64,24 +64,31 @@ type NavItem = {
 };
 
 const BANNER_H = 32; // px — matches py-2 + text-xs line height
+const APP_BANNER_H = 52; // px — height of the app download banner
 
 // ── App Download Banner ────────────────────────────────────────────────────────
 const APK_URL = "https://drive.google.com/file/d/1-5cO6CxaVQdjf7c8Tp8XACE1VT3GIqvt/view?usp=sharing";
 const SESSION_BANNER_KEY = "app_banner_shown";
 
-function AppDownloadBanner() {
-  // Read sessionStorage synchronously in the initialiser so the correct
-  // visible state is known on every mount, including after route changes.
-  const [visible, setVisible] = useState<boolean>(() => {
-    if (IS_NATIVE_APP || typeof window === "undefined") return false;
-    const flag = sessionStorage.getItem(SESSION_BANNER_KEY);
-    if (flag) return false; // already shown or dismissed this session
-    sessionStorage.setItem(SESSION_BANNER_KEY, "1");
-    return true;
-  });
+// Module-level flag — survives AppShell unmount/remount on route changes.
+// Each route mounts its own AppShell, so component state resets on every
+// navigation. Keeping visibility here means the banner stays shown until
+// the user explicitly dismisses it or closes the browser tab.
+let _bannerVisible: boolean | null = null;
+function getBannerVisible(): boolean {
+  if (_bannerVisible !== null) return _bannerVisible;
+  if (IS_NATIVE_APP || typeof window === "undefined") { _bannerVisible = false; return false; }
+  const flag = sessionStorage.getItem(SESSION_BANNER_KEY);
+  _bannerVisible = !flag;
+  if (_bannerVisible) sessionStorage.setItem(SESSION_BANNER_KEY, "1");
+  return _bannerVisible;
+}
 
-  // Keep the CSS custom property in sync so the header offset is correct
-  // after every remount (route changes remount this component).
+function AppDownloadBanner() {
+  const [visible, setVisible] = useState<boolean>(getBannerVisible);
+
+  // Keep the CSS custom property in sync on every mount so the header
+  // offset is correct after route-change remounts.
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--app-banner-h",
@@ -90,8 +97,10 @@ function AppDownloadBanner() {
   }, [visible]);
 
   function dismiss() {
+    _bannerVisible = false;
     setVisible(false);
     sessionStorage.setItem(SESSION_BANNER_KEY, "dismissed");
+    document.documentElement.style.setProperty("--app-banner-h", "0px");
   }
 
   if (!visible) return null;
@@ -112,8 +121,6 @@ function AppDownloadBanner() {
     </div>
   );
 }
-
-const APP_BANNER_H = 52; // px — height of the app download banner
 
 function OfflineBanner({ onToggle }: { onToggle: (v: boolean) => void }) {
   const [offline, setOffline] = useState(false);

@@ -573,7 +573,22 @@ export function LangProvider({ children }: { children: ReactNode }) {
       const saved = (localStorage.getItem(userKey(id)) as Lang | null) ?? "en";
       setLangState(saved);
       document.documentElement.lang = saved;
-      // GT cookie is already set from the previous reload; nothing to do here.
+
+      if (saved !== "en") {
+        // Check if the GT cookie is already set to the right language.
+        // If not (e.g. fresh login after logout, or new device), apply it
+        // and reload so GT translates the page from the cookie on load.
+        const currentCookie = document.cookie
+          .split(";")
+          .map(c => c.trim())
+          .find(c => c.startsWith("googtrans="))
+          ?.split("=")[1] ?? "";
+        const expectedCookie = `/en/${GT_LANG[saved as Lang]}`;
+        if (currentCookie !== expectedCookie) {
+          applyGoogleTranslate(saved as Lang);
+          setTimeout(() => window.location.reload(), 50);
+        }
+      }
     } catch { /**/ }
   }, []);
 
