@@ -1811,11 +1811,13 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     }
 
     const hasPaymentDecision = needsDecision || casualRequiresDecision;
-    const { error } = await supabase.from("leave_requests").update({
+    const updatePayload = {
       status: "approved", payment_decision: hasPaymentDecision ? payment : null,
       paid_days: paidDays, unpaid_days: unpaidDays,
       principal_note: note.trim() || null, principal_acted_at: new Date().toISOString(),
-    }).eq("id", request.id);
+    };
+    console.log("[principalApprove] writing to DB:", updatePayload, "for leave:", request.id, "type:", request.leave_type);
+    const { error } = await supabase.from("leave_requests").update(updatePayload).eq("id", request.id);
     setBusy(false);
     if (error) { qc.invalidateQueries({ queryKey: ["review-requests"] }); return toast.error(error.message); }
     void writeAudit("principal_approved", note);

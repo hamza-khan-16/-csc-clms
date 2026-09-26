@@ -185,10 +185,12 @@ function PayrollPage() {
     // Only deduct for leaves that have BOTH HOD and Principal approval
 
     const fullyApproved = leaves.filter((l) => {
-
       const isHodFinal = l.leave_type === "medical" || l.leave_type === "duty";
       // Medical/duty: deduction applies once principal has verified the document and set payment_decision
       if (isHodFinal) return !!(l as any).payment_decision;
+      // All other leave types: both HOD and principal must have acted.
+      // unpaid_days is always correctly set by the DB trigger based on payment_decision,
+      // so summing unpaid_days is safe — paid leaves always have unpaid_days = 0.
       return !!(l as any).hod_acted_at && !!(l as any).principal_acted_at;
     });
     const unpaid = fullyApproved.reduce((s, l) => s + Number(l.unpaid_days), 0);
