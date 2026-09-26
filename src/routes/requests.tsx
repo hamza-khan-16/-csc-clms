@@ -1384,18 +1384,23 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     },
   });
 
-  // Casual leave: fetch how many casual days the teacher has taken this month
-  // (excluding current request). If total > 2, principal can decide paid/unpaid.
-  const casualMonthStart = request.from_date.slice(0, 7) + "-01"; // YYYY-MM-01
-  const casualMonthEnd   = request.from_date.slice(0, 7) + "-31"; // YYYY-MM-31 (DB clips to month end)
+  // Casual leave: count approved casual days for this teacher in the same
+  // calendar month as this request. Filter on from_date only — avoids any
+  // month-end date arithmetic on to_date (which caused the Sep-31 400 error).
+  const casualYearMonth = request.from_date.slice(0, 7); // "YYYY-MM"
+  const casualMonthStart = casualYearMonth + "-01";
+  // Next month first day — everything with from_date < this is within our month
+  const [_cy, _cm] = request.from_date.split("-").map(Number);
+  const casualMonthExclusiveEnd = new Date(_cy, _cm, 1).toISOString().slice(0, 10); // first day of next month
   const { data: casualDaysThisMonth = 0 } = useQuery({
-    queryKey: ["casual-days-month", request.teacher_id, request.from_date.slice(0, 7)],
+    queryKey: ["casual-days-month", request.teacher_id, casualYearMonth],
     enabled: !isHod && isCasual,
     queryFn: async () => {
       const { data } = await supabase.from("leave_requests").select("total_days")
         .eq("teacher_id", request.teacher_id).eq("leave_type", "casual")
         .in("status", ["hod_approved", "approved"]).neq("id", request.id)
-        .gte("from_date", casualMonthStart).lte("to_date", casualMonthEnd);
+        .gte("from_date", casualMonthStart)
+        .lt("from_date", casualMonthExclusiveEnd); // strictly less than next month's first day
       return (data ?? []).reduce((s, r) => s + Number(r.total_days), 0);
     },
   });
