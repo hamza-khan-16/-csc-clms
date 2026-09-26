@@ -1818,13 +1818,23 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     };
     console.log("[principalApprove] writing to DB:", updatePayload, "for leave:", request.id, "type:", request.leave_type);
     const { error } = await supabase.from("leave_requests").update(updatePayload).eq("id", request.id);
+    // Read back what the DB actually saved (after the trigger ran) to verify
+    const { data: readback } = await supabase.from("leave_requests")
+      .select("payment_decision, paid_days, unpaid_days, total_days")
+      .eq("id", request.id).single();
+    console.log("[principalApprove] DB after trigger:", readback);
     setBusy(false);
     if (error) { qc.invalidateQueries({ queryKey: ["review-requests"] }); return toast.error(error.message); }
     void writeAudit("principal_approved", note);
     haptic("success");
     toast.success("Leave approved");
     firePush({ userIds: [request.teacher_id], title: "Leave Approved", body: `Your ${request.leave_type} leave for ${request.total_days} day(s) has been approved`, targetUrl: `/leaves?highlight=${request.id}` });
+    // Invalidate all leave and payroll caches so every page reflects the new decision
     qc.invalidateQueries({ queryKey: ["leave-requests"] });
+    qc.invalidateQueries({ queryKey: ["payroll-leaves"] });
+    qc.invalidateQueries({ queryKey: ["payroll-yearly"] });
+    qc.invalidateQueries({ queryKey: ["teacher-leaves"] });
+    qc.invalidateQueries({ queryKey: ["teachers-list"] });
   }
 
   const sessionLabel = SESSION_LABEL[request.session as LeaveSession] ?? request.session;
