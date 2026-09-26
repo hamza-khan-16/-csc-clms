@@ -1398,21 +1398,28 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     enabled: !isHod && isCasual,
     queryFn: async () => {
       // Mirror the DB trigger exactly: count all statuses except 'rejected'
-      // The trigger uses status <> 'rejected', so we must too — otherwise pending/recommended
-      // leaves are invisible to JS but counted by the trigger, causing a mismatch.
-      const { data } = await supabase.from("leave_requests").select("total_days")
+      const { data, error } = await supabase.from("leave_requests").select("total_days")
         .eq("teacher_id", request.teacher_id).eq("leave_type", "casual")
         .neq("status", "rejected").neq("id", request.id)
         .gte("from_date", casualMonthStart).lte("from_date", casualMonthEnd);
-      return (data ?? []).reduce((s, r) => s + Number(r.total_days), 0);
+      if (error) console.error("[casualDays] query error:", error);
+      const total = (data ?? []).reduce((s, r) => s + Number(r.total_days), 0);
+      console.log("[casualDays] teacher:", request.teacher_id, "month:", casualMonthStart, "→", casualMonthEnd, "existing days:", total, "rows:", data);
+      return total;
     },
   });
 
   const requestDays = Number(request.total_days);
   const medicalSplit = isMedical ? medicalPaidSplit(medicalDaysTaken, requestDays) : null;
   const medicalRequiresDecision = isMedical && medicalNeedsDecision(medicalDaysTaken, requestDays);
-  // Whether the principal should see the paid/unpaid toggle for this casual leave
-  const casualRequiresDecision = isCasual && !isHod && casualNeedsDecision(casualDaysThisMonth, requestDays);
+  // The DB trigger already computed whether this casual leave results in unpaid days
+  // (based on both monthly AND yearly quota). Trust that value directly instead of
+  // re-deriving quota logic in JS — if unpaid_days > 0 and no decision yet, principal must decide.
+  const casualRequiresDecision = isCasual && !isHod && (
+    request.payment_decision !== null // already decided — keep showing for review
+    || Number(request.unpaid_days) > 0 // trigger says it's over quota — principal must decide
+    || casualNeedsDecision(casualDaysThisMonth, requestDays) // JS quota check as fallback
+  );
 
   const dates = useMemo(() => eachDate(request.from_date, request.to_date), [request.from_date, request.to_date]);
 
@@ -1792,11 +1799,12 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       paidDays   = medicalSplit.withinQuota + overQuotaPaid;
       unpaidDays = total - paidDays;
     } else if (isCasual && !casualRequiresDecision) {
-      // Casual within the 2-day monthly limit → always fully paid, no deduction needed.
+      // Casual within quota (both monthly and yearly) — trigger already set unpaid_days=0.
+      // Auto-approve as fully paid, no principal decision needed.
       paidDays   = total;
       unpaidDays = 0;
     } else {
-      // Casual over quota OR any other leave type → use principal's explicit decision.
+      // Casual over quota (monthly OR yearly) or any other leave type requiring a decision.
       // payment is guaranteed non-null here because principalApprove() guards against it.
       paidDays   = payment === "paid"   ? total : 0;
       unpaidDays = payment === "unpaid" ? total : 0;
