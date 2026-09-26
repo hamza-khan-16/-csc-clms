@@ -277,7 +277,9 @@ teacher, leaves, onRefresh }: {
   }
 
   // Salary always uses approved leaves only (for deduction calc)
-  const totalUnpaid     = approvedLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0);
+  // Only count unpaid days where the principal has made a final decision.
+  // Over-quota casual leaves pending decision have unpaid_days set by the DB trigger but should not deduct yet.
+  const totalUnpaid     = approvedLeaves.filter((l: any) => l.payment_decision !== null).reduce((s, l) => s + Number(l.unpaid_days), 0);
   const deduction       = (teacher.monthly_salary / 30) * totalUnpaid;
   const net             = teacher.monthly_salary - deduction;
 
@@ -758,7 +760,7 @@ function HrPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leave_requests")
-        .select("id, teacher_id, leave_type, from_date, to_date, total_days, paid_days, unpaid_days, status, reason")
+        .select("id, teacher_id, leave_type, from_date, to_date, total_days, paid_days, unpaid_days, payment_decision, status, reason")
         .in("teacher_id", teacherIds)
         .order("from_date", { ascending: false });
       if (error) throw error;
@@ -781,7 +783,7 @@ function HrPage() {
         ["approved","hod_approved"].includes(l.status) &&
         l.from_date.startsWith(year),
       );
-      const unpaid    = tLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0);
+      const unpaid    = tLeaves.filter((l: any) => l.payment_decision !== null).reduce((s, l) => s + Number(l.unpaid_days), 0);
       const deduction = (t.monthly_salary / 30) * unpaid;
       return {
         Teacher: t.full_name, Department: t.department_name ?? "—",

@@ -98,7 +98,7 @@ function MyLeavesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("leave_requests")
-        .select("id, leave_type, from_date, to_date, session, status, total_days, paid_days, unpaid_days, reason, doc_url, doc_status, doc_note, created_at, hod_note, principal_note, teacher_id")
+        .select("id, leave_type, from_date, to_date, session, status, total_days, paid_days, unpaid_days, payment_decision, reason, doc_url, doc_status, doc_note, created_at, hod_note, principal_note, teacher_id")
         .eq("teacher_id", profile!.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -216,8 +216,10 @@ function MyLeavesPage() {
   const totalApproved = leaves.filter(l => l.status === "approved" || l.status === "hod_approved").length;
   const totalPending  = leaves.filter(l => PENDING_STATUSES.includes(l.status)).length;
   const totalRejected = leaves.filter(l => l.status === "rejected").length;
+  // Only count unpaid days where the principal has made a final decision.
+  // Over-quota casual leaves awaiting decision have unpaid_days pre-set by DB trigger but aren't finalised.
   const totalUnpaidDays = leaves
-    .filter(l => l.status === "approved" || l.status === "hod_approved")
+    .filter(l => (l.status === "approved" || l.status === "hod_approved") && (l as any).payment_decision !== null)
     .reduce((s, l) => s + Number(l.unpaid_days), 0);
 
   return (
@@ -316,9 +318,12 @@ function MyLeavesPage() {
         {/* 2-column grid for leave cards */}
         <div className="grid gap-3 sm:grid-cols-2">
         {filteredLeaves.map((l) => {
-          const unpaid = Number(l.unpaid_days);
+          const decided = (l as any).payment_decision !== null;
+          // Show actual paid/unpaid only after the principal has made a decision.
+          // Before that, treat as pending — don't show misleading DB trigger values.
+          const unpaid = decided ? Number(l.unpaid_days) : 0;
           const total  = Number(l.total_days);
-          const paid   = Number(l.paid_days);
+          const paid   = decided ? Number(l.paid_days) : 0;
           const hasBigContent =
             isHodFinalLeave(l.leave_type as LeaveType) &&
             (l.status === "hod_approved" || l.status === "approved") &&
