@@ -181,19 +181,29 @@ $$;
 CREATE OR REPLACE FUNCTION public.apply_leave_accounting()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
-  days        numeric;
+  all_days    numeric;
   used_month  numeric := 0;
   used_year   numeric := 0;
+  yearly_quota integer;
   remaining   numeric;
 BEGIN
   NEW.department_id := public.dept_of(NEW.teacher_id);
-  days := public.count_working_days(NEW.from_date, NEW.to_date, NEW.department_id);
+
+  -- Count every calendar day in the range (includes Sundays and holidays).
+  -- Unpaid leaves deduct every day the teacher was absent.
+  all_days := (NEW.to_date - NEW.from_date) + 1;
+
   IF NEW.session <> 'full_day' THEN
-    days := LEAST(days, 1) * 0.5;
+    all_days := LEAST(all_days, 1) * 0.5;
   END IF;
-  NEW.total_days := days;
+  NEW.total_days := all_days;
 
   IF NEW.leave_type = 'casual' THEN
+    -- Read admin-configured yearly quota for this teacher (default 12 if not set)
+    SELECT COALESCE(cl_quota, 12) INTO yearly_quota
+    FROM public.profiles
+    WHERE id = NEW.teacher_id;
+
     SELECT COALESCE(SUM(total_days), 0) INTO used_year
     FROM public.leave_requests
     WHERE teacher_id = NEW.teacher_id AND leave_type = 'casual'
@@ -206,22 +216,27 @@ BEGIN
       AND status <> 'rejected' AND id <> NEW.id
       AND date_trunc('month', from_date) = date_trunc('month', NEW.from_date);
 
-    remaining := LEAST(GREATEST(12 - used_year, 0), GREATEST(2 - used_month, 0));
+    remaining := LEAST(GREATEST(yearly_quota - used_year, 0), GREATEST(2 - used_month, 0));
+
     IF    NEW.payment_decision = 'unpaid' THEN remaining := 0;
-    ELSIF NEW.payment_decision = 'paid'   THEN remaining := days;
+    ELSIF NEW.payment_decision = 'paid'   THEN remaining := all_days;
     END IF;
-    NEW.paid_days   := LEAST(days, remaining);
-    NEW.unpaid_days := days - NEW.paid_days;
+
+    NEW.paid_days   := LEAST(all_days, remaining);
+    NEW.unpaid_days := all_days - NEW.paid_days;
+
   ELSE
-    IF    NEW.payment_decision = 'paid'   THEN NEW.paid_days := days; NEW.unpaid_days := 0;
-    ELSIF NEW.payment_decision = 'unpaid' THEN NEW.paid_days := 0;    NEW.unpaid_days := days;
-    ELSE  NEW.paid_days := 0; NEW.unpaid_days := 0;
+    IF    NEW.payment_decision = 'paid'   THEN NEW.paid_days := all_days; NEW.unpaid_days := 0;
+    ELSIF NEW.payment_decision = 'unpaid' THEN NEW.paid_days := 0;        NEW.unpaid_days := all_days;
+    ELSE                                       NEW.paid_days := 0;        NEW.unpaid_days := 0;
     END IF;
   END IF;
   RETURN NEW;
 END;
 $$;
 
+DROP TRIGGER IF EXISTS leave_accounting ON public.leave_requests;
+DROP TRIGGER IF EXISTS leave_accounting ON public.leave_requests;
 CREATE TRIGGER leave_accounting
 BEFORE INSERT OR UPDATE OF from_date, to_date, session, leave_type, payment_decision
 ON public.leave_requests FOR EACH ROW EXECUTE FUNCTION public.apply_leave_accounting();
