@@ -1369,7 +1369,10 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   // Principal can always decide paid/unpaid for non-casual leaves.
   // For casual leaves the toggle only appears when the teacher has taken > 2 days that month.
   const needsDecision = needsPaymentDecision(request.leave_type as LeaveType) && !isHodFinal;
-  const [payment, setPayment] = useState<"paid" | "unpaid">((request.payment_decision as "paid" | "unpaid" | null) ?? "paid");
+  // null = principal hasn't chosen yet; we don't default to "paid" so they must make an explicit decision
+  const [payment, setPayment] = useState<"paid" | "unpaid" | null>(
+    (request.payment_decision as "paid" | "unpaid" | null) ?? null
+  );
 
   const { data: medicalDaysTaken = 0 } = useQuery({
     queryKey: ["medical-days-taken", request.teacher_id, new Date().getFullYear()],
@@ -1384,64 +1387,32 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     },
   });
 
-  // Casual quota: compute months synchronously so enabled flag is stable.
-  // Group this request's dates by calendar month.
-  const _casualDaysByMonth: Record<string, number> = {};
-  if (isCasual) {
-    for (const d of eachDate(request.from_date, request.to_date)) {
-      const ym = d.slice(0, 7);
-      _casualDaysByMonth[ym] = (_casualDaysByMonth[ym] ?? 0) + 1;
-    }
-  }
-  const _casualFirstMonth = request.from_date.slice(0, 7);
-  const _casualLastMonth  = request.to_date.slice(0, 7);
-  const _casualRangeStart = _casualFirstMonth + "-01";
-  const [_cly, _clm] = _casualLastMonth.split("-").map(Number);
-  const _casualRangeEnd = new Date(_cly, _clm, 1).toISOString().slice(0, 10);
-
-  const { data: casualExistingByMonth = {} } = useQuery({
-    queryKey: ["casual-days-month", request.teacher_id, request.from_date, request.to_date],
+  // Casual leave: fetch how many casual days the teacher has taken this month
+  // (excluding current request). If total > 2, principal can decide paid/unpaid.
+  const casualMonthStart = request.from_date.slice(0, 7) + "-01"; // YYYY-MM-01
+  // Compute the real last day of the month — "-31" is invalid for months with fewer days (e.g. Sep, Apr)
+  const _casualYM = request.from_date.slice(0, 7).split("-").map(Number);
+  const casualMonthEnd = new Date(_casualYM[0], _casualYM[1], 0).toISOString().slice(0, 10); // last day of month
+  const { data: casualDaysThisMonth = 0, isLoading: casualDaysLoading } = useQuery({
+    queryKey: ["casual-days-month", request.teacher_id, request.from_date.slice(0, 7)],
     enabled: !isHod && isCasual,
     queryFn: async () => {
-      const { data } = await supabase
-        .from("leave_requests")
-        .select("from_date, to_date")
-        .eq("teacher_id", request.teacher_id)
-        .eq("leave_type", "casual")
-        .in("status", ["hod_approved", "approved"])
-        .neq("id", request.id)
-        .gte("from_date", _casualRangeStart)
-        .lt("from_date",  _casualRangeEnd);
-
-      const existing: Record<string, number> = {};
-      const spannedMonths = Object.keys(_casualDaysByMonth);
-      for (const r of data ?? []) {
-        for (const d of eachDate(r.from_date, r.to_date)) {
-          const ym = d.slice(0, 7);
-          if (spannedMonths.includes(ym)) {
-            existing[ym] = (existing[ym] ?? 0) + 1;
-          }
-        }
-      }
-      return existing;
+      // Mirror the DB trigger exactly: count all statuses except 'rejected'
+      // The trigger uses status <> 'rejected', so we must too — otherwise pending/recommended
+      // leaves are invisible to JS but counted by the trigger, causing a mismatch.
+      const { data } = await supabase.from("leave_requests").select("total_days")
+        .eq("teacher_id", request.teacher_id).eq("leave_type", "casual")
+        .neq("status", "rejected").neq("id", request.id)
+        .gte("from_date", casualMonthStart).lte("from_date", casualMonthEnd);
+      return (data ?? []).reduce((s, r) => s + Number(r.total_days), 0);
     },
   });
-
-  // Over-quota months: existing + request days > 2 for any spanned month
-  const casualOverQuotaMonths = Object.entries(_casualDaysByMonth)
-    .map(([ym, inRequest]) => ({
-      ym,
-      existing: casualExistingByMonth[ym] ?? 0,
-      inRequest,
-    }))
-    .filter(m => m.existing + m.inRequest > 2);
 
   const requestDays = Number(request.total_days);
   const medicalSplit = isMedical ? medicalPaidSplit(medicalDaysTaken, requestDays) : null;
   const medicalRequiresDecision = isMedical && medicalNeedsDecision(medicalDaysTaken, requestDays);
-  // Whether the principal should see the paid/unpaid toggle for this casual leave:
-  // true if ANY month in this request has existing + request days > 2.
-  const casualRequiresDecision = isCasual && !isHod && casualOverQuotaMonths.length > 0;
+  // Whether the principal should see the paid/unpaid toggle for this casual leave
+  const casualRequiresDecision = isCasual && !isHod && casualNeedsDecision(casualDaysThisMonth, requestDays);
 
   const dates = useMemo(() => eachDate(request.from_date, request.to_date), [request.from_date, request.to_date]);
 
@@ -1800,6 +1771,11 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
 
   async function principalApprove() {
     if (!checkNote()) return;
+    // If the casual-days query is still loading, we don't know yet whether a decision is needed — wait.
+    if (isCasual && casualDaysLoading) return toast.error("Still checking casual leave quota, please wait a moment.");
+    // If a payment decision is required but the principal hasn't chosen yet, block.
+    const decisionRequired = needsDecision || casualRequiresDecision;
+    if (decisionRequired && payment === null) return toast.error("Please select Paid or Unpaid before approving.");
     setBusy(true);
     // Optimistic: immediately reflect approval in UI
     qc.setQueryData(["review-requests", role, profile?.id], (old: any[] | undefined) =>
@@ -1810,22 +1786,20 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     let unpaidDays: number;
 
     if (isMedical && medicalSplit) {
-      // Medical: within-quota days always paid; over-quota follows principal decision
+      // Medical: days within 10-day yearly quota are always paid;
+      // over-quota days follow the principal's paid/unpaid decision.
       const overQuotaPaid = medicalRequiresDecision ? (payment === "paid" ? medicalSplit.overQuota : 0) : 0;
       paidDays   = medicalSplit.withinQuota + overQuotaPaid;
       unpaidDays = total - paidDays;
     } else if (isCasual && !casualRequiresDecision) {
-      // Casual within the 2-day monthly limit — always fully paid, never deducted
+      // Casual within the 2-day monthly limit → always fully paid, no deduction needed.
       paidDays   = total;
       unpaidDays = 0;
-    } else if (needsDecision || casualRequiresDecision) {
-      // All other leave types + casual over monthly quota — principal decides
+    } else {
+      // Casual over quota OR any other leave type → use principal's explicit decision.
+      // payment is guaranteed non-null here because principalApprove() guards against it.
       paidDays   = payment === "paid"   ? total : 0;
       unpaidDays = payment === "unpaid" ? total : 0;
-    } else {
-      // Fallback — preserve existing values
-      paidDays   = Number(request.paid_days);
-      unpaidDays = Number(request.unpaid_days);
     }
 
     const hasPaymentDecision = needsDecision || casualRequiresDecision;
@@ -2044,60 +2018,90 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         </div>
       )}
 
-      {/* Payment decision — Principal only */}
-      {/* For casual leave: only shown when teacher has exceeded 2-day monthly limit */}
-      {/* For all other leave types: always shown */}
+      {/* Payment decision — Principal only
+          Rules:
+          • Casual within 2-day monthly quota → never shown (auto paid)
+          • Casual over quota                 → shown with quota-exceeded notice
+          • Medical within 10-day yearly quota → info shown, no toggle (auto paid)
+          • Medical over quota               → shown with quota breakdown
+          • All other leave types            → always shown
+      */}
       {!isHod && (needsDecision || casualRequiresDecision) && (
         <div className="mt-4 rounded-lg border border-border p-3 space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Salary decision for this {leaveTypeLabel(request.leave_type as LeaveType).toLowerCase()}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Salary decision for this {leaveTypeLabel(request.leave_type as LeaveType).toLowerCase()}
+          </p>
 
           {/* Medical quota breakdown */}
           {isMedical && medicalSplit && (
             <div className="rounded-lg bg-muted p-3 text-xs space-y-1">
               <p className="font-semibold">Medical Leave Quota — {MEDICAL_PAID_QUOTA} paid days/year</p>
-              <p className="text-muted-foreground">Days already taken: <strong>{medicalDaysTaken}</strong></p>
+              <p className="text-muted-foreground">Days already taken this year: <strong>{medicalDaysTaken}</strong></p>
               <p className="text-muted-foreground">
-                This request: <strong>{requestDays}</strong> day(s) — <span className="text-success font-medium">{medicalSplit.withinQuota} within quota</span>
-                {medicalSplit.overQuota > 0 && <span className="text-destructive font-medium"> · {medicalSplit.overQuota} over quota</span>}
+                This request: <strong>{requestDays}</strong> day(s) —{" "}
+                <span className="text-success font-medium">{medicalSplit.withinQuota} within quota (auto paid)</span>
+                {medicalSplit.overQuota > 0 && <span className="text-destructive font-medium"> · {medicalSplit.overQuota} over quota (your decision)</span>}
               </p>
-              {!medicalRequiresDecision && <p className="text-success font-medium flex items-center gap-1"><Check className="size-4"/>All days within paid quota.</p>}
+              {!medicalRequiresDecision && (
+                <p className="text-success font-medium flex items-center gap-1">
+                  <Check className="size-4" /> All days within paid quota — no deduction.
+                </p>
+              )}
             </div>
           )}
 
-          {/* Casual over-quota notice — only shown when casualRequiresDecision is true */}
+          {/* Casual over-quota notice */}
           {isCasual && casualRequiresDecision && (
-            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 text-xs space-y-2">
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 text-xs space-y-1">
               <p className="font-semibold text-amber-800 dark:text-amber-300">Casual Leave — Monthly Limit Exceeded</p>
-              {casualOverQuotaMonths.map(({ ym, existing, inRequest }) => {
-                const [y, m] = ym.split("-").map(Number);
-                const monthLabel = new Date(y, m - 1, 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
-                return (
-                  <p key={ym} className="text-muted-foreground">
-                    <strong>{monthLabel}:</strong> {existing} day(s) already taken + {inRequest} in this request
-                    {" "}= <strong className="text-destructive">{existing + inRequest} days</strong> (limit is 2)
-                  </p>
-                );
-              })}
+              <p className="text-muted-foreground">
+                Casual days already taken this month: <strong>{casualDaysThisMonth}</strong>
+                {" "}· This request: <strong>{requestDays}</strong> day(s)
+                {" "}· Total: <strong className="text-destructive">{casualDaysThisMonth + requestDays} days</strong> (limit is 2)
+              </p>
               <p className="text-muted-foreground">Decide whether to mark the excess days as paid or apply a salary deduction.</p>
             </div>
           )}
 
-          {/* Paid / Unpaid toggle */}
-          {(!isMedical || medicalRequiresDecision) && (
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" variant={payment === "paid" ? "default" : "outline"} onClick={() => setPayment("paid")}>
-                {isMedical && medicalSplit?.overQuota ? `Paid — no deduction for ${medicalSplit.overQuota} over-quota day(s)` : "Paid — no deduction"}
-              </Button>
-              <Button type="button" size="sm" variant={payment === "unpaid" ? "destructive" : "outline"} onClick={() => setPayment("unpaid")}>
-                {isMedical && medicalSplit?.overQuota ? `Unpaid — deduct ${medicalSplit.overQuota} over-quota day(s)` : "Unpaid — deduct salary"}
-              </Button>
+          {/* Paid / Unpaid toggle:
+              - Medical: only when over quota (over-quota days need a decision)
+              - Casual:  only when over monthly quota (casualRequiresDecision)
+              - Others:  always */}
+          {((!isMedical && !isCasual) || medicalRequiresDecision || casualRequiresDecision) && (
+            <div className="space-y-2">
+              {payment === null && (
+                <p className="text-xs text-destructive font-medium">⚠ Please select an option before approving.</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm"
+                  variant={payment === "paid" ? "default" : "outline"}
+                  onClick={() => setPayment("paid")}>
+                  {isMedical && medicalSplit?.overQuota
+                    ? `Paid — no deduction for ${medicalSplit.overQuota} over-quota day(s)`
+                    : "Paid — no salary deduction"}
+                </Button>
+                <Button type="button" size="sm"
+                  variant={payment === "unpaid" ? "destructive" : "outline"}
+                  onClick={() => setPayment("unpaid")}>
+                  {isMedical && medicalSplit?.overQuota
+                    ? `Unpaid — deduct ${medicalSplit.overQuota} over-quota day(s)`
+                    : "Unpaid — deduct from salary"}
+                </Button>
+              </div>
             </div>
           )}
         </div>
       )}
 
       {isHod && needsDecision && !isHodFinal && (
-        <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-muted p-2 flex items-center gap-1.5"><Lightbulb className="size-3 shrink-0" /> The principal will decide whether this leave is paid or unpaid.</p>
+        <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-muted p-2 flex items-center gap-1.5">
+          <Lightbulb className="size-3 shrink-0" /> The principal will decide whether this leave is paid or unpaid.
+        </p>
+      )}
+      {isHod && isCasual && (
+        <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-muted p-2 flex items-center gap-1.5">
+          <Lightbulb className="size-3 shrink-0" /> Casual leave within the 2-day monthly limit is auto-paid. If the teacher has exceeded the limit this month, the principal will decide paid or unpaid.
+        </p>
       )}
       {isHod && isHodFinal && (
         <p className="mt-3 text-xs text-muted-foreground rounded-lg bg-info/8 border border-info/30 p-2 flex items-center gap-1.5"><FileText className="size-3 shrink-0" /> Approving will require the teacher to upload a <strong>{requiredDoc}</strong>.</p>
@@ -2108,7 +2112,10 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       <div className="mt-3 flex flex-wrap gap-2">
         {isHod && isHodFinal && <Button onClick={hodDirectApprove} disabled={busy}>Approve Leave</Button>}
         {isHod && !isHodFinal && <Button onClick={hodRecommend} disabled={busy}>Approve &amp; send to principal</Button>}
-        {!isHod && <Button onClick={principalApprove} disabled={busy}>Approve Leave</Button>}
+        {!isHod && <Button onClick={principalApprove}
+          disabled={busy || (isCasual && casualDaysLoading) || ((needsDecision || casualRequiresDecision) && payment === null)}>
+          {isCasual && casualDaysLoading ? "Checking quota…" : "Approve Leave"}
+        </Button>}
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="outline" disabled={busy}>Reject</Button>
