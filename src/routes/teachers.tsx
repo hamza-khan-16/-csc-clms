@@ -93,7 +93,7 @@ function TeachersPage() {
       const year = new Date().getFullYear();
       const { data: leaves } = await supabase
         .from("leave_requests")
-        .select("teacher_id, total_days, paid_days, unpaid_days, payment_decision, leave_type, from_date, to_date, status")
+        .select("teacher_id, total_days, unpaid_days, leave_type, from_date, to_date, status")
         .in("status", ["approved", "hod_approved"])
         .gte("from_date", `${year}-01-01`);
 
@@ -111,10 +111,7 @@ function TeachersPage() {
           ...p,
           deptName: (p.departments as { name: string } | null)?.name ?? "—",
           taken: (leaves ?? []).filter((l: any) => l.teacher_id === p.id).reduce((s: number, l: any) => s + Number(l.total_days), 0),
-          // Only count unpaid days where the principal has made a final paid/unpaid decision
-          // (payment_decision is set). Leaves still awaiting a decision are not yet deducted.
-          unpaid: (leaves ?? []).filter((l: any) => l.teacher_id === p.id && l.payment_decision !== null).reduce((s: number, l: any) => s + Number(l.unpaid_days), 0),
-          paid: (leaves ?? []).filter((l: any) => l.teacher_id === p.id && l.payment_decision !== null).reduce((s: number, l: any) => s + Number(l.paid_days), 0),
+          unpaid: (leaves ?? []).filter((l: any) => l.teacher_id === p.id).reduce((s: number, l: any) => s + Number(l.unpaid_days), 0),
           leaveHistory: (leaves ?? []).filter((l: any) => l.teacher_id === p.id),
           _hasPendingReset: pendingResetIds.has(p.id),
         }));
@@ -147,7 +144,7 @@ function TeachersPage() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-6">
           <StatCard label="Total Staff"      value={rows.length}         />
           <StatCard label="Leaves Taken"     value={totalLeavesTaken}    hint="approved this year" />
-          <StatCard label="Pay-cut Days"     value={totalUnpaid}         tone={totalUnpaid > 0 ? "destructive" : "success"} hint="principal decided" />
+          <StatCard label="Pay-cut Days"     value={totalUnpaid}         tone={totalUnpaid > 0 ? "destructive" : "success"} />
           <StatCard label="Filtered"         value={filtered.length}     hint={`of ${rows.length} staff`} />
         </div>
       )}
@@ -466,15 +463,6 @@ function TeacherDetailPanel({
             </div>
           ))}
         </div>
-        {/* Paid vs unpaid breakdown — only shown once the principal has made decisions */}
-        {(teacher.paid > 0 || teacher.unpaid > 0) && (
-          <div className="flex gap-2 text-xs rounded-lg border border-border bg-muted/20 px-3 py-2">
-            <span className="text-success font-semibold">{teacher.paid ?? 0} paid</span>
-            <span className="text-muted-foreground">·</span>
-            <span className={`font-semibold ${teacher.unpaid > 0 ? "text-destructive" : "text-muted-foreground"}`}>{teacher.unpaid} pay-cut</span>
-            <span className="ml-auto text-muted-foreground italic">as decided by principal</span>
-          </div>
-        )}
 
         {/* Profile details — editable if HOD */}
         {editing ? (
@@ -752,14 +740,7 @@ function TeacherDetailPanel({
                   <span className="font-medium text-muted-foreground">{leaveTypeLabel(l.leave_type as LeaveType)}</span>
                   <span className="text-muted-foreground">·</span>
                   <span>{fmtDate(l.from_date)} – {fmtDate(l.to_date)}</span>
-                  <span className="ml-auto font-medium shrink-0">{Number(l.total_days)} day{Number(l.total_days) !== 1 ? "s" : ""}</span>
-                  {l.payment_decision !== null ? (
-                    l.unpaid_days > 0
-                      ? <span className="text-destructive font-semibold shrink-0">{l.unpaid_days} pay-cut</span>
-                      : <span className="text-success font-semibold shrink-0">paid</span>
-                  ) : (
-                    <span className="text-muted-foreground italic shrink-0">pending decision</span>
-                  )}
+                  <span className="ml-auto font-medium">{Number(l.total_days)} day{Number(l.total_days) !== 1 ? "s" : ""}</span>
                 </li>
               ))}
               {(teacher.leaveHistory ?? []).length > 6 && (

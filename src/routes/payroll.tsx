@@ -124,7 +124,7 @@ function PayrollPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("leave_requests")
-        .select("leave_type, total_days, paid_days, unpaid_days, payment_decision, hod_acted_at, principal_acted_at, status, from_date, to_date")
+        .select("leave_type, total_days, paid_days, unpaid_days, status, from_date, to_date")
         .eq("teacher_id", profile!.id)
         .in("status", ["approved", "hod_approved"])
         .gte("from_date", `${filterYear}-01-01`)
@@ -172,9 +172,7 @@ function PayrollPage() {
         l.from_date <= monthEnd && l.to_date >= monthStart &&
         ["approved","hod_approved"].includes(l.status)
       );
-      // Only count unpaid days where the principal has made a final paid/unpaid decision.
-      // payment_decision null = still awaiting the principal's call — no deduction yet.
-      const unpaidDays = monthLeaves.filter((l: any) => l.payment_decision !== null).reduce((s: number, l: any) => s + Number(l.unpaid_days ?? 0), 0);
+      const unpaidDays = monthLeaves.reduce((s, l) => s + Number(l.unpaid_days ?? 0), 0);
       // Use salary/30 (same as perDaySalary) for consistency with the totals panel and hr.tsx
       const deduction  = Math.round(dayRate * unpaidDays);
       return { month: m, unpaidDays, deduction, net: salary - deduction };
@@ -455,13 +453,11 @@ function PayrollPage() {
     await savePDF(doc, `Payslip_${safeName}_${safePeriod}.pdf`);
   }
 
-  // For yearly overview: only count leaves where the principal has made a final paid/unpaid decision.
-  const decidedYearlyLeaves = yearlyLeaves.filter((l: any) => l.payment_decision !== null);
   const yearlyTotals = {
     totalDays:   yearlyLeaves.reduce((s, l) => s + Number(l.total_days), 0),
-    paidDays:    decidedYearlyLeaves.reduce((s, l) => s + Number(l.paid_days), 0),
-    unpaidDays:  decidedYearlyLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0),
-    deduction:   Math.round(decidedYearlyLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0) * dayRate),
+    paidDays:    yearlyLeaves.reduce((s, l) => s + Number(l.paid_days), 0),
+    unpaidDays:  yearlyLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0),
+    deduction:   Math.round(yearlyLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0) * dayRate),
   };
 
   return (

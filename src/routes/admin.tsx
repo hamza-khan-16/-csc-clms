@@ -136,15 +136,14 @@ function AdminPage() {
           .in("status", ["pending_hod", "hod_recommended", "pending_principal"]),
         supabase
           .from("leave_requests")
-          .select("unpaid_days, payment_decision")
+          .select("unpaid_days")
           .eq("status", "approved")
           .gte("from_date", `${year}-01-01`),
       ]);
       return {
         leaves: leaves ?? 0,
         pendingLeaves: pendingLeaves ?? 0,
-        // Only count decided leaves — over-quota casual pending decision should not yet deduct
-        unpaidDays: (unpaid ?? []).filter((l: any) => l.payment_decision !== null).reduce((s, l) => s + Number(l.unpaid_days), 0),
+        unpaidDays: (unpaid ?? []).reduce((s, l) => s + Number(l.unpaid_days), 0),
       };
     },
   });
@@ -967,8 +966,7 @@ const REPORT_MODULES = [
         const dept = people[l.teacher_id]?.department_name ?? "Unknown";
         if (!map[dept]) map[dept] = { total: 0, unpaid: 0, count: 0 };
         map[dept].total  += Number(l.total_days);
-        // Only count if principal has made a final decision
-        if ((l as any).payment_decision !== null) map[dept].unpaid += Number(l.unpaid_days);
+        map[dept].unpaid += Number(l.unpaid_days);
         map[dept].count  += 1;
       }
       return Object.entries(map).map(([dept, v]) => ({
@@ -1032,8 +1030,8 @@ const REPORT_MODULES = [
         .map(([id, p]) => {
           const myLeaves   = approved.filter((l) => l.teacher_id === id);
           const totalDays  = myLeaves.reduce((s, l) => s + Number(l.total_days),  0);
-          const paidDays   = myLeaves.filter((l: any) => l.payment_decision !== null).reduce((s, l) => s + Number(l.paid_days),   0);
-          const unpaidDays = myLeaves.filter((l: any) => l.payment_decision !== null).reduce((s, l) => s + Number(l.unpaid_days), 0);
+          const paidDays   = myLeaves.reduce((s, l) => s + Number(l.paid_days),   0);
+          const unpaidDays = myLeaves.reduce((s, l) => s + Number(l.unpaid_days), 0);
           const monthlySal = p!.monthly_salary ?? 0;
           const deduction  = perDay(monthlySal) * unpaidDays;
           return {
@@ -1081,7 +1079,7 @@ function ExportsCard() {
       const [{ data: leaves, error }, { data: profiles }, { data: roles }, { data: depts }] = await Promise.all([
         supabase
           .from("leave_requests")
-          .select("id, teacher_id, leave_type, from_date, to_date, session, total_days, paid_days, unpaid_days, payment_decision, status, reason")
+          .select("id, teacher_id, leave_type, from_date, to_date, session, total_days, paid_days, unpaid_days, status, reason")
           .gte("from_date", `${year}-01-01`)
           .lte("from_date", `${year}-12-31`)
           .in("status", ["approved", "hod_approved"])  // Fix: exclude pending/rejected/cancelled from analytics
