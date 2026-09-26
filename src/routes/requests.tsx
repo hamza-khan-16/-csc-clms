@@ -1384,53 +1384,41 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     },
   });
 
-  // Casual leave quota check — month-aware, handles cross-month leaves.
-  // Step 1: enumerate all dates in this request and group by "YYYY-MM".
-  const casualDaysByMonth = useMemo<Record<string, number>>(() => {
-    if (!isCasual) return {};
-    const allDates = eachDate(request.from_date, request.to_date);
-    const map: Record<string, number> = {};
-    for (const d of allDates) {
+  // Casual quota: compute months synchronously so enabled flag is stable.
+  // Group this request's dates by calendar month.
+  const _casualDaysByMonth: Record<string, number> = {};
+  if (isCasual) {
+    for (const d of eachDate(request.from_date, request.to_date)) {
       const ym = d.slice(0, 7);
-      map[ym] = (map[ym] ?? 0) + 1;
+      _casualDaysByMonth[ym] = (_casualDaysByMonth[ym] ?? 0) + 1;
     }
-    return map;
-  }, [isCasual, request.from_date, request.to_date]);
+  }
+  const _casualFirstMonth = request.from_date.slice(0, 7);
+  const _casualLastMonth  = request.to_date.slice(0, 7);
+  const _casualRangeStart = _casualFirstMonth + "-01";
+  const [_cly, _clm] = _casualLastMonth.split("-").map(Number);
+  const _casualRangeEnd = new Date(_cly, _clm, 1).toISOString().slice(0, 10);
 
-  // Distinct months this request spans (e.g. ["2026-09", "2026-10"])
-  const casualMonths = Object.keys(casualDaysByMonth);
-
-  // Step 2: fetch existing approved casual days for each month in parallel.
   const { data: casualExistingByMonth = {} } = useQuery({
     queryKey: ["casual-days-month", request.teacher_id, request.from_date, request.to_date],
-    enabled: !isHod && isCasual && casualMonths.length > 0,
+    enabled: !isHod && isCasual,
     queryFn: async () => {
-      // Fetch all approved casual requests for this teacher whose from_date
-      // falls in any of the months this request spans.
-      const firstMonth = casualMonths[0];
-      const lastMonth  = casualMonths[casualMonths.length - 1];
-      const rangeStart = firstMonth + "-01";
-      // Exclusive end: first day of the month after lastMonth
-      const [ly, lm] = lastMonth.split("-").map(Number);
-      const rangeEnd = new Date(ly, lm, 1).toISOString().slice(0, 10);
-
       const { data } = await supabase
         .from("leave_requests")
-        .select("from_date, to_date, total_days")
+        .select("from_date, to_date")
         .eq("teacher_id", request.teacher_id)
         .eq("leave_type", "casual")
         .in("status", ["hod_approved", "approved"])
         .neq("id", request.id)
-        .gte("from_date", rangeStart)
-        .lt("from_date", rangeEnd);
+        .gte("from_date", _casualRangeStart)
+        .lt("from_date",  _casualRangeEnd);
 
-      // Group existing days by month
       const existing: Record<string, number> = {};
+      const spannedMonths = Object.keys(_casualDaysByMonth);
       for (const r of data ?? []) {
-        const dates = eachDate(r.from_date, r.to_date);
-        for (const d of dates) {
+        for (const d of eachDate(r.from_date, r.to_date)) {
           const ym = d.slice(0, 7);
-          if (casualMonths.includes(ym)) {
+          if (spannedMonths.includes(ym)) {
             existing[ym] = (existing[ym] ?? 0) + 1;
           }
         }
@@ -1439,20 +1427,14 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     },
   });
 
-  // Step 3: for each month, check if existing + request days > 2.
-  // Build a summary of over-quota months for the UI.
-  const casualOverQuotaMonths = useMemo(() => {
-    return casualMonths
-      .map(ym => ({
-        ym,
-        existing: casualExistingByMonth[ym] ?? 0,
-        inRequest: casualDaysByMonth[ym] ?? 0,
-      }))
-      .filter(m => m.existing + m.inRequest > 2);
-  }, [casualMonths, casualExistingByMonth, casualDaysByMonth]);
-
-  // Total days in this request across all months (for salary calc)
-  const casualDaysThisMonth = Object.values(casualExistingByMonth).reduce((s, n) => s + n, 0);
+  // Over-quota months: existing + request days > 2 for any spanned month
+  const casualOverQuotaMonths = Object.entries(_casualDaysByMonth)
+    .map(([ym, inRequest]) => ({
+      ym,
+      existing: casualExistingByMonth[ym] ?? 0,
+      inRequest,
+    }))
+    .filter(m => m.existing + m.inRequest > 2);
 
   const requestDays = Number(request.total_days);
   const medicalSplit = isMedical ? medicalPaidSplit(medicalDaysTaken, requestDays) : null;
