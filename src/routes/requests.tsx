@@ -1384,32 +1384,82 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     },
   });
 
-  // Casual leave: count approved casual days for this teacher in the same
-  // calendar month as this request. Filter on from_date only — avoids any
-  // month-end date arithmetic on to_date (which caused the Sep-31 400 error).
-  const casualYearMonth = request.from_date.slice(0, 7); // "YYYY-MM"
-  const casualMonthStart = casualYearMonth + "-01";
-  // Next month first day — everything with from_date < this is within our month
-  const [_cy, _cm] = request.from_date.split("-").map(Number);
-  const casualMonthExclusiveEnd = new Date(_cy, _cm, 1).toISOString().slice(0, 10); // first day of next month
-  const { data: casualDaysThisMonth = 0 } = useQuery({
-    queryKey: ["casual-days-month", request.teacher_id, casualYearMonth],
-    enabled: !isHod && isCasual,
+  // Casual leave quota check — month-aware, handles cross-month leaves.
+  // Step 1: enumerate all dates in this request and group by "YYYY-MM".
+  const casualDaysByMonth = useMemo<Record<string, number>>(() => {
+    if (!isCasual) return {};
+    const allDates = eachDate(request.from_date, request.to_date);
+    const map: Record<string, number> = {};
+    for (const d of allDates) {
+      const ym = d.slice(0, 7);
+      map[ym] = (map[ym] ?? 0) + 1;
+    }
+    return map;
+  }, [isCasual, request.from_date, request.to_date]);
+
+  // Distinct months this request spans (e.g. ["2026-09", "2026-10"])
+  const casualMonths = Object.keys(casualDaysByMonth);
+
+  // Step 2: fetch existing approved casual days for each month in parallel.
+  const { data: casualExistingByMonth = {} } = useQuery({
+    queryKey: ["casual-days-month", request.teacher_id, request.from_date, request.to_date],
+    enabled: !isHod && isCasual && casualMonths.length > 0,
     queryFn: async () => {
-      const { data } = await supabase.from("leave_requests").select("total_days")
-        .eq("teacher_id", request.teacher_id).eq("leave_type", "casual")
-        .in("status", ["hod_approved", "approved"]).neq("id", request.id)
-        .gte("from_date", casualMonthStart)
-        .lt("from_date", casualMonthExclusiveEnd); // strictly less than next month's first day
-      return (data ?? []).reduce((s, r) => s + Number(r.total_days), 0);
+      // Fetch all approved casual requests for this teacher whose from_date
+      // falls in any of the months this request spans.
+      const firstMonth = casualMonths[0];
+      const lastMonth  = casualMonths[casualMonths.length - 1];
+      const rangeStart = firstMonth + "-01";
+      // Exclusive end: first day of the month after lastMonth
+      const [ly, lm] = lastMonth.split("-").map(Number);
+      const rangeEnd = new Date(ly, lm, 1).toISOString().slice(0, 10);
+
+      const { data } = await supabase
+        .from("leave_requests")
+        .select("from_date, to_date, total_days")
+        .eq("teacher_id", request.teacher_id)
+        .eq("leave_type", "casual")
+        .in("status", ["hod_approved", "approved"])
+        .neq("id", request.id)
+        .gte("from_date", rangeStart)
+        .lt("from_date", rangeEnd);
+
+      // Group existing days by month
+      const existing: Record<string, number> = {};
+      for (const r of data ?? []) {
+        const dates = eachDate(r.from_date, r.to_date);
+        for (const d of dates) {
+          const ym = d.slice(0, 7);
+          if (casualMonths.includes(ym)) {
+            existing[ym] = (existing[ym] ?? 0) + 1;
+          }
+        }
+      }
+      return existing;
     },
   });
+
+  // Step 3: for each month, check if existing + request days > 2.
+  // Build a summary of over-quota months for the UI.
+  const casualOverQuotaMonths = useMemo(() => {
+    return casualMonths
+      .map(ym => ({
+        ym,
+        existing: casualExistingByMonth[ym] ?? 0,
+        inRequest: casualDaysByMonth[ym] ?? 0,
+      }))
+      .filter(m => m.existing + m.inRequest > 2);
+  }, [casualMonths, casualExistingByMonth, casualDaysByMonth]);
+
+  // Total days in this request across all months (for salary calc)
+  const casualDaysThisMonth = Object.values(casualExistingByMonth).reduce((s, n) => s + n, 0);
 
   const requestDays = Number(request.total_days);
   const medicalSplit = isMedical ? medicalPaidSplit(medicalDaysTaken, requestDays) : null;
   const medicalRequiresDecision = isMedical && medicalNeedsDecision(medicalDaysTaken, requestDays);
-  // Whether the principal should see the paid/unpaid toggle for this casual leave
-  const casualRequiresDecision = isCasual && !isHod && casualNeedsDecision(casualDaysThisMonth, requestDays);
+  // Whether the principal should see the paid/unpaid toggle for this casual leave:
+  // true if ANY month in this request has existing + request days > 2.
+  const casualRequiresDecision = isCasual && !isHod && casualOverQuotaMonths.length > 0;
 
   const dates = useMemo(() => eachDate(request.from_date, request.to_date), [request.from_date, request.to_date]);
 
@@ -2034,14 +2084,19 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
 
           {/* Casual over-quota notice — only shown when casualRequiresDecision is true */}
           {isCasual && casualRequiresDecision && (
-            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 text-xs space-y-1">
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 text-xs space-y-2">
               <p className="font-semibold text-amber-800 dark:text-amber-300">Casual Leave — Monthly Limit Exceeded</p>
-              <p className="text-muted-foreground">
-                Casual days already taken this month: <strong>{casualDaysThisMonth}</strong>
-                {" "}· This request: <strong>{requestDays}</strong> day(s)
-                {" "}· Total: <strong className="text-destructive">{casualDaysThisMonth + requestDays} days</strong> (limit is 2)
-              </p>
-              <p className="text-muted-foreground">Decide whether to mark this as paid or apply a salary deduction.</p>
+              {casualOverQuotaMonths.map(({ ym, existing, inRequest }) => {
+                const [y, m] = ym.split("-").map(Number);
+                const monthLabel = new Date(y, m - 1, 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
+                return (
+                  <p key={ym} className="text-muted-foreground">
+                    <strong>{monthLabel}:</strong> {existing} day(s) already taken + {inRequest} in this request
+                    {" "}= <strong className="text-destructive">{existing + inRequest} days</strong> (limit is 2)
+                  </p>
+                );
+              })}
+              <p className="text-muted-foreground">Decide whether to mark the excess days as paid or apply a salary deduction.</p>
             </div>
           )}
 
