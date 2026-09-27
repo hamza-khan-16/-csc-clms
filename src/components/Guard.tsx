@@ -20,21 +20,7 @@ export function Guarded({ roles, children }: { roles?: AppRole[]; children: Reac
   if (loading || !session || (session && !profile && !loading)) {
     return (
       <div className="grid min-h-screen place-items-center">
-        <div className="flex flex-col items-center gap-6">
-          <img
-            src="/csc-logo.png"
-            alt="CSC"
-            className="h-20 w-auto object-contain dark:hidden sm:h-28 md:h-36"
-            draggable={false}
-          />
-          <img
-            src="/csc-logo-white.png"
-            alt="CSC"
-            className="h-20 w-auto object-contain hidden dark:block sm:h-28 md:h-36"
-            draggable={false}
-          />
-          <Loader2 className="size-6 animate-spin text-primary" />
-        </div>
+        <Loader2 className="size-6 animate-spin text-primary" />
       </div>
     );
   }

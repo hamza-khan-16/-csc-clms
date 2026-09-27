@@ -229,42 +229,6 @@ function RootShell({ children }: { children: ReactNode }) {
 
       </head>
       <body>
-        {/* Initial loading splash — shown instantly before React hydrates.
-            The theme script above already set dark/light class on <html>,
-            so we can use CSS variables here. Removed by React on first render. */}
-        <div
-          id="app-splash"
-          style={{
-            position: "fixed", inset: 0, zIndex: 9999,
-            display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center", gap: "1.5rem",
-            background: "var(--background, #ffffff)",
-          }}
-        >
-          {/* Light mode logo — hidden by CSS when dark class is on <html> */}
-          <img
-            src="/csc-logo.png"
-            alt="CSC"
-            style={{ height: "clamp(5rem, 12vw, 9rem)", width: "auto", objectFit: "contain", display: "block" }}
-            className="dark:hidden"
-          />
-          {/* Dark mode logo */}
-          <img
-            src="/csc-logo-white.png"
-            alt="CSC"
-            style={{ height: "clamp(5rem, 12vw, 9rem)", width: "auto", objectFit: "contain", display: "none" }}
-            className="hidden dark:block"
-          />
-          {/* Spinner */}
-          <svg
-            style={{ width: "1.5rem", height: "1.5rem", animation: "spin 1s linear infinite", color: "#7c3aed" }}
-            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-          >
-            <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" />
-          </svg>
-          <style>{`@keyframes spin{to{transform:rotate(360deg)}} #app-splash.hidden{display:none!important}`}</style>
-        </div>
-
         {children}
         <Scripts />
       </body>
@@ -281,12 +245,6 @@ function LangBridge() {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-
-  // Hide the initial loading splash once React has mounted
-  useEffect(() => {
-    const splash = document.getElementById("app-splash");
-    if (splash) splash.style.display = "none";
-  }, []);
 
   // Register service worker for offline caching of schedule/leaves pages
   useEffect(() => {
