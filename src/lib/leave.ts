@@ -64,6 +64,17 @@ export function getMedicalFlow(days: number): {
 export const isHodFinalLeave = (t: LeaveType) =>
   LEAVE_TYPES.find((x) => x.value === t)?.hodFinal ?? false;
 
+/**
+ * Per-request check: is this specific request approved by HOD alone?
+ * - duty → always HOD-final
+ * - medical → HOD-final only when > 3 days (see getMedicalFlow)
+ * - everything else → falls back to the static per-type flag
+ */
+export const isRequestHodFinal = (t: LeaveType, totalDays: number): boolean => {
+  if (t === "medical") return getMedicalFlow(Number.isFinite(totalDays) ? totalDays : 0).hodFinal;
+  return isHodFinalLeave(t);
+};
+
 /** Returns the document label required for this leave type, or null */
 export const docLabel = (t: LeaveType) =>
   LEAVE_TYPES.find((x) => x.value === t)?.docLabel ?? null;
