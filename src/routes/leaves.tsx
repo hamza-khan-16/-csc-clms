@@ -13,7 +13,7 @@ import {
   fmtDate,
   fmtTime,
   leaveTypeLabel,
-  isHodFinalLeave,
+  isRequestHodFinal,
   docLabel,
   SESSION_LABEL,
   type LeaveSession,
@@ -325,7 +325,7 @@ function MyLeavesPage() {
           const total  = Number(l.total_days);
           const paid   = decided ? Number(l.paid_days) : 0;
           const hasBigContent =
-            isHodFinalLeave(l.leave_type as LeaveType) &&
+            isRequestHodFinal(l.leave_type as LeaveType, total) &&
             (l.status === "hod_approved" || l.status === "approved") &&
             l.doc_status !== "verified";
           return (
@@ -381,8 +381,8 @@ function MyLeavesPage() {
                 </div>
               )}
 
-              {/* Document upload — medical / duty leaves after HOD approval */}
-              {isHodFinalLeave(l.leave_type as LeaveType) &&
+              {/* Document upload — medical (>3 days) / duty leaves after HOD approval */}
+              {isRequestHodFinal(l.leave_type as LeaveType, total) &&
                 (l.status === "hod_approved" || l.status === "approved") &&
                 l.doc_status !== "verified" && (
                   <DocUploadSection
@@ -393,7 +393,7 @@ function MyLeavesPage() {
                     profileId={profile?.id}
                   />
                 )}
-              {isHodFinalLeave(l.leave_type as LeaveType) && l.doc_status === "verified" && (
+              {isRequestHodFinal(l.leave_type as LeaveType, total) && l.doc_status === "verified" && (
                 <div className="rounded-lg border border-success/30 bg-success/10 p-3 text-sm text-success flex items-center gap-2">
                   <CheckCircle2 className="size-4 shrink-0" /> {docLabel(l.leave_type as LeaveType)} verified by principal.
                 </div>

@@ -671,6 +671,7 @@ export function AppShell({
       {(role === "teacher" || role === "hod") && (
         <OnboardingTour
           role={role}
+          userId={profile?.user_id ?? profile?.id ?? null}
           allNavItems={visible.map((i) => ({ to: i.to, label: i.label }))}
           mobileNavItems={mobileNavItems.map((i) => ({ to: i.to, label: i.label }))}
         />

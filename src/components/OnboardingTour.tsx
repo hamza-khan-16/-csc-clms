@@ -3,7 +3,9 @@
  * - Desktop: spotlights sidebar nav links
  * - Mobile:  spotlights only the items in the current bottom navbar (max 5)
  * - Steps are built once on mount from the real nav data
- * - TESTING MODE: shows on every login
+ * - Shows once per user account (flag is namespaced by user id in
+ *   localStorage), so a new user always sees it even if another account
+ *   already completed it on this same browser/device.
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -11,7 +13,7 @@ import { createPortal } from "react-dom";
 import { X, ChevronRight, ChevronLeft, Sparkles, PartyPopper } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const TOUR_KEY     = "onboarding_tour_done_v3";
+const TOUR_KEY_BASE = "onboarding_tour_done_v3";
 const SPOTLIGHT_PAD = 8;
 const CARD_W       = 300;
 const CARD_H       = 200;   // used only for placement math
@@ -26,6 +28,10 @@ interface Props {
   role: string;
   allNavItems: NavItemMini[];
   mobileNavItems: NavItemMini[];
+  /** Stable per-user identifier (e.g. profile.user_id) used to scope the
+   *  "tour completed" flag. Required — without it the flag would be shared
+   *  by every account that has ever used this browser/device. */
+  userId?: string | null;
 }
 
 interface Box    { top: number; left: number; width: number; height: number }
@@ -214,7 +220,12 @@ function Arrowhead({ x2, y2, cpx, cpy }: { x2: number; y2: number; cpx: number; 
 
 // ─── component ───────────────────────────────────────────────────────────────
 
-export function OnboardingTour({ role, allNavItems, mobileNavItems }: Props) {
+export function OnboardingTour({ role, allNavItems, mobileNavItems, userId }: Props) {
+  // Scope the "seen it" flag to this specific user. Without the user id
+  // suffix, one account finishing the tour would permanently hide it for
+  // every other account that later logs in on the same browser/device.
+  const tourKey = userId ? `${TOUR_KEY_BASE}:${userId}` : null;
+
   const [visible,  setVisible]  = useState(false);
   const [mounted,  setMounted]  = useState(false);
   const [mobile,   setMobile]   = useState(() =>
@@ -279,15 +290,23 @@ export function OnboardingTour({ role, allNavItems, mobileNavItems }: Props) {
     };
   }, []);
 
-  // ── mount — show only once for new users ─────────────────────────────────
+  // ── mount — show only once per user, on this device ──────────────────────
   useEffect(() => {
     setMounted(true);
-    if (!localStorage.getItem(TOUR_KEY)) setTimeout(() => setVisible(true), 800);
-  }, []);
+    // Wait until we actually know who's logged in — userId arrives async
+    // (profile loads after auth). Showing/hiding before then could use the
+    // wrong (or no) key and mis-flag a brand-new user as "seen".
+    if (!tourKey) return;
+    let seen = false;
+    try { seen = !!localStorage.getItem(tourKey); } catch { /* storage unavailable */ }
+    if (!seen) setTimeout(() => setVisible(true), 800);
+  }, [tourKey]);
 
   // ── navigation ───────────────────────────────────────────────────────────
   function dismiss() {
-    try { localStorage.setItem(TOUR_KEY, "1"); } catch { /**/ }
+    if (tourKey) {
+      try { localStorage.setItem(tourKey, "1"); } catch { /**/ }
+    }
     setVisible(false);
   }
 

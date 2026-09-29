@@ -27,7 +27,7 @@ import {
   leaveTypeLabel,
   needsPaymentDecision,
   casualNeedsDecision,
-  isHodFinalLeave,
+  isRequestHodFinal,
   docLabel,
   medicalPaidSplit,
   medicalNeedsDecision,
@@ -1036,7 +1036,7 @@ function RequestsPage() {
       // Those leaves must be approved one-by-one via the RequestCard.
       const eligibleIds = isHod
         ? actionable
-            .filter((r) => selectedIds.has(r.id) && !isHodFinalLeave(r.leave_type as LeaveType))
+            .filter((r) => selectedIds.has(r.id) && !isRequestHodFinal(r.leave_type as LeaveType, Number(r.total_days)))
             .map((r) => r.id)
         : Array.from(selectedIds);
 
@@ -1362,7 +1362,9 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
   const noteGuardRef = useRef<GuardHandle>(null);
   const [busy, setBusy] = useState(false);
   const [choices, setChoices] = useState<Record<string, string>>({});
-  const isHodFinal = isHodFinalLeave(request.leave_type as LeaveType);
+  // Medical leave's HOD-final-ness depends on the number of days requested
+  // (see isRequestHodFinal) — a static per-type check misses that.
+  const isHodFinal = isRequestHodFinal(request.leave_type as LeaveType, Number(request.total_days));
   const isMedical = request.leave_type === "medical";
   const isCasual = request.leave_type === "casual";
   const requiredDoc = docLabel(request.leave_type as LeaveType);
