@@ -1389,7 +1389,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     (request.payment_decision as "paid" | "unpaid" | null) ?? null
   );
 
-  const { data: medicalDaysTaken = 0 } = useQuery({
+  const { data: medicalDaysTaken = 0, isLoading: medicalDaysLoading } = useQuery({
     queryKey: ["medical-days-taken", request.teacher_id, new Date().getFullYear()],
     enabled: !isHod && isMedical,
     queryFn: async () => {
@@ -1435,6 +1435,15 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     || Number(request.unpaid_days) > 0 // trigger says it's over quota — principal must decide
     || casualNeedsDecision(casualDaysThisMonth, requestDays) // JS quota check as fallback
   );
+
+  // Medical leave: the principal can always choose paid/unpaid. Within the yearly paid quota the
+  // choice is optional (defaults to Paid); over quota an explicit choice is required.
+  // Other leave types keep the existing rules.
+  const decisionRequired = isMedical
+    ? medicalRequiresDecision
+    : (needsDecision || casualRequiresDecision);
+  const effectivePayment: "paid" | "unpaid" | null =
+    payment ?? (isMedical && !medicalRequiresDecision ? "paid" : null);
 
   const dates = useMemo(() => eachDate(request.from_date, request.to_date), [request.from_date, request.to_date]);
 
@@ -1796,7 +1805,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     // If the casual-days query is still loading, we don't know yet whether a decision is needed — wait.
     if (isCasual && casualDaysLoading) return toast.error("Still checking casual leave quota, please wait a moment.");
     // If a payment decision is required but the principal hasn't chosen yet, block.
-    const decisionRequired = needsDecision || casualRequiresDecision;
+    if (isMedical && medicalDaysLoading) return toast.error("Still checking medical leave quota, please wait a moment.");
     if (decisionRequired && payment === null) return toast.error("Please select Paid or Unpaid before approving.");
     setBusy(true);
     // Optimistic: immediately reflect approval in UI
@@ -1808,11 +1817,16 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
     let unpaidDays: number;
 
     if (isMedical && medicalSplit) {
-      // Medical: days within 10-day yearly quota are always paid;
-      // over-quota days follow the principal's paid/unpaid decision.
-      const overQuotaPaid = medicalRequiresDecision ? (payment === "paid" ? medicalSplit.overQuota : 0) : 0;
-      paidDays   = medicalSplit.withinQuota + overQuotaPaid;
-      unpaidDays = total - paidDays;
+      if (medicalRequiresDecision) {
+        // Over the 10-day yearly quota: within-quota days are paid; over-quota days follow the decision.
+        const overQuotaPaid = payment === "paid" ? medicalSplit.overQuota : 0;
+        paidDays   = medicalSplit.withinQuota + overQuotaPaid;
+        unpaidDays = total - paidDays;
+      } else {
+        // Within quota: paid by default; principal may still mark the whole request unpaid.
+        paidDays   = effectivePayment === "unpaid" ? 0 : total;
+        unpaidDays = total - paidDays;
+      }
     } else if (isCasual && !casualRequiresDecision) {
       // Casual within quota (both monthly and yearly) — trigger already set unpaid_days=0.
       // Auto-approve as fully paid, no principal decision needed.
@@ -1825,9 +1839,9 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
       unpaidDays = payment === "unpaid" ? total : 0;
     }
 
-    const hasPaymentDecision = needsDecision || casualRequiresDecision;
+    const hasPaymentDecision = isMedical || needsDecision || casualRequiresDecision;
     const updatePayload = {
-      status: "approved", payment_decision: hasPaymentDecision ? payment : null,
+      status: "approved", payment_decision: hasPaymentDecision ? (isMedical ? effectivePayment : payment) : null,
       paid_days: paidDays, unpaid_days: unpaidDays,
       principal_note: note.trim() || null, principal_acted_at: new Date().toISOString(),
     };
@@ -2079,7 +2093,7 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
               </p>
               {!medicalRequiresDecision && (
                 <p className="text-success font-medium flex items-center gap-1">
-                  <Check className="size-4" /> All days within paid quota — no deduction.
+                  <Check className="size-4" /> All days within paid quota — paid by default. You can still mark it unpaid below.
                 </p>
               )}
             </div>
@@ -2099,24 +2113,24 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
           )}
 
           {/* Paid / Unpaid toggle:
-              - Medical: only when over quota (over-quota days need a decision)
+              - Medical: always shown (defaults to Paid within quota; explicit choice required over quota)
               - Casual:  only when over monthly quota (casualRequiresDecision)
               - Others:  always */}
-          {((!isMedical && !isCasual) || medicalRequiresDecision || casualRequiresDecision) && (
+          {((!isCasual) || casualRequiresDecision) && (
             <div className="space-y-2">
-              {payment === null && (
+              {payment === null && decisionRequired && (
                 <p className="text-xs text-destructive font-medium">⚠ Please select an option before approving.</p>
               )}
               <div className="flex flex-wrap gap-2">
                 <Button type="button" size="sm"
-                  variant={payment === "paid" ? "default" : "outline"}
+                  variant={effectivePayment === "paid" ? "default" : "outline"}
                   onClick={() => setPayment("paid")}>
                   {isMedical && medicalSplit?.overQuota
                     ? `Paid — no deduction for ${medicalSplit.overQuota} over-quota day(s)`
                     : "Paid — no salary deduction"}
                 </Button>
                 <Button type="button" size="sm"
-                  variant={payment === "unpaid" ? "destructive" : "outline"}
+                  variant={effectivePayment === "unpaid" ? "destructive" : "outline"}
                   onClick={() => setPayment("unpaid")}>
                   {isMedical && medicalSplit?.overQuota
                     ? `Unpaid — deduct ${medicalSplit.overQuota} over-quota day(s)`
@@ -2148,8 +2162,8 @@ function RequestCard({ request, isHod }: { request: RequestRow; isHod: boolean }
         {isHod && isHodFinal && <Button onClick={hodDirectApprove} disabled={busy}>Approve Leave</Button>}
         {isHod && !isHodFinal && <Button onClick={hodRecommend} disabled={busy}>Approve &amp; send to principal</Button>}
         {!isHod && <Button onClick={principalApprove}
-          disabled={busy || (isCasual && casualDaysLoading) || ((needsDecision || casualRequiresDecision) && payment === null)}>
-          {isCasual && casualDaysLoading ? "Checking quota…" : "Approve Leave"}
+          disabled={busy || (isCasual && casualDaysLoading) || (isMedical && medicalDaysLoading) || (decisionRequired && payment === null)}>
+          {(isCasual && casualDaysLoading) || (isMedical && medicalDaysLoading) ? "Checking quota…" : "Approve Leave"}
         </Button>}
         <AlertDialog>
           <AlertDialogTrigger asChild>
