@@ -27,6 +27,7 @@ import { MonthCalendar } from "@/components/MonthCalendar";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useT } from "@/lib/i18n";
+import { firePush } from "@/lib/push.functions";
 import {
   Select,
   SelectContent,
@@ -391,6 +392,8 @@ function MyLeavesPage() {
                     docUrl={l.doc_url ?? null}
                     requiredDoc={docLabel(l.leave_type as LeaveType) ?? "Document"}
                     profileId={profile?.id}
+                    teacherName={profile?.full_name ?? undefined}
+                    leaveType={l.leave_type as LeaveType}
                   />
                 )}
               {isRequestHodFinal(l.leave_type as LeaveType, total) && l.doc_status === "verified" && (
@@ -469,12 +472,16 @@ function DocUploadSection({
   docUrl,
   requiredDoc,
   profileId,
+  teacherName,
+  leaveType,
 }: {
   leaveId: string;
   docStatus: DocStatus | null;
   docUrl: string | null;
   requiredDoc: string;
   profileId?: string;
+  teacherName?: string;
+  leaveType?: LeaveType;
 }) {
   const qc = useQueryClient();
   const [uploading, setUploading] = useState(false);
@@ -524,6 +531,13 @@ function DocUploadSection({
     setSelectedFile(null);
     if (fileRef.current) fileRef.current.value = "";
     toast.success("Document submitted — awaiting principal verification");
+    // Notify the principal that a document is ready to verify (fire and forget)
+    firePush({
+      userIds: ["__principal__"],
+      title: "Document Uploaded — Verification Needed",
+      body: `${teacherName ?? "A teacher"} uploaded the ${requiredDoc} for ${leaveType ? leaveTypeLabel(leaveType) : "their"} leave`,
+      targetUrl: "/requests",
+    });
     qc.invalidateQueries({ queryKey: ["my-leaves", profileId] });
   }
 

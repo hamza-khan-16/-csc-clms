@@ -908,8 +908,15 @@ function RequestsPage() {
     if (isHod) return r.status === "pending_hod";
     return r.status === "hod_recommended" || r.status === "pending_principal";
   });
-  const docPending = isHod ? [] : requests.filter((r) => r.status === "hod_approved" && r.doc_status !== "verified");
-  const rest = requests.filter((r) => !actionable.includes(r) && !docPending.includes(r));
+  // Documents uploaded by teachers and waiting for the principal to verify
+  const docToVerify = isHod ? [] : requests.filter(
+    (r) => (r.status === "hod_approved" || r.status === "approved") && r.doc_status === "uploaded",
+  );
+  // HOD-approved leaves where the teacher hasn't uploaded the document yet
+  const docPending = isHod ? [] : requests.filter(
+    (r) => r.status === "hod_approved" && r.doc_status !== "verified" && r.doc_status !== "uploaded",
+  );
+  const rest = requests.filter((r) => !actionable.includes(r) && !docPending.includes(r) && !docToVerify.includes(r));
 
   const [searchQ, setSearchQ] = useState("");
   const [allReqPage, setAllReqPage] = useState(1);
@@ -1265,8 +1272,14 @@ function RequestsPage() {
               ))}</div>}
         </SectionCard>
 
+        {!isHod && docToVerify.length > 0 && (
+          <SectionCard title="Documents to Verify" subtitle={`${docToVerify.length} document(s) uploaded by teachers — awaiting your verification`}>
+            <div className="space-y-4">{docToVerify.map((r) => <DocCard key={r.id} request={r} />)}</div>
+          </SectionCard>
+        )}
+
         {!isHod && docPending.length > 0 && (
-          <SectionCard title="Documents Remaining" subtitle={`${docPending.length} leave(s) awaiting document upload or verification`}>
+          <SectionCard title="Documents Remaining" subtitle={`${docPending.length} leave(s) awaiting document upload`}>
             <div className="space-y-4">{docPending.map((r) => <DocCard key={r.id} request={r} />)}</div>
           </SectionCard>
         )}
